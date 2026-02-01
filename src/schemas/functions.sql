@@ -3,6 +3,7 @@
 drop function if exists public.get_source_breakdown(text, timestamptz, timestamptz);
 drop function if exists public.get_source_records(text, timestamptz, timestamptz, text, text, integer);
 drop function if exists public.get_hook_performance(text, timestamptz, timestamptz);
+drop function if exists public.get_custom_field_options(text);
 drop function if exists public.custom_field_value(jsonb, text);
 
 create or replace function public.custom_field_value(
@@ -13,10 +14,81 @@ returns text
 language sql
 immutable
 as $$
-  select nullif(trim(cf->>'value'), '')
-  from jsonb_array_elements(coalesce(p_custom_fields, '[]'::jsonb)) cf
-  where cf->>'id' = p_field_id
-  limit 1;
+  select nullif(trim(coalesce(arr.value, obj.value)), '')
+  from (
+    select case
+      when jsonb_typeof(p_custom_fields) = 'object' then p_custom_fields->>p_field_id
+      else null
+    end as value
+  ) obj
+  left join lateral (
+    select coalesce(cf->>'value', cf->>'fieldValue', cf->>'field_value', cf->>'text') as value
+    from jsonb_array_elements(
+      case
+        when jsonb_typeof(p_custom_fields) = 'array' then p_custom_fields
+        else '[]'::jsonb
+      end
+    ) cf
+    where cf->>'id' = p_field_id
+       or cf->>'fieldId' = p_field_id
+       or cf->>'name' = p_field_id
+    limit 1
+  ) arr on true;
+$$;
+
+create or replace function public.get_custom_field_options(
+  p_location_id text
+)
+returns table (
+  field_id text,
+  field_name text,
+  sample_value text,
+  occurrences bigint,
+  sources text
+)
+language sql
+stable
+as $$
+  with fields as (
+    select
+      'contacts'::text as source,
+      coalesce(cf->>'id', cf->>'fieldId') as field_id,
+      cf->>'name' as field_name,
+      nullif(trim(coalesce(cf->>'value', cf->>'fieldValue', cf->>'field_value', cf->>'text')), '') as field_value
+    from public.contacts_view c
+    cross join lateral jsonb_array_elements(coalesce(c.custom_fields, '[]'::jsonb)) cf
+    where c.location_id = p_location_id
+
+    union all
+    select
+      'opportunities'::text as source,
+      coalesce(cf->>'id', cf->>'fieldId') as field_id,
+      cf->>'name' as field_name,
+      nullif(trim(coalesce(cf->>'value', cf->>'fieldValue', cf->>'field_value', cf->>'text')), '') as field_value
+    from public.opportunities_view o
+    cross join lateral jsonb_array_elements(coalesce(o.custom_fields, '[]'::jsonb)) cf
+    where o.location_id = p_location_id
+
+    union all
+    select
+      'appointments'::text as source,
+      coalesce(cf->>'id', cf->>'fieldId') as field_id,
+      cf->>'name' as field_name,
+      nullif(trim(coalesce(cf->>'value', cf->>'fieldValue', cf->>'field_value', cf->>'text')), '') as field_value
+    from public.appointments_view a
+    cross join lateral jsonb_array_elements(coalesce(a.custom_fields, '[]'::jsonb)) cf
+    where a.location_id = p_location_id
+  )
+  select
+    field_id,
+    field_name,
+    max(field_value) filter (where field_value is not null) as sample_value,
+    count(*) as occurrences,
+    string_agg(distinct source, ',') as sources
+  from fields
+  where field_id is not null or field_name is not null
+  group by field_id, field_name
+  order by occurrences desc nulls last, field_name asc;
 $$;
 
 create or replace function public.get_source_breakdown(

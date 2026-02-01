@@ -372,6 +372,8 @@ const formatNumber = (value, decimals = 0) => {
 };
 
 const formatCurrency = (value, decimals = 2) => `EUR ${formatNumber(value, decimals)}`;
+const formatOptionalCurrency = (value, decimals = 2, suffix = '') =>
+  Number.isFinite(value) ? `${formatCurrency(value, decimals)}${suffix}` : '--';
 const formatPercent = (value, decimals = 1) => `${formatNumber(value * 100, decimals)}%`;
 const safeDivide = (numerator, denominator) => (denominator ? numerator / denominator : 0);
 const escapeHtml = (value) =>
@@ -745,6 +747,54 @@ const ensureSourceBreakdown = async (range) => {
     };
   } catch (error) {
     liveState.sourceBreakdown = {
+      status: 'error',
+      rows: null,
+      rangeKey: key,
+      errorMessage: error instanceof Error ? error.message : 'Onbekende fout',
+      inFlight: false
+    };
+  }
+
+  scheduleRender();
+};
+
+const ensureHookPerformance = async (range) => {
+  if (!supabase) return;
+
+  const key = buildRangeKey(range);
+
+  if (!configState.locationId) {
+    if (configState.status === 'idle') {
+      loadLocationConfig();
+    }
+    return;
+  }
+
+  if (!configState.hookFieldId && !configState.campaignFieldId) return;
+
+  if (liveState.hookPerformance.rangeKey === key && liveState.hookPerformance.inFlight) return;
+  if (liveState.hookPerformance.rangeKey === key && liveState.hookPerformance.status === 'ready') return;
+
+  liveState.hookPerformance = {
+    status: 'loading',
+    rows: null,
+    rangeKey: key,
+    errorMessage: '',
+    inFlight: true
+  };
+  scheduleRender();
+
+  try {
+    const rows = await fetchHookPerformance(range);
+    liveState.hookPerformance = {
+      status: 'ready',
+      rows,
+      rangeKey: key,
+      errorMessage: '',
+      inFlight: false
+    };
+  } catch (error) {
+    liveState.hookPerformance = {
       status: 'error',
       rows: null,
       rangeKey: key,
@@ -1312,7 +1362,7 @@ const computeMetrics = (range) => {
     };
   });
 
-  const activeHooks = hookMetrics.filter((hook) => hook.leads > 0);
+  const activeHooks = hookMetrics.filter((hook) => hook.leads > 0 || hook.appointments > 0);
   const fallbackHook = activeHooks[0] || {
     hook: 'Geen data',
     leads: 0,
@@ -1377,9 +1427,83 @@ const computeMetrics = (range) => {
     financeMetrics,
     hookHighlights: { best: bestConversion, worst: worstConversion },
     hookCards,
+    hookPerformanceLive: false,
     lostReasons,
     summaryCards,
     totalLost
+  };
+};
+
+const buildHookMetricsFromLive = (rows) => {
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+
+  const aggregated = new Map();
+  rows.forEach((row) => {
+    const hook = row?.hook ? String(row.hook) : 'Onbekend';
+    const leads = Number(row?.leads ?? 0);
+    const appointments = Number(row?.appointments ?? 0);
+    const current = aggregated.get(hook) || { hook, leads: 0, appointments: 0 };
+    current.leads += Number.isFinite(leads) ? leads : 0;
+    current.appointments += Number.isFinite(appointments) ? appointments : 0;
+    aggregated.set(hook, current);
+  });
+
+  const hookMetrics = Array.from(aggregated.values()).map((hook) => ({
+    hook: hook.hook,
+    leads: hook.leads,
+    appointments: hook.appointments,
+    conversion: safeDivide(hook.appointments, hook.leads),
+    costPerLead: Number.NaN,
+    costPerCall: Number.NaN,
+    spend: Number.NaN
+  }));
+
+  const activeHooks = hookMetrics.filter((hook) => hook.leads > 0 || hook.appointments > 0);
+  if (!activeHooks.length) return null;
+
+  const fallbackHook = activeHooks[0] || {
+    hook: 'Geen data',
+    leads: 0,
+    appointments: 0,
+    conversion: 0,
+    costPerLead: Number.NaN,
+    costPerCall: Number.NaN,
+    spend: Number.NaN
+  };
+  const bestConversion = activeHooks.reduce((best, hook) => (hook.conversion > best.conversion ? hook : best), fallbackHook);
+  const worstConversion = activeHooks.reduce((worst, hook) => (hook.conversion < worst.conversion ? hook : worst), fallbackHook);
+  const mostVolume = activeHooks.reduce((best, hook) => (hook.leads > best.leads ? hook : best), fallbackHook);
+
+  const hasCost = activeHooks.some((hook) => Number.isFinite(hook.costPerLead));
+  const cheapestLeads = hasCost
+    ? activeHooks.reduce((best, hook) => (hook.costPerLead < best.costPerLead ? hook : best), fallbackHook)
+    : null;
+  const mostExpensiveLeads = hasCost
+    ? activeHooks.reduce((best, hook) => (hook.costPerLead > best.costPerLead ? hook : best), fallbackHook)
+    : null;
+
+  const hookCards = [...activeHooks]
+    .sort((a, b) => b.leads - a.leads)
+    .map((hook) => ({
+      label: hook.hook,
+      leads: formatNumber(hook.leads),
+      appointments: formatNumber(hook.appointments),
+      conversion: formatPercent(hook.conversion, 1),
+      costPerLead: formatOptionalCurrency(hook.costPerLead, 2),
+      costPerCall: formatOptionalCurrency(hook.costPerCall, 2),
+      spend: formatOptionalCurrency(hook.spend, 0),
+      badges: {
+        bestConversion: bestConversion && hook.hook === bestConversion.hook,
+        cheapest: cheapestLeads ? hook.hook === cheapestLeads.hook : false,
+        mostVolume: mostVolume && hook.hook === mostVolume.hook,
+        lowestConversion: worstConversion && hook.hook === worstConversion.hook,
+        mostExpensive: mostExpensiveLeads ? hook.hook === mostExpensiveLeads.hook : false
+      }
+    }));
+
+  return {
+    hookHighlights: { best: bestConversion, worst: worstConversion },
+    hookCards
   };
 };
 
@@ -1509,6 +1633,15 @@ const applyLiveOverrides = (metrics, range) => {
 
     metrics.sourceRows = liveRows.length ? liveRows : metrics.sourceRows;
     metrics.sourceRowsLive = liveRows.length > 0;
+  }
+
+  if (liveState.hookPerformance.status === 'ready' && Array.isArray(liveState.hookPerformance.rows)) {
+    const hookMetrics = buildHookMetricsFromLive(liveState.hookPerformance.rows);
+    if (hookMetrics) {
+      metrics.hookHighlights = hookMetrics.hookHighlights;
+      metrics.hookCards = hookMetrics.hookCards;
+      metrics.hookPerformanceLive = true;
+    }
   }
 
   return metrics;
@@ -1763,7 +1896,7 @@ const renderHookHighlights = (best, worst) => `
           <p class="text-lg font-bold text-white">${best.hook}</p>
           <div class="flex items-center gap-3 mt-2">
             <span class="text-sm font-bold text-white">${formatPercent(best.conversion, 1)} conversie</span>
-            <span class="text-sm text-white/80">${formatCurrency(best.costPerLead, 2)}/lead</span>
+            <span class="text-sm text-white/80">${formatOptionalCurrency(best.costPerLead, 2, '/lead')}</span>
           </div>
           <div class="mt-3 p-2 rounded-md" style="background-color: rgba(255, 255, 255, 0.15);">
             <p class="text-sm text-white/90">Tip: Schaal dit budget op voor maximale ROI</p>
@@ -1782,7 +1915,7 @@ const renderHookHighlights = (best, worst) => `
           <p class="text-lg font-bold text-gray-900">${worst.hook}</p>
           <div class="flex items-center gap-3 mt-2">
             <span class="text-sm font-bold text-gray-900">${formatPercent(worst.conversion, 1)} conversie</span>
-            <span class="text-sm text-gray-700">${formatCurrency(worst.costPerLead, 2)}/lead</span>
+            <span class="text-sm text-gray-700">${formatOptionalCurrency(worst.costPerLead, 2, '/lead')}</span>
           </div>
           <div class="mt-3 p-2 bg-amber-100/70 rounded-md">
             <p class="text-sm text-gray-900">Tip: Test nieuwe creatives of pauzeer deze campagne</p>
@@ -2006,7 +2139,7 @@ const buildMarkup = (range) => {
               <h2 class="text-lg font-bold text-gray-800 mb-1 flex items-center gap-2">
                 ${icons.chartColumn('lucide lucide-chart-column w-5 h-5 text-primary')}
                 Ad Hook Performance
-                ${mockBadge}
+                ${metrics.hookPerformanceLive ? '' : mockBadge}
               </h2>
               <p class="text-sm text-gray-500 mb-4">Vergelijk de prestaties van je advertentie hooks</p>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
@@ -2091,6 +2224,7 @@ const renderApp = () => {
   ensureAppointmentCounts(dateRange);
   ensureLatestSync();
   ensureSourceBreakdown(dateRange);
+  ensureHookPerformance(dateRange);
 };
 
 const isDesktop = () => window.matchMedia('(min-width: 1024px)').matches;

@@ -62,12 +62,62 @@ Deno.serve(async (req) => {
     return new Response('ok', { headers: corsHeaders });
   }
 
+  const url = new URL(req.url);
   const auth = await requireUser(req);
   if ('error' in auth) {
     return auth.error;
   }
 
   if (req.method === 'GET') {
+    const action = url.searchParams.get('action') ?? '';
+    const wantsCustomFields = action === 'custom_fields' || url.searchParams.get('custom_fields') === '1';
+
+    if (wantsCustomFields) {
+      let locationId = url.searchParams.get('location_id')?.trim();
+
+      if (!locationId) {
+        const { data: config, error: configError } = await supabase
+          .from('dashboard_config')
+          .select('location_id')
+          .eq('id', 1)
+          .maybeSingle();
+
+        if (configError) {
+          return jsonResponse(500, { error: configError.message });
+        }
+
+        locationId = config?.location_id ?? undefined;
+      }
+
+      if (!locationId) {
+        const { data: integration, error: integrationError } = await supabase
+          .from('ghl_integrations')
+          .select('location_id')
+          .order('updated_at', { ascending: false })
+          .limit(1);
+
+        if (integrationError) {
+          return jsonResponse(500, { error: integrationError.message });
+        }
+
+        locationId = integration?.[0]?.location_id ?? undefined;
+      }
+
+      if (!locationId) {
+        return jsonResponse(400, { error: 'location_id ontbreekt om custom fields op te halen.' });
+      }
+
+      const { data, error } = await supabase.rpc('get_custom_field_options', {
+        p_location_id: locationId
+      });
+
+      if (error) {
+        return jsonResponse(500, { error: error.message });
+      }
+
+      return jsonResponse(200, { location_id: locationId, fields: data ?? [] });
+    }
+
     const { data, error } = await supabase
       .from('ghl_integrations')
       .select('location_id, active, updated_at, private_integration_token')
