@@ -1,0 +1,5 @@
+[functions.ghl-sync]
+verify_jwt = false
+
+[functions.ghl-admin]
+verify_jwt = true

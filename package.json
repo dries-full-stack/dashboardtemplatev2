@@ -1,0 +1,22 @@
+{
+  "name": "ghl-supabase-dashboard-template",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sync": "tsx src/index.ts",
+    "sync:contacts": "tsx src/index.ts contacts",
+    "sync:opportunities": "tsx src/index.ts opportunities",
+    "sync:appointments": "tsx src/index.ts appointments",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.48.1",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

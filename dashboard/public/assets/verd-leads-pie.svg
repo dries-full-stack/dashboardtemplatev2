@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 349 256" width="349" height="256">
+  <defs>
+    <clipPath id="recharts1-clip">
+      <rect x="5" y="5" height="246" width="339" />
+    </clipPath>
+  </defs>
+  <g class="recharts-layer recharts-pie" tabindex="0">
+    <g class="recharts-layer">
+      <g class="recharts-layer recharts-pie-sector" tabindex="-1">
+        <path cx="174.5" cy="128" name="Wilt zelf verkopen" stroke="#fff" fill="hsl(173, 80%, 40%)" tabindex="-1" d="M 274.5,128 A 100,100,0, 0,0, 162.6812665978026,28.70086837858156 L 167.40875995868157,68.42052102714894 A 60,60,0, 0,1, 234.5,128 Z" />
+      </g>
+      <g class="recharts-layer recharts-pie-sector" tabindex="-1">
+        <path cx="174.5" cy="128" name="Niet geïnteresseerd na gesprek" stroke="#fff" fill="hsl(142, 76%, 36%)" tabindex="-1" d="M 159.22297653427682,29.17382657399031 A 100,100,0, 0,0, 74.50828405154567,126.71285522041102 L 114.5049704309274,127.2277131322466 A 60,60,0, 0,1, 165.3337859205661,68.70429594439419 Z" />
+      </g>
+      <g class="recharts-layer recharts-pie-sector" tabindex="-1">
+        <path cx="174.5" cy="128" name="Concurrent gekozen" stroke="#fff" fill="hsl(38, 92%, 50%)" tabindex="-1" d="M 74.5242755982248,130.20329987525372 A 100,100,0, 0,0, 121.2308347320031,212.63094015577775 L 142.53850083920187,178.77856409346666 A 60,60,0, 0,1, 114.51456535893489,129.32197992515222 Z" />
+      </g>
+      <g class="recharts-layer recharts-pie-sector" tabindex="-1">
+        <path cx="174.5" cy="128" name="Timing niet goed" stroke="#fff" fill="hsl(280, 60%, 50%)" tabindex="-1" d="M 124.21686208509587,214.4384523313018 A 100,100,0, 0,0, 211.98088646372514,220.71021060214105 L 196.98853187823508,183.62612636128463 A 60,60,0, 0,1, 144.33011725105752,179.86307139878107 Z" />
+      </g>
+      <g class="recharts-layer recharts-pie-sector" tabindex="-1">
+        <path cx="174.5" cy="128" name="Geen reactie na follow-up" stroke="#fff" fill="hsl(200, 80%, 50%)" tabindex="-1" d="M 215.19359380958866,219.34566997324072 A 100,100,0, 0,0, 262.8561373068744,174.83153852062466 L 227.51368238412465,156.0989231123748 A 60,60,0, 0,1, 198.91615628575317,182.80740198394443 Z" />
+      </g>
+      <g class="recharts-layer recharts-pie-sector" tabindex="-1">
+        <path cx="174.5" cy="128" name="Overig" stroke="#fff" fill="hsl(0, 70%, 50%)" tabindex="-1" d="M 264.4367102595036,171.7194252901167 A 100,100,0, 0,0, 274.43908270190957,131.48994967024998 L 234.46344962114574,130.09396980214999 A 60,60,0, 0,1, 228.46202615570218,154.23165517407 Z" />
+      </g>
+    </g>
+    <g class="recharts-layer recharts-pie-labels">
+      <g class="recharts-layer">
+        <path cx="174.5" cy="128" stroke="hsl(173, 80%, 40%)" fill="none" name="Wilt zelf verkopen" d="M240.901,53.227L254.181,38.273" />
+        <text cx="174.5" cy="128" stroke="none" name="Wilt zelf verkopen" alignment-baseline="middle" x="254.1809336983559" y="38.27292044784801" text-anchor="start" fill="hsl(173, 80%, 40%)"><tspan x="254.1809336983559" dy="0em">28%</tspan></text>
+      </g>
+      <g class="recharts-layer">
+        <path cx="174.5" cy="128" stroke="hsl(142, 76%, 36%)" fill="none" name="Niet geïnteresseerd na gesprek" d="M99,62.427L83.901,49.312" />
+        <text cx="174.5" cy="128" stroke="none" name="Niet geïnteresseerd na gesprek" alignment-baseline="middle" x="83.90050782509044" y="49.312440515361615" text-anchor="end" fill="hsl(142, 76%, 36%)"><tspan x="83.90050782509044" dy="0em">23%</tspan></text>
+      </g>
+      <g class="recharts-layer">
+        <path cx="174.5" cy="128" stroke="hsl(38, 92%, 50%)" fill="none" name="Concurrent gekozen" d="M87.497,177.299L70.096,187.159" />
+        <text cx="174.5" cy="128" stroke="none" name="Concurrent gekozen" alignment-baseline="middle" x="70.09601371038657" y="187.15917212772854" text-anchor="end" fill="hsl(38, 92%, 50%)"><tspan x="70.09601371038657" dy="0em">16%</tspan></text>
+      </g>
+      <g class="recharts-layer">
+        <path cx="174.5" cy="128" stroke="hsl(280, 60%, 50%)" fill="none" name="Timing niet goed" d="M167.372,227.746L165.946,247.695" />
+        <text cx="174.5" cy="128" stroke="none" name="Timing niet goed" alignment-baseline="middle" x="165.94641982268584" y="247.69476290193427" text-anchor="end" fill="hsl(280, 60%, 50%)"><tspan x="165.94641982268584" dy="0em">15%</tspan></text>
+      </g>
+      <g class="recharts-layer">
+        <path cx="174.5" cy="128" stroke="hsl(200, 80%, 50%)" fill="none" name="Geen reactie na follow-up" d="M242.756,201.083L256.407,215.7" />
+        <text cx="174.5" cy="128" stroke="none" name="Geen reactie na follow-up" alignment-baseline="middle" x="256.4067931253348" y="215.69992725152974" text-anchor="start" fill="hsl(200, 80%, 50%)"><tspan x="256.4067931253348" dy="0em">11%</tspan></text>
+      </g>
+      <g class="recharts-layer">
+        <path cx="174.5" cy="128" stroke="hsl(0, 70%, 50%)" fill="none" name="Overig" d="M271.545,152.129L290.954,156.954" />
+        <text cx="174.5" cy="128" stroke="none" name="Overig" alignment-baseline="middle" x="290.95446271438016" y="156.9544144113646" text-anchor="start" fill="hsl(0, 70%, 50%)"><tspan x="290.95446271438016" dy="0em">7%</tspan></text>
+      </g>
+    </g>
+  </g>
+</svg>
