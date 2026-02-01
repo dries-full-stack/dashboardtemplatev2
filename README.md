@@ -218,6 +218,23 @@ Overige opties staan in `.env.example`:
 - `FULL_SYNC_INTERVAL_HOURS` (default: 24, zet op 0 om te disable)
 - `LOG_LEVEL`
 
+## Cleanup checklist bij gelekte secrets
+
+Gebruik deze stappen als er ooit per ongeluk een secret in Git terechtkomt:
+
+1. **Rotate** de gelekte keys (Supabase service role, GHL PIT, sync secret).
+2. **Verwijder** secrets uit `.env.example`/docs en vervang door placeholders.
+3. **Rewrite history** met `git filter-repo` en een `--replace-text` bestand.
+4. **Force-push**:
+
+```
+git push --force --all origin
+git push --force --tags origin
+```
+
+5. **Laat iedereen** die de repo heeft opnieuw clonen (of history cleanen).
+6. **Her-scan** (GitGuardian / GitHub secret scanning).
+
 ## Uitbreiden met nieuwe endpoints
 
 1. Maak een nieuwe tabel + schema in `src/schemas/`.
