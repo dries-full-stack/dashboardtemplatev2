@@ -1,6 +1,5 @@
 -- Schedule GHL sync every 15 minutes (requires pg_cron + pg_net extensions enabled).
--- Note: this version runs without a SYNC_SECRET header. If SYNC_SECRET is set in Supabase,
--- add the header back or unset the secret.
+-- Replace PROJECT_REF and (optionally) re-enable SYNC_SECRET header if you set it in Supabase.
 
 select
   cron.schedule(
@@ -9,7 +8,7 @@ select
     $$
     select
       net.http_post(
-        url := 'https://qbzkqvobjlkcwujebenm.supabase.co/functions/v1/ghl-sync',
+        url := 'https://PROJECT_REF.supabase.co/functions/v1/ghl-sync',
         headers := jsonb_build_object('Content-Type', 'application/json'),
         body := jsonb_build_object('entities', array['contacts','opportunities','appointments','lost_reasons'])
       ) as request_id;
@@ -24,7 +23,7 @@ select
     $$
     select
       net.http_post(
-        url := 'https://qbzkqvobjlkcwujebenm.supabase.co/functions/v1/meta-sync',
+        url := 'https://PROJECT_REF.supabase.co/functions/v1/meta-sync',
         headers := jsonb_build_object('Content-Type', 'application/json'),
         body := jsonb_build_object('lookback_days', 7, 'end_offset_days', 1)
       ) as request_id;
@@ -39,7 +38,7 @@ select
     $$
     select
       net.http_post(
-        url := 'https://qbzkqvobjlkcwujebenm.supabase.co/functions/v1/google-sheet-sync',
+        url := 'https://PROJECT_REF.supabase.co/functions/v1/google-sheet-sync',
         headers := jsonb_build_object('Content-Type', 'application/json'),
         body := jsonb_build_object('lookback_days', 7, 'end_offset_days', 1)
       ) as request_id;
