@@ -2558,12 +2558,14 @@ const buildHookMetricsFromLive = (rows, spendBySource) => {
   const hookMetrics = Array.from(aggregated.values()).map((hook) => {
     const spend = resolveSpend(hook);
     const costPerLead = hook.leads > 0 ? spend / hook.leads : Number.NaN;
+    const costPerCall = hook.appointments > 0 ? spend / hook.appointments : Number.NaN;
     return {
       hook: hook.hook,
       leads: hook.leads,
       appointments: hook.appointments,
       conversion: safeDivide(hook.appointments, hook.leads),
       costPerLead,
+      costPerCall,
       spend
     };
   });
@@ -2602,6 +2604,7 @@ const buildHookMetricsFromLive = (rows, spendBySource) => {
         rawAppointments: hook.appointments,
         conversion: formatPercent(hook.conversion, 1),
         costPerLead: formatOptionalCurrency(hook.costPerLead, 2),
+        costPerCall: formatOptionalCurrency(hook.costPerCall, 2),
         spend: formatOptionalCurrency(hook.spend, 0),
         badges: {
           bestConversion: bestConversion && hook.hook === bestConversion.hook,
@@ -3380,6 +3383,10 @@ const renderHookCards = (cards, isLive) =>
               <div>
                 <p class="text-xs text-muted-foreground">Kost/Lead</p>
                 <p class="text-lg font-bold">${card.costPerLead}</p>
+              </div>
+              <div>
+                <p class="text-xs text-muted-foreground">Kost/Call</p>
+                <p class="text-lg font-bold text-amber-700">${card.costPerCall}</p>
               </div>
               <div>
                 <p class="text-xs text-muted-foreground">Spend</p>

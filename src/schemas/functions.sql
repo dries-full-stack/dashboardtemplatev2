@@ -100,7 +100,12 @@ returns text
 language sql
 immutable
 as $$
-  select nullif(trim(p_source), '');
+  select case
+    when p_source is null then null
+    when lower(trim(p_source)) in ('meta - calculator', 'meta ads - calculator')
+      then 'Meta - Calculator'
+    else nullif(trim(p_source), '')
+  end;
 $$;
 
 create or replace function public.get_custom_field_options(
