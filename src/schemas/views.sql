@@ -42,9 +42,31 @@ select
     raw_data->>'source',
     raw_data->>'leadSource',
     raw_data->>'contactSource',
+    raw_data#>>'{attribution,source}',
     raw_data->>'utm_source',
     raw_data->>'utmSource',
-    raw_data#>>'{attribution,source}'
+    raw_data#>>'{attribution,utm_source}',
+    raw_data#>>'{attribution,utm,source}',
+    raw_data#>>'{utm,source}',
+    public.custom_field_value(raw_data->'customFields', 'utm_source'),
+    public.custom_field_value(raw_data->'customFields', 'utmSource'),
+    case
+      when coalesce(
+        raw_data->>'gclid',
+        raw_data#>>'{attribution,gclid}',
+        public.custom_field_value(raw_data->'customFields', 'gclid')
+      ) is not null
+        or coalesce(raw_data->>'referrer', raw_data->>'sourceUrl', raw_data->>'website', '') ilike '%gclid=%'
+        then 'Google Ads'
+      when coalesce(
+        raw_data->>'fbclid',
+        raw_data#>>'{attribution,fbclid}',
+        public.custom_field_value(raw_data->'customFields', 'fbclid')
+      ) is not null
+        or coalesce(raw_data->>'referrer', raw_data->>'sourceUrl', raw_data->>'website', '') ilike '%fbclid=%'
+        then 'Meta - Calculator'
+      else null
+    end
   ) as source_guess
 from public.contacts;
 
@@ -80,9 +102,31 @@ select
     raw_data->>'source',
     raw_data->>'leadSource',
     raw_data->>'contactSource',
+    raw_data#>>'{attribution,source}',
     raw_data->>'utm_source',
     raw_data->>'utmSource',
-    raw_data#>>'{attribution,source}'
+    raw_data#>>'{attribution,utm_source}',
+    raw_data#>>'{attribution,utm,source}',
+    raw_data#>>'{utm,source}',
+    public.custom_field_value(raw_data->'customFields', 'utm_source'),
+    public.custom_field_value(raw_data->'customFields', 'utmSource'),
+    case
+      when coalesce(
+        raw_data->>'gclid',
+        raw_data#>>'{attribution,gclid}',
+        public.custom_field_value(raw_data->'customFields', 'gclid')
+      ) is not null
+        or coalesce(raw_data->>'referrer', raw_data->>'sourceUrl', raw_data->>'website', '') ilike '%gclid=%'
+        then 'Google Ads'
+      when coalesce(
+        raw_data->>'fbclid',
+        raw_data#>>'{attribution,fbclid}',
+        public.custom_field_value(raw_data->'customFields', 'fbclid')
+      ) is not null
+        or coalesce(raw_data->>'referrer', raw_data->>'sourceUrl', raw_data->>'website', '') ilike '%fbclid=%'
+        then 'Meta - Calculator'
+      else null
+    end
   ) as source_guess
 from public.opportunities;
 

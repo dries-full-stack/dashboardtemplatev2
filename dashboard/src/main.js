@@ -702,8 +702,7 @@ const saveSpendMapping = async () => {
     if (!row) return;
     const label = normalizeSourceLabel(row.source_label);
     if (label) {
-      upserts.push({
-        id: row.id ?? undefined,
+      const payload = {
         location_id: activeLocationId,
         platform: row.platform,
         campaign_id: row.campaign_id ?? null,
@@ -712,7 +711,11 @@ const saveSpendMapping = async () => {
         adset_name: row.adset_name ?? null,
         source_label: label,
         updated_at: now
-      });
+      };
+      if (row.id) {
+        payload.id = row.id;
+      }
+      upserts.push(payload);
     } else if (row.id) {
       deletes.push(row.id);
     }
@@ -802,9 +805,9 @@ const applySourceSpendToSourceRows = (rows, spendBySource) => {
 
   return rows.map((row) => {
     const spend = Number(spendBySource?.[row.source] ?? 0);
-    const appointments = Number(row.rawAppointments || 0);
-    if (spend <= 0 || appointments <= 0) return { ...row, cost: '--' };
-    const costPerAppointment = spend / appointments;
+    const confirmed = Number(row.rawConfirmedAppointments ?? row.rawAppointments ?? 0);
+    if (spend <= 0 || confirmed <= 0) return { ...row, cost: '--' };
+    const costPerAppointment = spend / confirmed;
     return { ...row, cost: formatOptionalCurrency(costPerAppointment, 2) };
   });
 };
@@ -2378,12 +2381,14 @@ const computeMetrics = (range) => {
     const sourceEntries = filtered.filter((entry) => entry.source === source);
     const sourceTotals = sourceEntries.reduce(
       (acc, entry) => {
+        const confirmed = Math.max(entry.appointments - entry.cancelled - entry.noShow - entry.rescheduled, 0);
         acc.leads += entry.leads;
         acc.appointments += entry.appointments;
+        acc.confirmed += confirmed;
         acc.cost += entry.leads * entry.costPerLead;
         return acc;
       },
-      { leads: 0, appointments: 0, cost: 0 }
+      { leads: 0, appointments: 0, confirmed: 0, cost: 0 }
     );
 
     return {
@@ -2392,9 +2397,10 @@ const computeMetrics = (range) => {
       appointments: formatNumber(sourceTotals.appointments),
       noLeadInRange: formatNumber(0),
       plan: formatPercent(safeDivide(sourceTotals.appointments, sourceTotals.leads), 1),
-      cost: formatCurrency(safeDivide(sourceTotals.cost, sourceTotals.appointments), 2),
+      cost: formatCurrency(safeDivide(sourceTotals.cost, sourceTotals.confirmed), 2),
       rawLeads: sourceTotals.leads,
       rawAppointments: sourceTotals.appointments,
+      rawConfirmedAppointments: sourceTotals.confirmed,
       rawNoLeadInRange: 0
     };
   });
@@ -2504,31 +2510,63 @@ const computeMetrics = (range) => {
   };
 };
 
-const buildHookMetricsFromLive = (rows) => {
+const buildHookMetricsFromLive = (rows, spendBySource) => {
   if (!Array.isArray(rows) || rows.length === 0) return null;
 
   const aggregated = new Map();
+  const sourceTotals = new Map();
   rows.forEach((row) => {
     const rawHook = row?.hook ? String(row.hook) : 'Onbekend';
     const campaign = row?.campaign ? String(row.campaign) : 'Onbekend';
-    const hook = rawHook === 'Onbekend' && campaign && campaign !== 'Onbekend' ? campaign : rawHook;
+    const source = row?.source ? String(row.source) : 'Onbekend';
+    const hook =
+      rawHook !== 'Onbekend'
+        ? rawHook
+        : source && source !== 'Onbekend'
+          ? source
+          : campaign && campaign !== 'Onbekend'
+            ? campaign
+            : 'Onbekend';
     const leads = Number(row?.leads ?? 0);
     const appointments = Number(row?.appointments ?? 0);
-    const current = aggregated.get(hook) || { hook, leads: 0, appointments: 0 };
+    const weight = leads > 0 ? leads : appointments;
+    const current = aggregated.get(hook) || { hook, leads: 0, appointments: 0, sources: new Map() };
     current.leads += Number.isFinite(leads) ? leads : 0;
     current.appointments += Number.isFinite(appointments) ? appointments : 0;
+    if (source && source !== 'Onbekend') {
+      const sourceWeight = current.sources.get(source) || 0;
+      current.sources.set(source, sourceWeight + (Number.isFinite(weight) ? weight : 0));
+      const totalWeight = sourceTotals.get(source) || 0;
+      sourceTotals.set(source, totalWeight + (Number.isFinite(weight) ? weight : 0));
+    }
     aggregated.set(hook, current);
   });
 
-  const hookMetrics = Array.from(aggregated.values()).map((hook) => ({
-    hook: hook.hook,
-    leads: hook.leads,
-    appointments: hook.appointments,
-    conversion: safeDivide(hook.appointments, hook.leads),
-    costPerLead: Number.NaN,
-    costPerCall: Number.NaN,
-    spend: Number.NaN
-  }));
+  const resolveSpend = (hook) => {
+    if (!spendBySource) return Number.NaN;
+    if (!hook.sources || hook.sources.size === 0) return Number.NaN;
+    let spend = 0;
+    hook.sources.forEach((weight, source) => {
+      const sourceTotal = sourceTotals.get(source) || 0;
+      if (!sourceTotal) return;
+      const sourceSpend = Number(spendBySource?.[source] ?? 0);
+      spend += sourceSpend * (weight / sourceTotal);
+    });
+    return spend;
+  };
+
+  const hookMetrics = Array.from(aggregated.values()).map((hook) => {
+    const spend = resolveSpend(hook);
+    const costPerLead = hook.leads > 0 ? spend / hook.leads : Number.NaN;
+    return {
+      hook: hook.hook,
+      leads: hook.leads,
+      appointments: hook.appointments,
+      conversion: safeDivide(hook.appointments, hook.leads),
+      costPerLead,
+      spend
+    };
+  });
 
   const activeHooks = hookMetrics.filter((hook) => hook.leads > 0 || hook.appointments > 0);
   if (!activeHooks.length) return null;
@@ -2564,16 +2602,15 @@ const buildHookMetricsFromLive = (rows) => {
         rawAppointments: hook.appointments,
         conversion: formatPercent(hook.conversion, 1),
         costPerLead: formatOptionalCurrency(hook.costPerLead, 2),
-        costPerCall: formatOptionalCurrency(hook.costPerCall, 2),
         spend: formatOptionalCurrency(hook.spend, 0),
         badges: {
-        bestConversion: bestConversion && hook.hook === bestConversion.hook,
-        cheapest: cheapestLeads ? hook.hook === cheapestLeads.hook : false,
-        mostVolume: mostVolume && hook.hook === mostVolume.hook,
-        lowestConversion: worstConversion && hook.hook === worstConversion.hook,
-        mostExpensive: mostExpensiveLeads ? hook.hook === mostExpensiveLeads.hook : false
-      }
-    }));
+          bestConversion: bestConversion && hook.hook === bestConversion.hook,
+          cheapest: cheapestLeads ? hook.hook === cheapestLeads.hook : false,
+          mostVolume: mostVolume && hook.hook === mostVolume.hook,
+          lowestConversion: worstConversion && hook.hook === worstConversion.hook,
+          mostExpensive: mostExpensiveLeads ? hook.hook === mostExpensiveLeads.hook : false
+        }
+      }));
 
   return {
     hookHighlights: { best: bestConversion, worst: worstConversion },
@@ -2754,6 +2791,7 @@ const applyLiveOverrides = (metrics, range) => {
     let liveRows = liveState.sourceBreakdown.rows.map((row) => {
       const leads = Number(row.leads ?? 0);
       const appointments = Number(row.appointments ?? 0);
+      const confirmed = Number(row.appointments_confirmed ?? row.confirmed_appointments ?? 0);
       const noLeadInRange = Number(row.appointments_without_lead_in_range ?? 0);
 
       return {
@@ -2765,6 +2803,7 @@ const applyLiveOverrides = (metrics, range) => {
         cost: '--',
         rawLeads: leads,
         rawAppointments: appointments,
+        rawConfirmedAppointments: confirmed,
         rawNoLeadInRange: noLeadInRange
       };
     });
@@ -2778,7 +2817,9 @@ const applyLiveOverrides = (metrics, range) => {
   }
 
   if (liveState.hookPerformance.status === 'ready' && Array.isArray(liveState.hookPerformance.rows)) {
-    const hookMetrics = buildHookMetricsFromLive(liveState.hookPerformance.rows);
+    const spendTotals =
+      liveState.spendBySource.status === 'ready' ? liveState.spendBySource.totals : null;
+    const hookMetrics = buildHookMetricsFromLive(liveState.hookPerformance.rows, spendTotals);
     if (hookMetrics) {
       metrics.hookHighlights = hookMetrics.hookHighlights;
       metrics.hookCards = hookMetrics.hookCards;
@@ -3339,10 +3380,6 @@ const renderHookCards = (cards, isLive) =>
               <div>
                 <p class="text-xs text-muted-foreground">Kost/Lead</p>
                 <p class="text-lg font-bold">${card.costPerLead}</p>
-              </div>
-              <div>
-                <p class="text-xs text-muted-foreground">Kost/Call</p>
-                <p class="text-lg font-bold text-amber-700">${card.costPerCall}</p>
               </div>
               <div>
                 <p class="text-xs text-muted-foreground">Spend</p>

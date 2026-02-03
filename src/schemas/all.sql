@@ -322,9 +322,31 @@ select
     raw_data->>'source',
     raw_data->>'leadSource',
     raw_data->>'contactSource',
+    raw_data#>>'{attribution,source}',
     raw_data->>'utm_source',
     raw_data->>'utmSource',
-    raw_data#>>'{attribution,source}'
+    raw_data#>>'{attribution,utm_source}',
+    raw_data#>>'{attribution,utm,source}',
+    raw_data#>>'{utm,source}',
+    public.custom_field_value(raw_data->'customFields', 'utm_source'),
+    public.custom_field_value(raw_data->'customFields', 'utmSource'),
+    case
+      when coalesce(
+        raw_data->>'gclid',
+        raw_data#>>'{attribution,gclid}',
+        public.custom_field_value(raw_data->'customFields', 'gclid')
+      ) is not null
+        or coalesce(raw_data->>'referrer', raw_data->>'sourceUrl', raw_data->>'website', '') ilike '%gclid=%'
+        then 'Google Ads'
+      when coalesce(
+        raw_data->>'fbclid',
+        raw_data#>>'{attribution,fbclid}',
+        public.custom_field_value(raw_data->'customFields', 'fbclid')
+      ) is not null
+        or coalesce(raw_data->>'referrer', raw_data->>'sourceUrl', raw_data->>'website', '') ilike '%fbclid=%'
+        then 'Meta - Calculator'
+      else null
+    end
   ) as source_guess
 from public.contacts;
 
@@ -360,9 +382,31 @@ select
     raw_data->>'source',
     raw_data->>'leadSource',
     raw_data->>'contactSource',
+    raw_data#>>'{attribution,source}',
     raw_data->>'utm_source',
     raw_data->>'utmSource',
-    raw_data#>>'{attribution,source}'
+    raw_data#>>'{attribution,utm_source}',
+    raw_data#>>'{attribution,utm,source}',
+    raw_data#>>'{utm,source}',
+    public.custom_field_value(raw_data->'customFields', 'utm_source'),
+    public.custom_field_value(raw_data->'customFields', 'utmSource'),
+    case
+      when coalesce(
+        raw_data->>'gclid',
+        raw_data#>>'{attribution,gclid}',
+        public.custom_field_value(raw_data->'customFields', 'gclid')
+      ) is not null
+        or coalesce(raw_data->>'referrer', raw_data->>'sourceUrl', raw_data->>'website', '') ilike '%gclid=%'
+        then 'Google Ads'
+      when coalesce(
+        raw_data->>'fbclid',
+        raw_data#>>'{attribution,fbclid}',
+        public.custom_field_value(raw_data->'customFields', 'fbclid')
+      ) is not null
+        or coalesce(raw_data->>'referrer', raw_data->>'sourceUrl', raw_data->>'website', '') ilike '%fbclid=%'
+        then 'Meta - Calculator'
+      else null
+    end
   ) as source_guess
 from public.opportunities;
 
@@ -408,8 +452,9 @@ drop function if exists public.get_lost_reason_key_candidates(text, timestamptz,
 drop function if exists public.get_lost_reason_id_candidates(text, timestamptz, timestamptz);
 drop function if exists public.get_finance_summary(text, timestamptz, timestamptz);
 drop function if exists public.normalize_source(text);
+drop function if exists public.normalize_hook_value(text, text);
+drop function if exists public.extract_url_param(text, text);
 drop function if exists public.get_custom_field_options(text);
-drop function if exists public.custom_field_value(jsonb, text);
 
 create or replace function public.custom_field_value(
   p_custom_fields jsonb,
@@ -441,7 +486,22 @@ as $$
   ) arr on true;
 $$;
 
-create or replace function public.normalize_source(
+create or replace function public.extract_url_param(
+  p_url text,
+  p_key text
+)
+returns text
+language sql
+immutable
+as $$
+  select case
+    when p_url is null or p_key is null then null
+    else nullif((regexp_match(p_url, '(?:\\?|&)' || p_key || '=([^&]+)'))[1], '')
+  end;
+$$;
+
+create or replace function public.normalize_hook_value(
+  p_value text,
   p_source text
 )
 returns text
@@ -449,10 +509,40 @@ language sql
 immutable
 as $$
   select case
-    when p_source is null then null
-    when lower(trim(p_source)) in ('meta - calculator', 'meta ads - calculator') then 'Meta - Calculator'
-    else p_source
+    when p_value is null or trim(p_value) = '' or lower(trim(p_value)) = 'onbekend'
+      then coalesce(p_source, 'Onbekend')
+    when p_value ilike 'http%' or p_value ilike '%gclid=%' or p_value ilike '%gad_campaignid=%' or p_value ilike '%fbclid=%'
+      then coalesce(
+        public.extract_url_param(p_value, 'utm_campaign'),
+        case
+          when public.extract_url_param(p_value, 'gad_campaignid') is not null
+            then 'Google Campagne ' || public.extract_url_param(p_value, 'gad_campaignid')
+          else null
+        end,
+        case
+          when public.extract_url_param(p_value, 'gclid') is not null
+            then 'Google - woning prijsberekening'
+          else null
+        end,
+        case
+          when public.extract_url_param(p_value, 'fbclid') is not null
+            then 'Meta - Calculator'
+          else null
+        end,
+        p_value
+      )
+    else p_value
   end;
+$$;
+
+create or replace function public.normalize_source(
+  p_source text
+)
+returns text
+language sql
+immutable
+as $$
+  select nullif(trim(p_source), '');
 $$;
 
 create or replace function public.get_custom_field_options(
@@ -518,6 +608,7 @@ returns table (
   source text,
   leads bigint,
   appointments bigint,
+  appointments_confirmed bigint,
   appointments_without_lead_in_range bigint,
   deals bigint
 )
@@ -536,6 +627,7 @@ as $$
     select
       appt_rows.source,
       count(*) as appointments,
+      count(*) filter (where appt_rows.is_confirmed) as appointments_confirmed,
       count(*) filter (where not appt_rows.lead_in_range) as appointments_without_lead_in_range
     from (
       select
@@ -568,6 +660,7 @@ as $$
           ),
           'Onbekend'
         )) as source,
+        coalesce(a.appointment_status, a.appointment_status_raw, '') ilike '%confirm%' as is_confirmed,
         exists (
           select 1
           from public.opportunities_view o
@@ -607,6 +700,7 @@ as $$
     coalesce(leads.source, appts.source, deals.source) as source,
     coalesce(leads.leads, 0) as leads,
     coalesce(appts.appointments, 0) as appointments,
+    coalesce(appts.appointments_confirmed, 0) as appointments_confirmed,
     coalesce(appts.appointments_without_lead_in_range, 0) as appointments_without_lead_in_range,
     coalesce(deals.deals, 0) as deals
   from leads
@@ -1010,16 +1104,15 @@ as $$
         )
       ) as contact_name,
       o.status,
-      coalesce(o.source_guess, 'Onbekend') as source,
-      coalesce(
-        public.custom_field_value(o.custom_fields, cfg.hook_field_id),
-        public.custom_field_value(c.custom_fields, cfg.hook_field_id),
-        'Onbekend'
-      ) as hook_value,
-      coalesce(
-        public.custom_field_value(o.custom_fields, cfg.campaign_field_id),
-        public.custom_field_value(c.custom_fields, cfg.campaign_field_id),
-        'Onbekend'
+      public.normalize_source(coalesce(o.source_guess, 'Onbekend')) as source,
+      public.normalize_source(coalesce(o.source_guess, 'Onbekend')) as hook_value,
+      public.normalize_hook_value(
+        coalesce(
+          public.custom_field_value(o.custom_fields, cfg.campaign_field_id),
+          public.custom_field_value(c.custom_fields, cfg.campaign_field_id),
+          'Onbekend'
+        ),
+        public.normalize_source(coalesce(o.source_guess, 'Onbekend'))
       ) as campaign_value
     from public.opportunities_view o
     cross join cfg
@@ -1140,15 +1233,62 @@ as $$
         ),
         'Onbekend'
       )) as source,
-      coalesce(
-        public.custom_field_value(a.custom_fields, cfg.hook_field_id),
-        public.custom_field_value(c.custom_fields, cfg.hook_field_id),
+      public.normalize_source(coalesce(
+        a.source,
+        (
+          select c.source_guess
+          from public.contacts_view c
+          where c.location_id = a.location_id
+            and lower(trim(c.email)) = lower(trim(a.contact_email))
+          limit 1
+        ),
+        (
+          select o.source_guess
+          from public.opportunities_view o
+          where o.location_id = a.location_id
+            and o.contact_id = a.contact_id
+          limit 1
+        ),
+        (
+          select o.source_guess
+          from public.opportunities_view o
+          where o.location_id = a.location_id
+            and lower(trim(o.contact_email)) = lower(trim(a.contact_email))
+          limit 1
+        ),
         'Onbekend'
-      ) as hook_value,
-      coalesce(
-        public.custom_field_value(a.custom_fields, cfg.campaign_field_id),
-        public.custom_field_value(c.custom_fields, cfg.campaign_field_id),
-        'Onbekend'
+      )) as hook_value,
+      public.normalize_hook_value(
+        coalesce(
+          public.custom_field_value(a.custom_fields, cfg.campaign_field_id),
+          public.custom_field_value(c.custom_fields, cfg.campaign_field_id),
+          'Onbekend'
+        ),
+        public.normalize_source(coalesce(
+          a.source,
+          (
+            select c.source_guess
+            from public.contacts_view c
+            where c.location_id = a.location_id
+              and lower(trim(c.email)) = lower(trim(a.contact_email))
+            limit 1
+          ),
+          (
+            select o.source_guess
+            from public.opportunities_view o
+            where o.location_id = a.location_id
+              and o.contact_id = a.contact_id
+            limit 1
+          ),
+          (
+            select o.source_guess
+            from public.opportunities_view o
+            where o.location_id = a.location_id
+              and lower(trim(o.contact_email)) = lower(trim(a.contact_email))
+            limit 1
+          ),
+          'Onbekend'
+        ))
       ) as campaign_value
     from public.appointments_view a
     cross join cfg
@@ -1189,6 +1329,7 @@ as $$
         p_hook is null
         or o.hook_value = p_hook
         or o.campaign_value = p_hook
+        or public.normalize_source(o.source) = public.normalize_source(p_hook)
       )
 
     union all
@@ -1207,6 +1348,7 @@ as $$
         p_hook is null
         or a.hook_value = p_hook
         or a.campaign_value = p_hook
+        or public.normalize_source(a.source) = public.normalize_source(p_hook)
       )
   ) records
   order by occurred_at desc nulls last
@@ -1221,6 +1363,7 @@ create or replace function public.get_hook_performance(
 returns table (
   hook text,
   campaign text,
+  source text,
   leads bigint,
   appointments bigint
 )
@@ -1234,16 +1377,16 @@ as $$
   ),
   opps as (
     select
-      coalesce(
-        public.custom_field_value(o.custom_fields, cfg.hook_field_id),
-        public.custom_field_value(c.custom_fields, cfg.hook_field_id),
-        'Onbekend'
-      ) as hook,
-      coalesce(
-        public.custom_field_value(o.custom_fields, cfg.campaign_field_id),
-        public.custom_field_value(c.custom_fields, cfg.campaign_field_id),
-        'Onbekend'
+      public.normalize_source(coalesce(o.source_guess, 'Onbekend')) as hook,
+      public.normalize_hook_value(
+        coalesce(
+          public.custom_field_value(o.custom_fields, cfg.campaign_field_id),
+          public.custom_field_value(c.custom_fields, cfg.campaign_field_id),
+          'Onbekend'
+        ),
+        public.normalize_source(coalesce(o.source_guess, 'Onbekend'))
       ) as campaign,
+      public.normalize_source(coalesce(o.source_guess, 'Onbekend')) as source,
       count(*) as leads
     from public.opportunities_view o
     cross join cfg
@@ -1266,20 +1409,92 @@ as $$
       and o.created_at >= p_start
       and o.created_at < p_end
       and (cfg.hook_field_id is not null or cfg.campaign_field_id is not null)
-    group by 1, 2
+    group by 1, 2, 3
   ),
   appts as (
     select
-      coalesce(
-        public.custom_field_value(a.custom_fields, cfg.hook_field_id),
-        public.custom_field_value(c.custom_fields, cfg.hook_field_id),
+      public.normalize_source(coalesce(
+        a.source,
+        (
+          select c.source_guess
+          from public.contacts_view c
+          where c.location_id = a.location_id
+            and lower(trim(c.email)) = lower(trim(a.contact_email))
+          limit 1
+        ),
+        (
+          select o.source_guess
+          from public.opportunities_view o
+          where o.location_id = a.location_id
+            and o.contact_id = a.contact_id
+          limit 1
+        ),
+        (
+          select o.source_guess
+          from public.opportunities_view o
+          where o.location_id = a.location_id
+            and lower(trim(o.contact_email)) = lower(trim(a.contact_email))
+          limit 1
+        ),
         'Onbekend'
-      ) as hook,
-      coalesce(
-        public.custom_field_value(a.custom_fields, cfg.campaign_field_id),
-        public.custom_field_value(c.custom_fields, cfg.campaign_field_id),
-        'Onbekend'
+      )) as hook,
+      public.normalize_hook_value(
+        coalesce(
+          public.custom_field_value(a.custom_fields, cfg.campaign_field_id),
+          public.custom_field_value(c.custom_fields, cfg.campaign_field_id),
+          'Onbekend'
+        ),
+        public.normalize_source(coalesce(
+          a.source,
+          (
+            select c.source_guess
+            from public.contacts_view c
+            where c.location_id = a.location_id
+              and lower(trim(c.email)) = lower(trim(a.contact_email))
+            limit 1
+          ),
+          (
+            select o.source_guess
+            from public.opportunities_view o
+            where o.location_id = a.location_id
+              and o.contact_id = a.contact_id
+            limit 1
+          ),
+          (
+            select o.source_guess
+            from public.opportunities_view o
+            where o.location_id = a.location_id
+              and lower(trim(o.contact_email)) = lower(trim(a.contact_email))
+            limit 1
+          ),
+          'Onbekend'
+        ))
       ) as campaign,
+      public.normalize_source(coalesce(
+        a.source,
+        (
+          select c.source_guess
+          from public.contacts_view c
+          where c.location_id = a.location_id
+            and lower(trim(c.email)) = lower(trim(a.contact_email))
+          limit 1
+        ),
+        (
+          select o.source_guess
+          from public.opportunities_view o
+          where o.location_id = a.location_id
+            and o.contact_id = a.contact_id
+          limit 1
+        ),
+        (
+          select o.source_guess
+          from public.opportunities_view o
+          where o.location_id = a.location_id
+            and lower(trim(o.contact_email)) = lower(trim(a.contact_email))
+          limit 1
+        ),
+        'Onbekend'
+      )) as source,
       count(*) as appointments
     from public.appointments_view a
     cross join cfg
@@ -1303,15 +1518,16 @@ as $$
       and a.start_time < p_end
       and coalesce(a.appointment_status, a.appointment_status_raw, '') ilike '%confirm%'
       and (cfg.hook_field_id is not null or cfg.campaign_field_id is not null)
-    group by 1, 2
+    group by 1, 2, 3
   )
   select
     coalesce(opps.hook, appts.hook, 'Onbekend') as hook,
     coalesce(opps.campaign, appts.campaign, 'Onbekend') as campaign,
+    coalesce(opps.source, appts.source, 'Onbekend') as source,
     coalesce(opps.leads, 0) as leads,
     coalesce(appts.appointments, 0) as appointments
   from opps
-  full join appts on appts.hook = opps.hook and appts.campaign = opps.campaign
+  full join appts on appts.hook = opps.hook and appts.campaign = opps.campaign and appts.source = opps.source
   order by leads desc nulls last, appointments desc nulls last, hook asc;
 $$;
 
