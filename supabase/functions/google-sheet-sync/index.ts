@@ -38,6 +38,7 @@ const env = {
   SHEET_CONVERSIONS_COLUMN: optional('SHEET_CONVERSIONS_COLUMN', 'Conversions'),
   SHEET_CURRENCY_COLUMN: optional('SHEET_CURRENCY_COLUMN', 'Currency'),
   SHEET_ACCOUNT_COLUMN: optional('SHEET_ACCOUNT_COLUMN', 'Account ID'),
+  SHEET_CAMPAIGN_COLUMN: optional('SHEET_CAMPAIGN_COLUMN', 'Campaign'),
   SHEET_DATE_FORMAT: optional('SHEET_DATE_FORMAT', 'YYYY-MM-DD'),
   SHEET_CURRENCY_FALLBACK: optional('SHEET_CURRENCY_FALLBACK', ''),
   SHEET_HEADER_ROW: parseNumber(Deno.env.get('SHEET_HEADER_ROW'), 0)
@@ -50,6 +51,22 @@ if (!env.SUPABASE_SECRET_KEY) {
 const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY, {
   auth: { persistSession: false }
 });
+
+const saveSyncState = async (entity: string, locationId: string, lastSyncedAt: string) => {
+  const { error } = await supabase
+    .from('sync_state')
+    .upsert(
+      {
+        entity,
+        location_id: locationId,
+        cursor: null,
+        last_synced_at: lastSyncedAt,
+        updated_at: new Date().toISOString()
+      },
+      { onConflict: 'entity,location_id' }
+    );
+  if (error) throw error;
+};
 
 const normalizeKey = (value: unknown) => String(value ?? '').trim().toLowerCase();
 
@@ -300,6 +317,18 @@ const upsertSpendRows = async (
     string,
     { spend: number; leads: number; currency: string | null; raw: CsvRow[]; accountId: string }
   >();
+  const campaignAggregated = new Map<
+    string,
+    {
+      spend: number;
+      leads: number;
+      currency: string | null;
+      raw: CsvRow[];
+      accountId: string;
+      campaignId: string;
+      campaignName: string;
+    }
+  >();
 
   const filtered = filterByRange(rows, range);
 
@@ -314,6 +343,8 @@ const upsertSpendRows = async (
     const accountId = accountIdRaw ? String(accountIdRaw).trim() : env.SHEET_ACCOUNT_ID;
     const currencyRaw = accessor(env.SHEET_CURRENCY_COLUMN);
     const currency = currencyRaw ? String(currencyRaw).trim() : env.SHEET_CURRENCY_FALLBACK || null;
+    const campaignRaw = accessor(env.SHEET_CAMPAIGN_COLUMN);
+    const campaignName = campaignRaw ? String(campaignRaw).trim() : '';
 
     const key = `${date}|${accountId}`;
     const existing = aggregated.get(key) ?? {
@@ -329,6 +360,25 @@ const upsertSpendRows = async (
     if (!existing.currency && currency) existing.currency = currency;
     existing.raw.push(row);
     aggregated.set(key, existing);
+
+    if (campaignName) {
+      const campaignKey = `${date}|${accountId}|${campaignName}`;
+      const campaignExisting = campaignAggregated.get(campaignKey) ?? {
+        spend: 0,
+        leads: 0,
+        currency,
+        raw: [],
+        accountId,
+        campaignId: campaignName,
+        campaignName
+      };
+
+      campaignExisting.spend += spend;
+      campaignExisting.leads += leads;
+      if (!campaignExisting.currency && currency) campaignExisting.currency = currency;
+      campaignExisting.raw.push(row);
+      campaignAggregated.set(campaignKey, campaignExisting);
+    }
   });
 
   const payload = Array.from(aggregated.entries()).map(([key, entry]) => {
@@ -346,7 +396,24 @@ const upsertSpendRows = async (
     };
   });
 
-  if (!payload.length) return 0;
+  const campaignPayload = Array.from(campaignAggregated.entries()).map(([key, entry]) => {
+    const [date] = key.split('|');
+    return {
+      date,
+      location_id: locationId,
+      source: env.SHEET_SOURCE_NAME,
+      account_id: entry.accountId,
+      campaign_id: entry.campaignId,
+      campaign_name: entry.campaignName,
+      spend: entry.spend,
+      leads: entry.leads,
+      currency: entry.currency,
+      raw: entry.raw.length === 1 ? entry.raw[0] : { rows: entry.raw },
+      synced_at: syncedAt
+    };
+  });
+
+  if (!payload.length && !campaignPayload.length) return { daily: 0, campaigns: 0 };
 
   const chunkSize = 500;
   let inserted = 0;
@@ -359,7 +426,17 @@ const upsertSpendRows = async (
     inserted += chunk.length;
   }
 
-  return inserted;
+  let campaignInserted = 0;
+  for (let i = 0; i < campaignPayload.length; i += chunkSize) {
+    const chunk = campaignPayload.slice(i, i + chunkSize);
+    const { error } = await supabase.from('marketing_spend_campaign_daily').upsert(chunk, {
+      onConflict: 'date,location_id,source,account_id,campaign_id'
+    });
+    if (error) throw error;
+    campaignInserted += chunk.length;
+  }
+
+  return { daily: inserted, campaigns: campaignInserted };
 };
 
 Deno.serve(async (req) => {
@@ -378,13 +455,15 @@ Deno.serve(async (req) => {
     const rows = await readCsv();
     const syncedAt = new Date().toISOString();
     const upserted = await upsertSpendRows(rows, locationId, range, syncedAt);
+    await saveSyncState('google_sheet', locationId, syncedAt);
 
     return new Response(
       JSON.stringify({
         ok: true,
         rows: rows.length,
         range,
-        upserted
+        upserted_daily: upserted.daily,
+        upserted_campaigns: upserted.campaigns
       }),
       { status: 200, headers: { 'Content-Type': 'application/json' } }
     );

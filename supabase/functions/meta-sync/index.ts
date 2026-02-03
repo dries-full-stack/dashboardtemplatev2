@@ -80,6 +80,22 @@ const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY, {
   auth: { persistSession: false }
 });
 
+const saveSyncState = async (entity: string, locationId: string, lastSyncedAt: string) => {
+  const { error } = await supabase
+    .from('sync_state')
+    .upsert(
+      {
+        entity,
+        location_id: locationId,
+        cursor: null,
+        last_synced_at: lastSyncedAt,
+        updated_at: new Date().toISOString()
+      },
+      { onConflict: 'entity,location_id' }
+    );
+  if (error) throw error;
+};
+
 const leadActionTypes = new Set(
   env.META_LEAD_ACTION_TYPES.split(',')
     .map((entry) => entry.trim().toLowerCase())
@@ -342,6 +358,8 @@ Deno.serve(async (req) => {
       adInsights = await fetchAllInsights(accountId, startDate, endDate, 'ad');
       adUpserted = await upsertAdRows(adInsights, locationId, syncedAt);
     }
+
+    await saveSyncState('meta', locationId, syncedAt);
 
     return new Response(
       JSON.stringify({

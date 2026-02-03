@@ -203,6 +203,13 @@ const liveState = {
     errorMessage: '',
     inFlight: false
   },
+  spendBySource: {
+    status: 'idle',
+    totals: null,
+    rangeKey: '',
+    errorMessage: '',
+    inFlight: false
+  },
   sync: {
     status: 'idle',
     timestamp: null,
@@ -245,7 +252,34 @@ const adminState = {
     locationId: ghlLocationId || '',
     token: '',
     active: true
+  },
+  mapping: {
+    status: 'idle',
+    message: '',
+    loading: false,
+    saving: false,
+    campaigns: [],
+    adsets: [],
+    googleCampaigns: [],
+    google: null,
+    sourceOptions: [],
+    hasChanges: false
   }
+};
+
+const resetMappingState = () => {
+  adminState.mapping = {
+    status: 'idle',
+    message: '',
+    loading: false,
+    saving: false,
+    campaigns: [],
+    adsets: [],
+    googleCampaigns: [],
+    google: null,
+    sourceOptions: [],
+    hasChanges: false
+  };
 };
 
 const drilldownState = {
@@ -275,6 +309,10 @@ const initAuth = async () => {
       adminState.status = 'idle';
       adminState.auth.status = 'idle';
       adminState.auth.message = '';
+      resetMappingState();
+    } else if (adminState.open) {
+      loadAdminIntegration();
+      loadSpendMapping();
     }
     renderApp();
   });
@@ -410,6 +448,318 @@ const loadAdminIntegration = async () => {
   }
 };
 
+const loadSpendMapping = async () => {
+  if (!supabase || !adminModeEnabled) return;
+  const activeLocationId = configState.locationId || ghlLocationId;
+  if (!activeLocationId) {
+    adminState.mapping.status = 'error';
+    adminState.mapping.message = 'Location ID ontbreekt.';
+    renderApp();
+    return;
+  }
+  if (adminState.mapping.loading) return;
+
+  adminState.mapping.loading = true;
+  adminState.mapping.status = 'loading';
+  adminState.mapping.message = '';
+  adminState.mapping.hasChanges = false;
+  renderApp();
+
+  const mappingRange = buildRecentRange(90);
+  const startDate = mappingRange.start;
+  const endDate = toDateEndExclusive(mappingRange.end);
+
+  try {
+    const [mappingResult, adsetResult] = await Promise.all([
+      withTimeout(
+        supabase
+          .from('marketing_spend_source_mapping')
+          .select('id, platform, campaign_id, campaign_name, adset_id, adset_name, source_label, updated_at')
+          .eq('location_id', activeLocationId)
+          .order('updated_at', { ascending: false }),
+        12000,
+        'Supabase query timeout (marketing spend mapping).'
+      ),
+      withTimeout(
+        supabase
+          .from('marketing_spend_adset_daily')
+          .select('campaign_id, campaign_name, adset_id, adset_name')
+          .eq('location_id', activeLocationId)
+          .eq('source', 'META')
+          .gte('date', startDate)
+          .lt('date', endDate),
+        12000,
+        'Supabase query timeout (marketing spend adset list).'
+      )
+    ]);
+
+    if (mappingResult.error) throw mappingResult.error;
+    if (adsetResult.error) throw adsetResult.error;
+
+    const mappingRows = mappingResult.data ?? [];
+    const mappingByKey = new Map();
+    mappingRows.forEach((row) => {
+      const platform = normalizeMappingPlatform(row?.platform);
+      const key = buildMappingKey(platform, row?.campaign_id, row?.adset_id);
+      if (!mappingByKey.has(key)) {
+        mappingByKey.set(key, row);
+      }
+    });
+
+    const campaignMap = new Map();
+    const adsetMap = new Map();
+    (adsetResult.data ?? []).forEach((row) => {
+      if (row?.campaign_id && !campaignMap.has(row.campaign_id)) {
+        campaignMap.set(row.campaign_id, {
+          campaign_id: row.campaign_id,
+          campaign_name: row.campaign_name ?? ''
+        });
+      }
+      if (row?.adset_id && !adsetMap.has(row.adset_id)) {
+        adsetMap.set(row.adset_id, {
+          campaign_id: row.campaign_id ?? '',
+          campaign_name: row.campaign_name ?? '',
+          adset_id: row.adset_id,
+          adset_name: row.adset_name ?? ''
+        });
+      }
+    });
+
+    let googleCampaignRows = [];
+    try {
+      const { data, error } = await withTimeout(
+        supabase
+          .from('marketing_spend_campaign_daily')
+          .select('campaign_id, campaign_name')
+          .eq('location_id', activeLocationId)
+          .gte('date', startDate)
+          .lt('date', endDate),
+        12000,
+        'Supabase query timeout (marketing spend google campaign list).'
+      );
+      if (error) throw error;
+      googleCampaignRows = data ?? [];
+    } catch (_error) {
+      googleCampaignRows = [];
+    }
+
+    const googleCampaignMap = new Map();
+    (googleCampaignRows ?? []).forEach((row) => {
+      if (row?.campaign_id && !googleCampaignMap.has(row.campaign_id)) {
+        googleCampaignMap.set(row.campaign_id, {
+          campaign_id: row.campaign_id,
+          campaign_name: row.campaign_name ?? row.campaign_id
+        });
+      }
+    });
+
+    const campaigns = Array.from(campaignMap.values()).map((row) => {
+      const mapping = mappingByKey.get(buildMappingKey(MAPPING_PLATFORMS.meta, row.campaign_id, null));
+      return {
+        key: buildMappingKey(MAPPING_PLATFORMS.meta, row.campaign_id, null),
+        id: mapping?.id ?? null,
+        platform: MAPPING_PLATFORMS.meta,
+        scope: 'campaign',
+        campaign_id: row.campaign_id,
+        campaign_name: row.campaign_name ?? row.campaign_id,
+        source_label: mapping?.source_label ?? ''
+      };
+    });
+    campaigns.sort((a, b) => (a.campaign_name || '').localeCompare(b.campaign_name || ''));
+
+    const adsets = Array.from(adsetMap.values()).map((row) => {
+      const mapping = mappingByKey.get(buildMappingKey(MAPPING_PLATFORMS.meta, null, row.adset_id));
+      const lang = classifyMetaAdset(row.adset_name);
+      const defaultLabel = META_SOURCE_BY_LANG[lang] || META_SOURCE_BY_LANG.nl;
+      return {
+        key: buildMappingKey(MAPPING_PLATFORMS.meta, null, row.adset_id),
+        id: mapping?.id ?? null,
+        platform: MAPPING_PLATFORMS.meta,
+        scope: 'adset',
+        campaign_id: row.campaign_id,
+        campaign_name: row.campaign_name ?? row.campaign_id ?? '',
+        adset_id: row.adset_id,
+        adset_name: row.adset_name ?? row.adset_id,
+        default_label: defaultLabel,
+        source_label: mapping?.source_label ?? ''
+      };
+    });
+    adsets.sort((a, b) => (a.adset_name || '').localeCompare(b.adset_name || ''));
+
+    const googleCampaigns = Array.from(googleCampaignMap.values()).map((row) => {
+      const mapping = mappingByKey.get(buildMappingKey(MAPPING_PLATFORMS.google, row.campaign_id, null));
+      return {
+        key: buildMappingKey(MAPPING_PLATFORMS.google, row.campaign_id, null),
+        id: mapping?.id ?? null,
+        platform: MAPPING_PLATFORMS.google,
+        scope: 'campaign',
+        campaign_id: row.campaign_id,
+        campaign_name: row.campaign_name ?? row.campaign_id,
+        source_label: mapping?.source_label ?? ''
+      };
+    });
+    googleCampaigns.sort((a, b) => (a.campaign_name || '').localeCompare(b.campaign_name || ''));
+
+    const googleMapping = mappingByKey.get(buildMappingKey(MAPPING_PLATFORMS.google, null, null));
+    const googleRow = {
+      key: buildMappingKey(MAPPING_PLATFORMS.google, null, null),
+      id: googleMapping?.id ?? null,
+      platform: MAPPING_PLATFORMS.google,
+      scope: 'default',
+      source_label: googleMapping?.source_label ?? ''
+    };
+
+    let sourceOptions = buildSourceOptions(liveState.sourceBreakdown.rows);
+    if (sourceOptions.length === 0) {
+      try {
+        const rows = await fetchSourceBreakdown(dateRange);
+        sourceOptions = buildSourceOptions(rows);
+      } catch (error) {
+        sourceOptions = buildSourceOptions([]);
+      }
+    }
+
+    mappingRows.forEach((row) => {
+      if (row?.source_label) sourceOptions.push(row.source_label);
+    });
+
+    const uniqueOptions = Array.from(new Set(sourceOptions)).sort((a, b) => a.localeCompare(b));
+
+    adminState.mapping = {
+      status: 'ready',
+      message: '',
+      loading: false,
+      saving: false,
+      campaigns,
+      adsets,
+      googleCampaigns,
+      google: googleRow,
+      sourceOptions: uniqueOptions,
+      hasChanges: false
+    };
+  } catch (error) {
+    adminState.mapping.status = 'error';
+    adminState.mapping.message = error instanceof Error ? error.message : 'Onbekende fout';
+  } finally {
+    adminState.mapping.loading = false;
+    renderApp();
+  }
+};
+
+const setMappingValue = (key, value) => {
+  if (!key) return;
+  const label = value ?? '';
+  adminState.mapping.campaigns = adminState.mapping.campaigns.map((row) =>
+    row.key === key ? { ...row, source_label: label } : row
+  );
+  adminState.mapping.adsets = adminState.mapping.adsets.map((row) =>
+    row.key === key ? { ...row, source_label: label } : row
+  );
+  adminState.mapping.googleCampaigns = adminState.mapping.googleCampaigns.map((row) =>
+    row.key === key ? { ...row, source_label: label } : row
+  );
+  if (adminState.mapping.google?.key === key) {
+    adminState.mapping.google = { ...adminState.mapping.google, source_label: label };
+  }
+  adminState.mapping.hasChanges = true;
+  if (adminState.mapping.message) {
+    adminState.mapping.message = '';
+    if (adminState.mapping.status === 'success') {
+      adminState.mapping.status = 'ready';
+    }
+  }
+};
+
+const saveSpendMapping = async () => {
+  if (!supabase || !adminModeEnabled) return;
+  if (adminState.mapping.saving) return;
+  const activeLocationId = configState.locationId || ghlLocationId;
+  if (!activeLocationId) {
+    adminState.mapping.status = 'error';
+    adminState.mapping.message = 'Location ID ontbreekt.';
+    renderApp();
+    return;
+  }
+
+  const token = await getAuthToken();
+  if (!token) {
+    adminState.mapping.status = 'error';
+    adminState.mapping.message = 'Log in om mapping op te slaan.';
+    renderApp();
+    return;
+  }
+
+  adminState.mapping.saving = true;
+  adminState.mapping.status = 'saving';
+  adminState.mapping.message = '';
+  renderApp();
+
+  const now = new Date().toISOString();
+  const upserts = [];
+  const deletes = [];
+
+  const collectRow = (row) => {
+    if (!row) return;
+    const label = normalizeSourceLabel(row.source_label);
+    if (label) {
+      upserts.push({
+        id: row.id ?? undefined,
+        location_id: activeLocationId,
+        platform: row.platform,
+        campaign_id: row.campaign_id ?? null,
+        campaign_name: row.campaign_name ?? null,
+        adset_id: row.adset_id ?? null,
+        adset_name: row.adset_name ?? null,
+        source_label: label,
+        updated_at: now
+      });
+    } else if (row.id) {
+      deletes.push(row.id);
+    }
+  };
+
+  adminState.mapping.campaigns.forEach(collectRow);
+  adminState.mapping.adsets.forEach(collectRow);
+  adminState.mapping.googleCampaigns.forEach(collectRow);
+  collectRow(adminState.mapping.google);
+
+  try {
+    if (deletes.length) {
+      const { error } = await supabase
+        .from('marketing_spend_source_mapping')
+        .delete()
+        .in('id', deletes);
+      if (error) throw error;
+    }
+
+    if (upserts.length) {
+      const { error } = await supabase
+        .from('marketing_spend_source_mapping')
+        .upsert(upserts, { onConflict: 'id' });
+      if (error) throw error;
+    }
+
+    await loadSpendMapping();
+    adminState.mapping.status = 'success';
+    adminState.mapping.message = 'Mapping opgeslagen.';
+    adminState.mapping.hasChanges = false;
+    liveState.spendBySource = {
+      status: 'idle',
+      totals: null,
+      rangeKey: '',
+      errorMessage: '',
+      inFlight: false
+    };
+    ensureSpendBySource(dateRange);
+  } catch (error) {
+    adminState.mapping.status = 'error';
+    adminState.mapping.message = error instanceof Error ? error.message : 'Onbekende fout';
+  } finally {
+    adminState.mapping.saving = false;
+    renderApp();
+  }
+};
+
 const formatNumber = (value, decimals = 0) => {
   if (!Number.isFinite(value)) return '0';
   const fixed = value.toFixed(decimals);
@@ -423,26 +773,73 @@ const formatOptionalCurrency = (value, decimals = 2, suffix = '') =>
   Number.isFinite(value) ? `${formatCurrency(value, decimals)}${suffix}` : '--';
 const formatPercent = (value, decimals = 1) => `${formatNumber(value * 100, decimals)}%`;
 const safeDivide = (numerator, denominator) => (denominator ? numerator / denominator : 0);
-const isMetaSource = (value) => {
-  if (!value) return false;
-  return String(value).trim().toLowerCase().startsWith('meta');
+const META_SOURCE_BY_LANG = {
+  nl: 'Meta - Calculator',
+  fr: 'Meta - FR Calculator'
 };
-const applyMetaSpendToSourceRows = (rows, spend) => {
+const GOOGLE_SPEND_SOURCE = 'Google Ads';
+const GOOGLE_SOURCE_LABEL = 'Google - woning prijsberekening';
+
+const hasLangToken = (label, token) => {
+  const pattern = new RegExp(`(^|[^a-z])${token}([^a-z]|$)`, 'i');
+  return pattern.test(label);
+};
+const classifyMetaAdset = (value) => {
+  if (!value) return 'nl';
+  const label = String(value).trim().toLowerCase();
+  if (!label) return 'nl';
+
+  const frSignals = ['fr', 'french', 'francais', 'francaise', 'wallonie', 'wallonia'];
+  const hasFrSignal = (token) =>
+    hasLangToken(label, token) || (token.length > 2 && label.includes(token));
+  if (frSignals.some(hasFrSignal)) return 'fr';
+
+  // Default to NL when no FR signal is found (NL adsets often omit "NL").
+  return 'nl';
+};
+const applySourceSpendToSourceRows = (rows, spendBySource) => {
   if (!Array.isArray(rows)) return rows;
-  if (!Number.isFinite(spend) || spend <= 0) return rows;
-  const metaRows = rows.filter((row) => isMetaSource(row.source));
-  const totalMetaLeads = metaRows.reduce((sum, row) => sum + Number(row.rawLeads || 0), 0);
-  if (totalMetaLeads <= 0) return rows;
 
   return rows.map((row) => {
-    if (!isMetaSource(row.source)) return row;
-    const leads = Number(row.rawLeads || 0);
+    const spend = Number(spendBySource?.[row.source] ?? 0);
     const appointments = Number(row.rawAppointments || 0);
-    if (leads <= 0 || appointments <= 0) return { ...row, cost: '--' };
-    const allocatedSpend = spend * (leads / totalMetaLeads);
-    const costPerAppointment = allocatedSpend > 0 ? allocatedSpend / appointments : Number.NaN;
+    if (spend <= 0 || appointments <= 0) return { ...row, cost: '--' };
+    const costPerAppointment = spend / appointments;
     return { ...row, cost: formatOptionalCurrency(costPerAppointment, 2) };
   });
+};
+const MAPPING_PLATFORMS = {
+  meta: 'meta',
+  google: 'google'
+};
+const normalizeMappingPlatform = (value) => String(value ?? '').trim().toLowerCase();
+const normalizeSourceLabel = (value) => String(value ?? '').trim();
+const buildMappingKey = (platform, campaignId, adsetId) => {
+  const normalized = normalizeMappingPlatform(platform);
+  if (normalized === MAPPING_PLATFORMS.google) {
+    if (campaignId) return `google:campaign:${campaignId}`;
+    return 'google:default';
+  }
+  if (adsetId) return `${normalized}:adset:${adsetId}`;
+  if (campaignId) return `${normalized}:campaign:${campaignId}`;
+  return `${normalized}:default`;
+};
+const buildRecentRange = (days = 60) => {
+  const today = new Date();
+  const end = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+  const start = new Date(end);
+  start.setUTCDate(start.getUTCDate() - Math.max(days - 1, 0));
+  return { start: formatIsoDate(start), end: formatIsoDate(end) };
+};
+const buildSourceOptions = (rows) => {
+  const options = new Set();
+  (rows ?? []).forEach((row) => {
+    if (row?.source) options.add(row.source);
+  });
+  options.add(META_SOURCE_BY_LANG.nl);
+  options.add(META_SOURCE_BY_LANG.fr);
+  options.add(GOOGLE_SOURCE_LABEL);
+  return Array.from(options).sort((a, b) => a.localeCompare(b));
 };
 const escapeHtml = (value) =>
   String(value ?? '')
@@ -458,6 +855,7 @@ const toUtcEndExclusive = (dateValue) => {
   dt.setUTCDate(dt.getUTCDate() + 1);
   return dt.toISOString();
 };
+const toDateEndExclusive = (dateValue) => toUtcEndExclusive(dateValue).slice(0, 10);
 const withTimeout = (promise, ms, message) =>
   new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -576,16 +974,16 @@ const fetchLatestSyncTimestamp = async () => {
   if (!activeLocationId) return null;
 
   const query = supabase
-    .from('opportunities')
-    .select('synced_at')
+    .from('sync_state')
+    .select('updated_at')
     .eq('location_id', activeLocationId)
-    .order('synced_at', { ascending: false })
+    .order('updated_at', { ascending: false })
     .limit(1)
     .maybeSingle();
 
   const { data, error } = await withTimeout(query, 12000, 'Supabase query timeout (sync).');
   if (error) throw error;
-  return data?.synced_at ?? null;
+  return data?.updated_at ?? null;
 };
 
 const fetchSourceBreakdown = async (range) => {
@@ -684,6 +1082,129 @@ const fetchFinanceSummary = async (range) => {
   if (error) throw error;
   if (Array.isArray(data)) return data[0] ?? null;
   return data ?? null;
+};
+
+const fetchSpendBySource = async (range) => {
+  if (!supabase) return null;
+  const activeLocationId = configState.locationId || ghlLocationId;
+  if (!activeLocationId) {
+    throw new Error('Location ID ontbreekt. Voeg deze toe via de setup (dashboard_config).');
+  }
+
+  const startDate = range.start;
+  const endDate = toDateEndExclusive(range.end);
+
+  const totals = {};
+
+  const { data: mappingRows, error: mappingError } = await withTimeout(
+    supabase
+      .from('marketing_spend_source_mapping')
+      .select('platform, campaign_id, adset_id, source_label, updated_at')
+      .eq('location_id', activeLocationId)
+      .order('updated_at', { ascending: false }),
+    12000,
+    'Supabase query timeout (marketing spend mapping).'
+  );
+  if (mappingError) throw mappingError;
+
+  const metaAdsetMap = new Map();
+  const metaCampaignMap = new Map();
+  const googleCampaignMap = new Map();
+  let googleLabel = '';
+
+  (mappingRows ?? []).forEach((row) => {
+    const platform = normalizeMappingPlatform(row?.platform);
+    const label = normalizeSourceLabel(row?.source_label);
+    if (!label) return;
+
+    if (platform === MAPPING_PLATFORMS.meta) {
+      if (row?.adset_id) {
+        if (!metaAdsetMap.has(row.adset_id)) metaAdsetMap.set(row.adset_id, label);
+      } else if (row?.campaign_id) {
+        if (!metaCampaignMap.has(row.campaign_id)) metaCampaignMap.set(row.campaign_id, label);
+      }
+    }
+
+    if (platform === MAPPING_PLATFORMS.google) {
+      if (row?.campaign_id) {
+        if (!googleCampaignMap.has(row.campaign_id)) googleCampaignMap.set(row.campaign_id, label);
+      } else if (!googleLabel) {
+        googleLabel = label;
+      }
+    }
+  });
+
+  const addSpend = (label, amount) => {
+    const key = normalizeSourceLabel(label);
+    if (!key) return;
+    totals[key] = (totals[key] ?? 0) + amount;
+  };
+
+  const { data: adsetRows, error: adsetError } = await withTimeout(
+    supabase
+      .from('marketing_spend_adset_daily')
+      .select('adset_id, adset_name, campaign_id, spend')
+      .eq('location_id', activeLocationId)
+      .eq('source', 'META')
+      .gte('date', startDate)
+      .lt('date', endDate),
+    12000,
+    'Supabase query timeout (marketing spend adset).'
+  );
+  if (adsetError) throw adsetError;
+
+  (adsetRows ?? []).forEach((row) => {
+    const mappedLabel =
+      (row?.adset_id && metaAdsetMap.get(row.adset_id)) ||
+      (row?.campaign_id && metaCampaignMap.get(row.campaign_id));
+    const lang = mappedLabel ? null : classifyMetaAdset(row?.adset_name);
+    const fallbackLabel = META_SOURCE_BY_LANG[lang] || META_SOURCE_BY_LANG.nl;
+    addSpend(mappedLabel || fallbackLabel, Number(row?.spend ?? 0));
+  });
+
+  let usedGoogleCampaigns = false;
+  try {
+    const { data: googleCampaignRows, error: googleCampaignError } = await withTimeout(
+      supabase
+        .from('marketing_spend_campaign_daily')
+        .select('campaign_id, spend')
+        .eq('location_id', activeLocationId)
+        .gte('date', startDate)
+        .lt('date', endDate),
+      12000,
+      'Supabase query timeout (marketing spend google campaigns).'
+    );
+    if (googleCampaignError) throw googleCampaignError;
+
+    (googleCampaignRows ?? []).forEach((row) => {
+      usedGoogleCampaigns = true;
+      const mappedLabel = row?.campaign_id ? googleCampaignMap.get(row.campaign_id) : '';
+      addSpend(mappedLabel || googleLabel || GOOGLE_SOURCE_LABEL, Number(row?.spend ?? 0));
+    });
+  } catch (_error) {
+    usedGoogleCampaigns = false;
+  }
+
+  if (!usedGoogleCampaigns) {
+    const { data: googleRows, error: googleError } = await withTimeout(
+      supabase
+        .from('marketing_spend_daily')
+        .select('spend')
+        .eq('location_id', activeLocationId)
+        .eq('source', GOOGLE_SPEND_SOURCE)
+        .gte('date', startDate)
+        .lt('date', endDate),
+      12000,
+      'Supabase query timeout (marketing spend google).'
+    );
+    if (googleError) throw googleError;
+
+    (googleRows ?? []).forEach((row) => {
+      addSpend(googleLabel || GOOGLE_SOURCE_LABEL, Number(row?.spend ?? 0));
+    });
+  }
+
+  return totals;
 };
 
 const fetchDrilldownRecords = async ({ kind, source, range }) => {
@@ -1141,6 +1662,52 @@ const ensureFinanceSummary = async (range) => {
   scheduleRender();
 };
 
+const ensureSpendBySource = async (range) => {
+  if (!supabase) return;
+
+  const key = buildRangeKey(range);
+
+  if (!configState.locationId) {
+    if (configState.status === 'idle') {
+      loadLocationConfig();
+    }
+    return;
+  }
+
+  if (liveState.spendBySource.rangeKey === key && liveState.spendBySource.inFlight) return;
+  if (liveState.spendBySource.rangeKey === key && liveState.spendBySource.status === 'ready') return;
+
+  liveState.spendBySource = {
+    status: 'loading',
+    totals: null,
+    rangeKey: key,
+    errorMessage: '',
+    inFlight: true
+  };
+  scheduleRender();
+
+  try {
+    const totals = await fetchSpendBySource(range);
+    liveState.spendBySource = {
+      status: 'ready',
+      totals,
+      rangeKey: key,
+      errorMessage: '',
+      inFlight: false
+    };
+  } catch (error) {
+    liveState.spendBySource = {
+      status: 'error',
+      totals: null,
+      rangeKey: key,
+      errorMessage: error instanceof Error ? error.message : 'Onbekende fout',
+      inFlight: false
+    };
+  }
+
+  scheduleRender();
+};
+
 const ensureAppointmentCounts = async (range) => {
   if (!supabase) return;
 
@@ -1501,6 +2068,72 @@ const renderAdminModal = () => {
   const loggedIn = Boolean(authSession);
   const userEmail = authSession?.user?.email || '';
   const adminBusy = adminState.loading || adminState.status === 'saving';
+  const mappingBusy = adminState.mapping.loading || adminState.mapping.saving;
+  const mappingStatusClass = adminState.mapping.status === 'error' ? 'error' : 'success';
+  const sourceOptionsMarkup = (adminState.mapping.sourceOptions ?? [])
+    .map((option) => `<option value="${escapeHtml(option)}"></option>`)
+    .join('');
+  const sourceOptionsList = sourceOptionsMarkup
+    ? `<datalist id="source-options">${sourceOptionsMarkup}</datalist>`
+    : '';
+
+  const renderMappingInput = (row, placeholder) =>
+    `<input type="text" class="admin-input admin-mapping-input" value="${escapeHtml(
+      row?.source_label ?? ''
+    )}" placeholder="${escapeHtml(placeholder)}" list="source-options" data-map-key="${escapeHtml(
+      row?.key ?? ''
+    )}" ${mappingBusy ? 'disabled' : ''} />`;
+
+  const campaignRows = adminState.mapping.campaigns ?? [];
+  const campaignRowsMarkup = campaignRows.length
+    ? campaignRows
+        .map(
+          (row) => `
+            <tr>
+              <td>${escapeHtml(row.campaign_name || row.campaign_id)}</td>
+              <td>${renderMappingInput(row, META_SOURCE_BY_LANG.nl)}</td>
+            </tr>
+          `
+        )
+        .join('')
+    : '<tr><td colspan="2" class="admin-mapping-empty">Geen campagnes gevonden.</td></tr>';
+
+  const adsetRows = adminState.mapping.adsets ?? [];
+  const adsetRowsMarkup = adsetRows.length
+    ? adsetRows
+        .map(
+          (row) => `
+            <tr>
+              <td>${escapeHtml(row.campaign_name || row.campaign_id)}</td>
+              <td>${escapeHtml(row.adset_name || row.adset_id)}</td>
+              <td class="admin-mapping-muted">${escapeHtml(row.default_label || META_SOURCE_BY_LANG.nl)}</td>
+              <td>${renderMappingInput(row, row.default_label || META_SOURCE_BY_LANG.nl)}</td>
+            </tr>
+          `
+        )
+        .join('')
+    : '<tr><td colspan="4" class="admin-mapping-empty">Geen adsets gevonden.</td></tr>';
+
+  const googleCampaignRows = adminState.mapping.googleCampaigns ?? [];
+  const googleCampaignRowsMarkup = googleCampaignRows.length
+    ? googleCampaignRows
+        .map(
+          (row) => `
+            <tr>
+              <td>${escapeHtml(row.campaign_name || row.campaign_id)}</td>
+              <td>${renderMappingInput(row, GOOGLE_SOURCE_LABEL)}</td>
+            </tr>
+          `
+        )
+        .join('')
+    : '<tr><td colspan="2" class="admin-mapping-empty">Geen Google campagnes gevonden.</td></tr>';
+
+  const googleRow =
+    adminState.mapping.google ?? {
+      key: buildMappingKey(MAPPING_PLATFORMS.google, null, null),
+      platform: MAPPING_PLATFORMS.google,
+      source_label: ''
+    };
 
   return `
     <div class="admin-modal${adminState.open ? ' open' : ''}">
@@ -1539,7 +2172,94 @@ const renderAdminModal = () => {
                    ${adminState.status === 'saving' ? 'Opslaan...' : 'Opslaan'}
                  </button>
                  <button type="button" class="admin-ghost" data-admin-signout>Uitloggen</button>
-               </form>`
+               </form>
+               <div class="admin-section">
+                 <div class="admin-section-header">
+                   <div>
+                     <h4 class="admin-section-title">Kostattributie</h4>
+                     <p class="admin-section-subtitle">
+                       Koppel Meta campagnes of adsets en Google campagnes aan de juiste Source. Adset mapping overschrijft campagne mapping.
+                       Laat leeg om de NL default te gebruiken. Google zonder mapping krijgt het standaard label.
+                     </p>
+                   </div>
+                   <div class="admin-mapping-toolbar">
+                     <button type="button" class="admin-ghost" data-map-refresh ${mappingBusy ? 'disabled' : ''}>Vernieuw</button>
+                     <button type="button" class="admin-submit" data-map-save ${mappingBusy ? 'disabled' : ''}>
+                       ${adminState.mapping.saving ? 'Opslaan...' : 'Opslaan'}
+                     </button>
+                   </div>
+                 </div>
+                 ${
+                   adminState.mapping.message
+                     ? `<div class="admin-message ${mappingStatusClass}">${adminState.mapping.message}</div>`
+                     : ''
+                 }
+                 ${adminState.mapping.loading ? '<div class="admin-meta">Mapping wordt geladen...</div>' : ''}
+                 <div class="admin-mapping-block">
+                   <h5 class="admin-mapping-title">Meta campagnes</h5>
+                   <div class="admin-mapping-table-wrapper">
+                     <table class="admin-mapping-table">
+                       <thead>
+                         <tr>
+                           <th>Campagne</th>
+                           <th>Source label</th>
+                         </tr>
+                       </thead>
+                       <tbody>${campaignRowsMarkup}</tbody>
+                     </table>
+                   </div>
+                 </div>
+                 <div class="admin-mapping-block">
+                   <h5 class="admin-mapping-title">Meta adsets</h5>
+                   <div class="admin-mapping-table-wrapper">
+                     <table class="admin-mapping-table">
+                       <thead>
+                         <tr>
+                           <th>Campagne</th>
+                           <th>Adset</th>
+                           <th>Default</th>
+                           <th>Source label</th>
+                         </tr>
+                       </thead>
+                       <tbody>${adsetRowsMarkup}</tbody>
+                     </table>
+                   </div>
+                 </div>
+                 <div class="admin-mapping-block">
+                   <h5 class="admin-mapping-title">Google</h5>
+                   <div class="admin-mapping-table-wrapper">
+                     <table class="admin-mapping-table">
+                       <thead>
+                         <tr>
+                           <th>Platform</th>
+                           <th>Source label</th>
+                         </tr>
+                       </thead>
+                       <tbody>
+                         <tr>
+                           <td>Google (sheet)</td>
+                           <td>${renderMappingInput(googleRow, GOOGLE_SOURCE_LABEL)}</td>
+                         </tr>
+                       </tbody>
+                     </table>
+                   </div>
+                 </div>
+                 <div class="admin-mapping-block">
+                   <h5 class="admin-mapping-title">Google campagnes</h5>
+                   <div class="admin-mapping-table-wrapper">
+                     <table class="admin-mapping-table">
+                       <thead>
+                         <tr>
+                           <th>Campagne</th>
+                           <th>Source label</th>
+                         </tr>
+                       </thead>
+                       <tbody>${googleCampaignRowsMarkup}</tbody>
+                     </table>
+                   </div>
+                 </div>
+                 ${sourceOptionsList}
+               </div>`
             : `<form class="admin-form" data-admin-login>
                  <label class="admin-label">
                    Email
@@ -2049,9 +2769,8 @@ const applyLiveOverrides = (metrics, range) => {
       };
     });
 
-    if (liveState.finance.status === 'ready') {
-      const spend = Number(liveState.finance.totals?.total_spend ?? 0);
-      liveRows = applyMetaSpendToSourceRows(liveRows, spend);
+    if (liveState.spendBySource.status === 'ready') {
+      liveRows = applySourceSpendToSourceRows(liveRows, liveState.spendBySource.totals);
     }
 
     metrics.sourceRows = liveRows.length ? liveRows : metrics.sourceRows;
@@ -2871,6 +3590,7 @@ const renderApp = () => {
   ensureSourceBreakdown(dateRange);
   ensureHookPerformance(dateRange);
   ensureFinanceSummary(dateRange);
+  ensureSpendBySource(dateRange);
   ensureLostReasons(dateRange);
 };
 
@@ -2936,6 +3656,7 @@ const bindInteractions = () => {
         renderApp();
         if (authSession) {
           loadAdminIntegration();
+          loadSpendMapping();
         }
       });
     });
@@ -3098,9 +3819,30 @@ const bindInteractions = () => {
         }
         adminState.open = false;
         adminState.loading = false;
+        resetMappingState();
         renderApp();
       });
     }
+
+    const mappingRefresh = document.querySelector('[data-map-refresh]');
+    if (mappingRefresh) {
+      mappingRefresh.addEventListener('click', () => {
+        loadSpendMapping();
+      });
+    }
+
+    const mappingSave = document.querySelector('[data-map-save]');
+    if (mappingSave) {
+      mappingSave.addEventListener('click', () => {
+        saveSpendMapping();
+      });
+    }
+
+    document.querySelectorAll('[data-map-key]').forEach((input) => {
+      input.addEventListener('input', (event) => {
+        setMappingValue(input.getAttribute('data-map-key'), event.target.value);
+      });
+    });
   }
 
   document.querySelectorAll('[data-date-trigger]').forEach((button) => {
@@ -3216,6 +3958,7 @@ desktopQuery.addEventListener('change', (event) => {
     closeSidebar();
   }
 });
+
 
 
 

@@ -555,7 +555,9 @@
 
 .admin-panel {
   position: relative;
-  width: min(420px, 92vw);
+  width: min(960px, 95vw);
+  max-height: 85vh;
+  overflow-y: auto;
   background: hsl(var(--card));
   border-radius: 1rem;
   border: 1px solid hsl(var(--border));
@@ -603,6 +605,104 @@
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
+}
+
+.admin-section {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px dashed hsl(var(--border));
+  display: grid;
+  gap: 1rem;
+}
+
+.admin-section-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+@media (min-width: 768px) {
+  .admin-section-header {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+}
+
+.admin-section-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: hsl(var(--foreground));
+}
+
+.admin-section-subtitle {
+  font-size: 0.75rem;
+  color: hsl(var(--muted-foreground));
+  margin-top: 0.3rem;
+  max-width: 32rem;
+}
+
+.admin-mapping-toolbar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.admin-mapping-block {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.admin-mapping-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: hsl(var(--foreground));
+}
+
+.admin-mapping-table-wrapper {
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.75rem;
+  overflow: auto;
+  background: hsl(var(--background));
+}
+
+.admin-mapping-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.admin-mapping-table th {
+  text-align: left;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--muted) / 0.4);
+}
+
+.admin-mapping-table td {
+  padding: 0.6rem 0.75rem;
+  border-top: 1px solid hsl(var(--border));
+  vertical-align: middle;
+}
+
+.admin-mapping-input {
+  width: 100%;
+}
+
+.admin-mapping-muted {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.admin-mapping-empty {
+  padding: 0.75rem;
+  text-align: center;
+  color: hsl(var(--muted-foreground));
 }
 
 .admin-label {
