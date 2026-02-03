@@ -43,6 +43,24 @@ type OpportunityRecord = Record<string, unknown> & {
   updatedAt?: string | number;
 };
 
+type CustomFieldRecord = Record<string, unknown> & {
+  id?: string;
+  name?: string;
+  label?: string;
+  fieldKey?: string;
+  key?: string;
+  model?: string;
+  object?: string;
+  objectKey?: string;
+  type?: string;
+  options?: unknown[];
+};
+
+type PipelineRecord = Record<string, unknown> & {
+  id?: string;
+  name?: string;
+};
+
 type CalendarRecord = Record<string, unknown> & { id?: string };
 
 type CalendarEventRecord = Record<string, unknown> & {
@@ -272,6 +290,23 @@ class GhlClient {
       version: env.GHL_CALENDARS_VERSION
     });
   }
+
+  getCustomFields(params: { locationId: string }) {
+    return this.request<{ customFields?: unknown[]; custom_fields?: unknown[]; fields?: unknown[] } | unknown[]>({
+      method: 'GET',
+      path: `/locations/${params.locationId}/customFields`,
+      version: env.GHL_API_VERSION
+    });
+  }
+
+  getPipelines(params: { locationId: string }) {
+    return this.request<{ pipelines?: unknown[]; data?: unknown[] } | unknown[]>({
+      method: 'GET',
+      path: '/opportunities/pipelines',
+      query: { locationId: params.locationId },
+      version: env.GHL_API_VERSION
+    });
+  }
 }
 
 const chunkArray = <T>(items: T[], size: number): T[][] => {
@@ -315,6 +350,191 @@ const toIsoDate = (value: unknown): string | null => {
 const toEpochMs = (value: unknown): number | null => {
   const date = parseDate(value);
   return date ? date.getTime() : null;
+};
+
+const normalizeString = (value: unknown): string => (value === null || value === undefined ? '' : String(value).trim());
+
+const normalizeLower = (value: unknown): string => normalizeString(value).toLowerCase();
+
+const isLostReasonLabel = (value: unknown): boolean => {
+  const text = normalizeLower(value);
+  if (!text) return false;
+  return (
+    text.includes('lost reason') ||
+    text.includes('lostreason') ||
+    text.includes('lost_reason') ||
+    text.includes('lost-reason') ||
+    text.includes('verlies') ||
+    text.includes('verloren') ||
+    text === 'reason' ||
+    text === 'reden' ||
+    (text.includes('lost') && text.includes('reason'))
+  );
+};
+
+const isOpportunityField = (field: CustomFieldRecord): boolean => {
+  const marker = normalizeLower(field.model ?? field.object ?? field.objectKey ?? field.type ?? field.fieldKey ?? field.key);
+  if (!marker) return true;
+  return marker.includes('opportunity');
+};
+
+const extractOptionList = (field: CustomFieldRecord): unknown[] => {
+  const candidates = [
+    field.options,
+    (field as Record<string, unknown>)?.choices,
+    (field as Record<string, unknown>)?.allowedValues,
+    (field as Record<string, unknown>)?.values,
+    (field as Record<string, unknown>)?.items,
+    (field as Record<string, unknown>)?.enum,
+    (field as Record<string, unknown>)?.picklistOptions,
+    (field as Record<string, unknown>)?.selectOptions,
+    (field as Record<string, unknown>)?.textBoxListOptions,
+    (field as Record<string, unknown>)?.meta && (field as Record<string, unknown>).meta?.options
+  ];
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) return candidate;
+  }
+
+  return [];
+};
+
+const mapOption = (option: unknown): { id: string; name: string } | null => {
+  if (option === null || option === undefined) return null;
+  if (typeof option === 'string' || typeof option === 'number' || typeof option === 'boolean') {
+    const value = normalizeString(option);
+    if (!value) return null;
+    return { id: value, name: value };
+  }
+
+  const record = option as Record<string, unknown>;
+  const id = normalizeString(record.id ?? record.value ?? record.key ?? record._id ?? record.optionId ?? record.code);
+  const name = normalizeString(record.name ?? record.label ?? record.value ?? record.text ?? record.title ?? record.displayName);
+
+  if (!id && !name) return null;
+  return { id: id || name, name: name || id };
+};
+
+const extractLostReasonsFromCustomFields = (payload: unknown): { id: string; name: string }[] => {
+  const fields = Array.isArray(payload)
+    ? payload
+    : (payload as Record<string, unknown>)?.customFields ??
+      (payload as Record<string, unknown>)?.custom_fields ??
+      (payload as Record<string, unknown>)?.fields ??
+      [];
+
+  const list = Array.isArray(fields) ? fields : [];
+  const reasons: { id: string; name: string }[] = [];
+
+  list.forEach((entry) => {
+    const field = entry as CustomFieldRecord;
+    const fieldName = field.name ?? field.label ?? field.fieldKey ?? field.key ?? '';
+    if (!isLostReasonLabel(fieldName)) return;
+    if (!isOpportunityField(field)) return;
+
+    const options = extractOptionList(field);
+    options.forEach((option) => {
+      const mapped = mapOption(option);
+      if (mapped) reasons.push(mapped);
+    });
+  });
+
+  return reasons;
+};
+
+const extractLostReasonsFromPipelines = (payload: unknown): { id: string; name: string }[] => {
+  const pipelines = Array.isArray(payload)
+    ? payload
+    : (payload as Record<string, unknown>)?.pipelines ??
+      (payload as Record<string, unknown>)?.data ??
+      [];
+
+  const list = Array.isArray(pipelines) ? pipelines : [];
+  const reasons: { id: string; name: string }[] = [];
+
+  const keyMatches = (key: string) => {
+    const lowered = normalizeLower(key);
+    return (
+      lowered.includes('lost') ||
+      lowered.includes('reason') ||
+      lowered.includes('verloren') ||
+      lowered.includes('verlies')
+    );
+  };
+
+  const collectFromValue = (value: unknown, matchContext: boolean) => {
+    if (value === null || value === undefined) return;
+    if (Array.isArray(value)) {
+      value.forEach((item) => {
+        if (matchContext) {
+          const mapped = mapOption(item);
+          if (mapped) reasons.push(mapped);
+        }
+        collectFromValue(item, matchContext);
+      });
+      return;
+    }
+    if (typeof value !== 'object') return;
+
+    const record = value as Record<string, unknown>;
+    const idCandidate = normalizeString(
+      record.lostReasonId ?? record.lost_reason_id ?? record.reasonId ?? record.reason_id ?? record.lostReasonID
+    );
+    const nameCandidate = normalizeString(
+      record.lostReasonName ?? record.lost_reason_name ?? record.reasonName ?? record.reason_name
+    );
+
+    if (idCandidate && nameCandidate) {
+      reasons.push({ id: idCandidate, name: nameCandidate });
+    }
+
+    if (matchContext && !idCandidate) {
+      const mapped = mapOption(record);
+      if (mapped) reasons.push(mapped);
+    }
+
+    Object.entries(record).forEach(([key, child]) => {
+      const nextMatch = matchContext || keyMatches(key);
+      collectFromValue(child, nextMatch);
+    });
+  };
+
+  list.forEach((entry) => {
+    const pipeline = entry as PipelineRecord;
+    const candidates = [
+      (pipeline as Record<string, unknown>)?.lostReasons,
+      (pipeline as Record<string, unknown>)?.lost_reasons,
+      (pipeline as Record<string, unknown>)?.lostReasonOptions
+    ];
+
+    candidates.forEach((candidate) => {
+      if (!Array.isArray(candidate)) return;
+      candidate.forEach((option) => {
+        const mapped = mapOption(option);
+        if (mapped) reasons.push(mapped);
+      });
+    });
+
+    collectFromValue(pipeline, false);
+  });
+
+  return reasons;
+};
+
+const dedupeReasons = (items: { id: string; name: string }[]) => {
+  const map = new Map<string, { id: string; name: string }>();
+  items.forEach((item) => {
+    if (!item?.id || !item?.name) return;
+    if (!map.has(item.id)) {
+      map.set(item.id, item);
+      return;
+    }
+    const existing = map.get(item.id);
+    if (existing && existing.name.length < item.name.length) {
+      map.set(item.id, item);
+    }
+  });
+  return Array.from(map.values());
 };
 
 const getSyncState = async (entity: string, locationId: string): Promise<SyncState | null> => {
@@ -404,6 +624,9 @@ const syncContacts = async (client: GhlClient, locationId: string, forceFullSync
   const syncStartedAt = new Date().toISOString();
   const { isFullSync, lastFullSyncAt } = getFullSyncFlags(state, forceFullSync);
 
+  const cursor = state?.cursor as Record<string, unknown> | null;
+  let allowStartAfter = !(cursor && cursor.contactsStartAfterDisabled === true);
+
   let startAfter = state?.cursor && typeof state.cursor.startAfter === 'number'
     ? (state.cursor.startAfter as number)
     : null;
@@ -414,7 +637,7 @@ const syncContacts = async (client: GhlClient, locationId: string, forceFullSync
   if (isFullSync) {
     startAfter = null;
     startAfterId = null;
-  } else if (env.CONTACTS_REFRESH_DAYS > 0) {
+  } else if (allowStartAfter && env.CONTACTS_REFRESH_DAYS > 0) {
     const refreshStart = now - env.CONTACTS_REFRESH_DAYS * 24 * 60 * 60 * 1000;
     if (!startAfter || startAfter > refreshStart) {
       startAfter = refreshStart;
@@ -426,12 +649,28 @@ const syncContacts = async (client: GhlClient, locationId: string, forceFullSync
 
   let total = 0;
   while (true) {
-    const response = await client.getContacts({
-      locationId,
-      limit: env.SYNC_BATCH_SIZE,
-      startAfter: startAfter ?? undefined,
-      startAfterId: startAfterId ?? undefined
-    });
+    let response: { contacts: unknown[]; count?: number };
+    try {
+      response = await client.getContacts({
+        locationId,
+        limit: env.SYNC_BATCH_SIZE,
+        startAfter: allowStartAfter ? startAfter ?? undefined : undefined,
+        startAfterId: startAfterId ?? undefined
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (allowStartAfter && message.includes('search_after')) {
+        console.warn('Contacts sync: startAfter rejected, retrying with startAfterId only.');
+        allowStartAfter = false;
+        response = await client.getContacts({
+          locationId,
+          limit: env.SYNC_BATCH_SIZE,
+          startAfterId: startAfterId ?? undefined
+        });
+      } else {
+        throw error;
+      }
+    }
 
     const contacts = (response.contacts ?? []) as ContactRecord[];
     if (contacts.length === 0) break;
@@ -470,7 +709,11 @@ const syncContacts = async (client: GhlClient, locationId: string, forceFullSync
 
     const last = contacts[contacts.length - 1];
     const lastTimestamp = toEpochMs(last.dateAdded ?? last.createdAt ?? last.dateUpdated ?? last.updatedAt);
-    if (lastTimestamp) startAfter = lastTimestamp;
+    if (allowStartAfter && lastTimestamp) {
+      startAfter = lastTimestamp;
+    } else {
+      startAfter = null;
+    }
     if (last.id) startAfterId = last.id;
 
     await saveSyncState(
@@ -479,7 +722,8 @@ const syncContacts = async (client: GhlClient, locationId: string, forceFullSync
       {
         startAfter: startAfter ?? null,
         startAfterId: startAfterId ?? null,
-        lastFullSyncAt: isFullSync ? syncStartedAt : lastFullSyncAt
+        lastFullSyncAt: isFullSync ? syncStartedAt : lastFullSyncAt,
+        contactsStartAfterDisabled: !allowStartAfter
       },
       new Date().toISOString()
     );
@@ -723,6 +967,64 @@ const syncAppointments = async (client: GhlClient, locationId: string, forceFull
   return total;
 };
 
+const syncLostReasonLookup = async (client: GhlClient, locationId: string) => {
+  console.log('Syncing lost reason lookup...');
+  const collected: { id: string; name: string }[] = [];
+
+  try {
+    const pipelineResponse = await client.getPipelines({ locationId });
+    const pipelinesList = Array.isArray(pipelineResponse)
+      ? pipelineResponse
+      : ((pipelineResponse as Record<string, unknown>)?.pipelines ??
+        (pipelineResponse as Record<string, unknown>)?.data ??
+        []);
+    console.log(`Lost reason lookup: pipelines fetched (${Array.isArray(pipelinesList) ? pipelinesList.length : 0}).`);
+    collected.push(...extractLostReasonsFromPipelines(pipelineResponse));
+  } catch (error) {
+    console.warn('Lost reason lookup: pipeline fetch failed.', error);
+  }
+
+  try {
+    const fieldResponse = await client.getCustomFields({ locationId });
+    const fieldList = Array.isArray(fieldResponse)
+      ? fieldResponse
+      : ((fieldResponse as Record<string, unknown>)?.customFields ??
+        (fieldResponse as Record<string, unknown>)?.custom_fields ??
+        (fieldResponse as Record<string, unknown>)?.fields ??
+        []);
+    console.log(`Lost reason lookup: custom fields fetched (${Array.isArray(fieldList) ? fieldList.length : 0}).`);
+    collected.push(...extractLostReasonsFromCustomFields(fieldResponse));
+  } catch (error) {
+    console.warn('Lost reason lookup: custom fields fetch failed.', error);
+  }
+
+  const reasons = dedupeReasons(collected);
+  if (!reasons.length) {
+    console.warn('Lost reason lookup: no reasons found.');
+    return 0;
+  }
+
+  console.log(`Lost reason lookup: ${reasons.length} reasons extracted.`);
+
+  const updatedAt = new Date().toISOString();
+  const rows = reasons.map((reason) => ({
+    location_id: locationId,
+    reason_id: reason.id,
+    reason_name: reason.name,
+    updated_at: updatedAt
+  }));
+
+  for (const chunk of chunkArray(rows, 500)) {
+    const { error } = await supabase.from('lost_reason_lookup').upsert(chunk, {
+      onConflict: 'location_id,reason_id'
+    });
+    if (error) throw error;
+  }
+
+  console.log(`Lost reason lookup sync complete. Total records: ${reasons.length}.`);
+  return reasons.length;
+};
+
 const parseRequestConfig = async (req: Request) => {
   const url = new URL(req.url);
   const entitiesParam = url.searchParams.get('entities');
@@ -753,7 +1055,7 @@ const parseRequestConfig = async (req: Request) => {
 
   if (entities.size === 0 || entities.has('all')) {
     return {
-      entities: ['contacts', 'opportunities', 'appointments'],
+      entities: ['contacts', 'opportunities', 'appointments', 'lost_reasons'],
       forceFullSync: parseBoolValue(fullSyncParam ?? fullSyncFromBody)
     };
   }
@@ -785,18 +1087,29 @@ Deno.serve(async (req) => {
     const client = new GhlClient(env.GHL_BASE_URL, integration.token);
 
     const results: Record<string, number> = {};
+    const errors: Record<string, string> = {};
 
     for (const entity of entities) {
-      if (entity === 'contacts') {
-        results.contacts = await syncContacts(client, integration.locationId, forceFullSync);
-      } else if (entity === 'opportunities') {
-        results.opportunities = await syncOpportunities(client, integration.locationId, forceFullSync);
-      } else if (entity === 'appointments') {
-        results.appointments = await syncAppointments(client, integration.locationId, forceFullSync);
+      try {
+        if (entity === 'contacts') {
+          results.contacts = await syncContacts(client, integration.locationId, forceFullSync);
+        } else if (entity === 'opportunities') {
+          results.opportunities = await syncOpportunities(client, integration.locationId, forceFullSync);
+        } else if (entity === 'appointments') {
+          results.appointments = await syncAppointments(client, integration.locationId, forceFullSync);
+        } else if (entity === 'lost_reasons') {
+          results.lost_reasons = await syncLostReasonLookup(client, integration.locationId);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`Sync for ${entity} failed:`, error);
+        errors[entity] = message;
       }
     }
 
-    return new Response(JSON.stringify({ ok: true, results, force_full_sync: forceFullSync }), {
+    const ok = Object.keys(errors).length === 0;
+
+    return new Response(JSON.stringify({ ok, results, errors, force_full_sync: forceFullSync }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' }
     });

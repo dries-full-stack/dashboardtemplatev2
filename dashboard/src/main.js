@@ -110,6 +110,7 @@ const LOST_REASON_RATIOS = [
   { label: 'Geen reactie na follow-up', ratio: 0.11, color: 'rgb(26, 162, 230)' },
   { label: 'Overig', ratio: 0.07, color: 'rgb(217, 38, 38)' }
 ];
+const LOST_REASON_COLORS = LOST_REASON_RATIOS.map((reason) => reason.color);
 
 const DRILLDOWN_LABELS = {
   leads: 'Leads (opportunities)',
@@ -118,7 +119,10 @@ const DRILLDOWN_LABELS = {
   appointments_cancelled: 'Cancelled afspraken',
   appointments_confirmed: 'Confirmed afspraken',
   appointments_no_show: 'No-show afspraken',
-  deals: 'Deals'
+  deals: 'Deals',
+  hook_leads: 'Leads',
+  hook_appointments: 'Afspraken',
+  lost_reason_leads: 'Verloren leads'
 };
 
 const DEFAULT_BOUNDS = { min: '2018-01-01', max: '2035-12-31' };
@@ -156,7 +160,7 @@ let dateRange = { ...DEFAULT_RANGE };
 let pickerState = { open: false, selecting: 'start', viewMonth: DEFAULT_RANGE.start.slice(0, 7) };
 
 const mockBadge = '<span class="mock-badge">Mock data</span>';
-const DEBUG_ENABLED = true;
+const DEBUG_ENABLED = false;
 
 const liveState = {
   opportunities: {
@@ -187,6 +191,20 @@ const liveState = {
     errorMessage: '',
     inFlight: false
   },
+  lostReasons: {
+    status: 'idle',
+    rows: null,
+    rangeKey: '',
+    errorMessage: '',
+    inFlight: false
+  },
+  finance: {
+    status: 'idle',
+    totals: null,
+    rangeKey: '',
+    errorMessage: '',
+    inFlight: false
+  },
   sync: {
     status: 'idle',
     timestamp: null,
@@ -211,6 +229,7 @@ const configState = {
   source: ghlLocationId ? 'env' : null,
   hookFieldId: null,
   campaignFieldId: null,
+  lostReasonFieldId: null,
   errorMessage: ''
 };
 
@@ -275,12 +294,16 @@ const loadLocationConfig = async () => {
   if (!supabase) return;
   if (configState.status === 'loading') return;
 
+  const prevHookFieldId = configState.hookFieldId;
+  const prevCampaignFieldId = configState.campaignFieldId;
+  const prevLostReasonFieldId = configState.lostReasonFieldId;
+
   configState.status = 'loading';
   configState.errorMessage = '';
 
   const { data, error } = await supabase
     .from('dashboard_config')
-    .select('location_id, hook_field_id, campaign_field_id, updated_at')
+    .select('location_id, hook_field_id, campaign_field_id, lost_reason_field_id, updated_at')
     .eq('id', 1)
     .maybeSingle();
 
@@ -312,6 +335,32 @@ const loadLocationConfig = async () => {
   }
   configState.hookFieldId = data?.hook_field_id || null;
   configState.campaignFieldId = data?.campaign_field_id || null;
+  configState.lostReasonFieldId = data?.lost_reason_field_id || null;
+
+  const hookChanged =
+    prevHookFieldId !== configState.hookFieldId || prevCampaignFieldId !== configState.campaignFieldId;
+  const lostChanged = prevLostReasonFieldId !== configState.lostReasonFieldId;
+
+  if (hookChanged) {
+    liveState.hookPerformance = {
+      status: 'idle',
+      rows: null,
+      rangeKey: '',
+      errorMessage: '',
+      inFlight: false
+    };
+  }
+
+  if (lostChanged) {
+    liveState.lostReasons = {
+      status: 'idle',
+      rows: null,
+      rangeKey: '',
+      errorMessage: '',
+      inFlight: false
+    };
+  }
+
   configState.status = 'ready';
   configState.errorMessage = '';
   scheduleRender();
@@ -376,6 +425,27 @@ const formatOptionalCurrency = (value, decimals = 2, suffix = '') =>
   Number.isFinite(value) ? `${formatCurrency(value, decimals)}${suffix}` : '--';
 const formatPercent = (value, decimals = 1) => `${formatNumber(value * 100, decimals)}%`;
 const safeDivide = (numerator, denominator) => (denominator ? numerator / denominator : 0);
+const isMetaSource = (value) => {
+  if (!value) return false;
+  return String(value).trim().toLowerCase().startsWith('meta');
+};
+const applyMetaSpendToSourceRows = (rows, spend) => {
+  if (!Array.isArray(rows)) return rows;
+  if (!Number.isFinite(spend) || spend <= 0) return rows;
+  const metaRows = rows.filter((row) => isMetaSource(row.source));
+  const totalMetaLeads = metaRows.reduce((sum, row) => sum + Number(row.rawLeads || 0), 0);
+  if (totalMetaLeads <= 0) return rows;
+
+  return rows.map((row) => {
+    if (!isMetaSource(row.source)) return row;
+    const leads = Number(row.rawLeads || 0);
+    const appointments = Number(row.rawAppointments || 0);
+    if (leads <= 0 || appointments <= 0) return { ...row, cost: '--' };
+    const allocatedSpend = spend * (leads / totalMetaLeads);
+    const costPerAppointment = allocatedSpend > 0 ? allocatedSpend / appointments : Number.NaN;
+    return { ...row, cost: formatOptionalCurrency(costPerAppointment, 2) };
+  });
+};
 const escapeHtml = (value) =>
   String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -569,6 +639,55 @@ const fetchHookPerformance = async (range) => {
   return data ?? [];
 };
 
+const fetchLostReasons = async (range) => {
+  if (!supabase) return null;
+  const activeLocationId = configState.locationId || ghlLocationId;
+  if (!activeLocationId) {
+    throw new Error('Location ID ontbreekt. Voeg deze toe via de setup (dashboard_config).');
+  }
+
+  const startIso = toUtcStart(range.start);
+  const endIso = toUtcEndExclusive(range.end);
+
+  const { data, error } = await withTimeout(
+    supabase.rpc('get_lost_reasons', {
+      p_location_id: activeLocationId,
+      p_start: startIso,
+      p_end: endIso
+    }),
+    12000,
+    'Supabase query timeout (lost reasons).'
+  );
+
+  if (error) throw error;
+  return data ?? [];
+};
+
+const fetchFinanceSummary = async (range) => {
+  if (!supabase) return null;
+  const activeLocationId = configState.locationId || ghlLocationId;
+  if (!activeLocationId) {
+    throw new Error('Location ID ontbreekt. Voeg deze toe via de setup (dashboard_config).');
+  }
+
+  const startIso = toUtcStart(range.start);
+  const endIso = toUtcEndExclusive(range.end);
+
+  const { data, error } = await withTimeout(
+    supabase.rpc('get_finance_summary', {
+      p_location_id: activeLocationId,
+      p_start: startIso,
+      p_end: endIso
+    }),
+    12000,
+    'Supabase query timeout (finance summary).'
+  );
+
+  if (error) throw error;
+  if (Array.isArray(data)) return data[0] ?? null;
+  return data ?? null;
+};
+
 const fetchDrilldownRecords = async ({ kind, source, range }) => {
   if (!supabase) return null;
   const activeLocationId = configState.locationId || ghlLocationId;
@@ -578,6 +697,42 @@ const fetchDrilldownRecords = async ({ kind, source, range }) => {
 
   const startIso = toUtcStart(range.start);
   const endIso = toUtcEndExclusive(range.end);
+
+  if (kind === 'hook_leads' || kind === 'hook_appointments') {
+    const hookKind = kind === 'hook_leads' ? 'leads' : 'appointments';
+    const { data, error } = await withTimeout(
+      supabase.rpc('get_hook_records', {
+        p_location_id: activeLocationId,
+        p_start: startIso,
+        p_end: endIso,
+        p_kind: hookKind,
+        p_hook: source || null,
+        p_limit: 200
+      }),
+      12000,
+      'Supabase query timeout (hook records).'
+    );
+
+    if (error) throw error;
+    return data ?? [];
+  }
+
+  if (kind === 'lost_reason_leads') {
+    const { data, error } = await withTimeout(
+      supabase.rpc('get_lost_reason_records', {
+        p_location_id: activeLocationId,
+        p_start: startIso,
+        p_end: endIso,
+        p_reason: source || null,
+        p_limit: 200
+      }),
+      12000,
+      'Supabase query timeout (lost reason records).'
+    );
+
+    if (error) throw error;
+    return data ?? [];
+  }
 
   const { data, error } = await withTimeout(
     supabase.rpc('get_source_records', {
@@ -596,9 +751,98 @@ const fetchDrilldownRecords = async ({ kind, source, range }) => {
   return data ?? [];
 };
 
+const normalizeEmail = (value) => {
+  if (!value) return '';
+  return String(value).trim().toLowerCase();
+};
+
+const chunkValues = (values, size = 100) => {
+  const chunks = [];
+  for (let i = 0; i < values.length; i += size) {
+    chunks.push(values.slice(i, i + size));
+  }
+  return chunks;
+};
+
+const hydrateDrilldownContacts = async (rows) => {
+  if (!supabase || !Array.isArray(rows) || rows.length === 0) return rows;
+
+  const missing = rows.filter((row) => !row?.contact_name || !row?.contact_email);
+  if (!missing.length) return rows;
+
+  const ids = Array.from(new Set(missing.map((row) => row?.contact_id).filter(Boolean)));
+  const emails = Array.from(
+    new Set(missing.map((row) => normalizeEmail(row?.contact_email)).filter(Boolean))
+  );
+
+  const contactById = new Map();
+  const contactByEmail = new Map();
+
+  const fetchContacts = async (field, values) => {
+    const chunks = chunkValues(values, 100);
+    for (const chunk of chunks) {
+      const { data, error } = await supabase
+        .from('contacts_view')
+        .select('id, email, contact_name, first_name, last_name')
+        .in(field, chunk);
+      if (error) throw error;
+      (data ?? []).forEach((contact) => {
+        const contactName =
+          contact?.contact_name ||
+          [contact?.first_name, contact?.last_name].filter(Boolean).join(' ').trim();
+        const email = normalizeEmail(contact?.email);
+        if (contact?.id) {
+          contactById.set(contact.id, { name: contactName, email: contact?.email });
+        }
+        if (email) {
+          contactByEmail.set(email, { name: contactName, email: contact?.email });
+        }
+      });
+    }
+  };
+
+  try {
+    if (ids.length) {
+      await fetchContacts('id', ids);
+    }
+    if (emails.length) {
+      await fetchContacts('email', emails);
+    }
+  } catch (error) {
+    console.warn('Drilldown contact hydration failed.', error);
+    return rows;
+  }
+
+  return rows.map((row) => {
+    if (!row) return row;
+    const byId = row.contact_id ? contactById.get(row.contact_id) : null;
+    const byEmail = row.contact_email ? contactByEmail.get(normalizeEmail(row.contact_email)) : null;
+    const fallback = byId || byEmail;
+    if (!fallback) return row;
+    return {
+      ...row,
+      contact_name: row.contact_name || fallback.name || row.contact_name,
+      contact_email: row.contact_email || fallback.email || row.contact_email
+    };
+  });
+};
+
 const buildDrilldownTitle = (kind, source, label) => {
   const base = label || DRILLDOWN_LABELS[kind] || 'Records';
-  return source ? `${base} · ${source}` : base;
+  if (!source) return base;
+  if (kind?.startsWith('hook_') || kind?.startsWith('lost_reason_')) return base;
+  return `${base} · ${source}`;
+};
+
+const getDrilldownFilterLabel = (kind, source) => {
+  if (!source) return '';
+  if (kind?.startsWith('hook_')) {
+    return `Hook: ${escapeHtml(source)}`;
+  }
+  if (kind?.startsWith('lost_reason_')) {
+    return `Verliesreden: ${escapeHtml(source)}`;
+  }
+  return `Bron: ${escapeHtml(source)}`;
 };
 
 const openDrilldown = async ({ kind, source, label, range }) => {
@@ -626,8 +870,9 @@ const openDrilldown = async ({ kind, source, label, range }) => {
 
   try {
     const rows = await fetchDrilldownRecords({ kind, source, range });
+    const hydratedRows = await hydrateDrilldownContacts(Array.isArray(rows) ? rows : []);
     drilldownState.status = 'ready';
-    drilldownState.rows = Array.isArray(rows) ? rows : [];
+    drilldownState.rows = Array.isArray(hydratedRows) ? hydratedRows : [];
   } catch (error) {
     drilldownState.status = 'error';
     drilldownState.errorMessage = error instanceof Error ? error.message : 'Onbekende fout';
@@ -797,6 +1042,98 @@ const ensureHookPerformance = async (range) => {
     liveState.hookPerformance = {
       status: 'error',
       rows: null,
+      rangeKey: key,
+      errorMessage: error instanceof Error ? error.message : 'Onbekende fout',
+      inFlight: false
+    };
+  }
+
+  scheduleRender();
+};
+
+const ensureLostReasons = async (range) => {
+  if (!supabase) return;
+
+  const key = buildRangeKey(range);
+
+  if (!configState.locationId) {
+    if (configState.status === 'idle') {
+      loadLocationConfig();
+    }
+    return;
+  }
+
+  if (liveState.lostReasons.rangeKey === key && liveState.lostReasons.inFlight) return;
+  if (liveState.lostReasons.rangeKey === key && liveState.lostReasons.status === 'ready') return;
+
+  liveState.lostReasons = {
+    status: 'loading',
+    rows: null,
+    rangeKey: key,
+    errorMessage: '',
+    inFlight: true
+  };
+  scheduleRender();
+
+  try {
+    const rows = await fetchLostReasons(range);
+    liveState.lostReasons = {
+      status: 'ready',
+      rows,
+      rangeKey: key,
+      errorMessage: '',
+      inFlight: false
+    };
+  } catch (error) {
+    liveState.lostReasons = {
+      status: 'error',
+      rows: null,
+      rangeKey: key,
+      errorMessage: error instanceof Error ? error.message : 'Onbekende fout',
+      inFlight: false
+    };
+  }
+
+  scheduleRender();
+};
+
+const ensureFinanceSummary = async (range) => {
+  if (!supabase) return;
+
+  const key = buildRangeKey(range);
+
+  if (!configState.locationId) {
+    if (configState.status === 'idle') {
+      loadLocationConfig();
+    }
+    return;
+  }
+
+  if (liveState.finance.rangeKey === key && liveState.finance.inFlight) return;
+  if (liveState.finance.rangeKey === key && liveState.finance.status === 'ready') return;
+
+  liveState.finance = {
+    status: 'loading',
+    totals: null,
+    rangeKey: key,
+    errorMessage: '',
+    inFlight: true
+  };
+  scheduleRender();
+
+  try {
+    const totals = await fetchFinanceSummary(range);
+    liveState.finance = {
+      status: 'ready',
+      totals,
+      rangeKey: key,
+      errorMessage: '',
+      inFlight: false
+    };
+  } catch (error) {
+    liveState.finance = {
+      status: 'error',
+      totals: null,
       rangeKey: key,
       errorMessage: error instanceof Error ? error.message : 'Onbekende fout',
       inFlight: false
@@ -1068,7 +1405,8 @@ const getOpportunityDebug = (range) => {
   if (
     liveState.opportunities.rangeKey !== key &&
     liveState.appointments.rangeKey !== key &&
-    liveState.sourceBreakdown.rangeKey !== key
+    liveState.sourceBreakdown.rangeKey !== key &&
+    liveState.lostReasons.rangeKey !== key
   ) {
     return null;
   }
@@ -1076,7 +1414,8 @@ const getOpportunityDebug = (range) => {
   if (
     liveState.opportunities.status === 'loading' ||
     liveState.appointments.status === 'loading' ||
-    liveState.sourceBreakdown.status === 'loading'
+    liveState.sourceBreakdown.status === 'loading' ||
+    liveState.lostReasons.status === 'loading'
   ) {
     return { tone: 'info', text: 'Live data wordt opgehaald uit Supabase...' };
   }
@@ -1102,6 +1441,13 @@ const getOpportunityDebug = (range) => {
     };
   }
 
+  if (liveState.lostReasons.status === 'error') {
+    return {
+      tone: 'danger',
+      text: `Supabase error: ${liveState.lostReasons.errorMessage || 'onbekend'} (check RLS/policies).`
+    };
+  }
+
   return null;
 };
 
@@ -1116,11 +1462,15 @@ const renderDebugPanel = (range) => {
   const status = liveState.opportunities.status;
   const appointmentStatus = liveState.appointments.status;
   const sourceStatus = liveState.sourceBreakdown.status;
+  const hookStatus = liveState.hookPerformance.status;
+  const lostStatus = liveState.lostReasons.status;
   const inFlight = liveState.opportunities.inFlight ? 'yes' : 'no';
   const count = liveState.opportunities.count;
   const errorMessage = liveState.opportunities.errorMessage;
   const rangeMatch = liveState.opportunities.rangeKey === key ? 'yes' : 'no';
   const sourceCount = Array.isArray(liveState.sourceBreakdown.rows) ? liveState.sourceBreakdown.rows.length : 0;
+  const hookCount = Array.isArray(liveState.hookPerformance.rows) ? liveState.hookPerformance.rows.length : 0;
+  const lostCount = Array.isArray(liveState.lostReasons.rows) ? liveState.lostReasons.rows.length : 0;
 
   const message = [
     `supabase: ${supabaseStatus}`,
@@ -1132,9 +1482,13 @@ const renderDebugPanel = (range) => {
     `status: ${status}`,
     `appointments_status: ${appointmentStatus}`,
     `source_status: ${sourceStatus}`,
+    `hook_status: ${hookStatus}`,
+    `lost_status: ${lostStatus}`,
     `in_flight: ${inFlight}`,
     typeof count === 'number' ? `count: ${count}` : '',
     sourceCount ? `sources: ${sourceCount}` : '',
+    hookCount ? `hooks: ${hookCount}` : '',
+    lostCount ? `lost_reasons: ${lostCount}` : '',
     errorMessage ? `error: ${errorMessage}` : ''
   ]
     .filter(Boolean)
@@ -1308,11 +1662,10 @@ const computeMetrics = (range) => {
       (acc, entry) => {
         acc.leads += entry.leads;
         acc.appointments += entry.appointments;
-        acc.deals += entry.deals;
         acc.cost += entry.leads * entry.costPerLead;
         return acc;
       },
-      { leads: 0, appointments: 0, deals: 0, cost: 0 }
+      { leads: 0, appointments: 0, cost: 0 }
     );
 
     return {
@@ -1321,30 +1674,26 @@ const computeMetrics = (range) => {
       appointments: formatNumber(sourceTotals.appointments),
       noLeadInRange: formatNumber(0),
       plan: formatPercent(safeDivide(sourceTotals.appointments, sourceTotals.leads), 1),
-      deals: formatNumber(sourceTotals.deals),
-      toDeals: formatPercent(safeDivide(sourceTotals.deals, sourceTotals.leads), 1),
-      cost: formatCurrency(safeDivide(sourceTotals.cost, sourceTotals.deals), 2),
+      cost: formatCurrency(safeDivide(sourceTotals.cost, sourceTotals.appointments), 2),
       rawLeads: sourceTotals.leads,
       rawAppointments: sourceTotals.appointments,
-      rawNoLeadInRange: 0,
-      rawDeals: sourceTotals.deals
+      rawNoLeadInRange: 0
     };
   });
 
+  const costPerLead = totals.leads > 0 ? totals.cost / totals.leads : Number.NaN;
   const financeMetrics = [
     { label: 'Totale Leadkosten', value: formatCurrency(totals.cost, 0), icon: icons.dollar('lucide lucide-dollar-sign w-4 h-4 text-primary'), className: '' },
-    { label: 'Kost per Afspraak', value: formatCurrency(safeDivide(totals.cost, totals.appointments), 0), icon: icons.chartColumn('lucide lucide-chart-column w-4 h-4 text-primary'), className: '' },
-    { label: 'Totale Omzet', value: formatCurrency(totals.revenue, 0), icon: icons.trendingUp('lucide lucide-trending-up w-4 h-4 text-primary'), className: 'kpi-card-success' },
-    { label: 'Winst / Verlies', value: formatCurrency(profit, 0), icon: icons.check('lucide lucide-circle-check-big w-4 h-4 text-primary'), className: 'kpi-card-success' },
-    { label: 'ROI', value: formatPercent(roi, 1), icon: icons.percent('lucide lucide-percent w-4 h-4 text-primary'), className: 'kpi-card-success' }
+    { label: 'Kost per Lead', value: formatOptionalCurrency(costPerLead, 2), icon: icons.chartColumn('lucide lucide-chart-column w-4 h-4 text-primary'), className: '' }
   ];
 
   const hookMetrics = HOOK_ORDER.map((hook) => {
     const hookEntries = filtered.filter((entry) => entry.hook === hook);
     const totalsByHook = hookEntries.reduce(
       (acc, entry) => {
+        const confirmed = Math.max(entry.appointments - entry.cancelled - entry.noShow - entry.rescheduled, 0);
         acc.leads += entry.leads;
-        acc.appointments += entry.appointments;
+        acc.appointments += confirmed;
         acc.cost += entry.leads * entry.costPerLead;
         return acc;
       },
@@ -1378,17 +1727,19 @@ const computeMetrics = (range) => {
   const mostExpensiveLeads = activeHooks.reduce((best, hook) => (hook.costPerLead > best.costPerLead ? hook : best), fallbackHook);
   const mostVolume = activeHooks.reduce((best, hook) => (hook.leads > best.leads ? hook : best), fallbackHook);
 
-  const hookCards = [...activeHooks]
-    .sort((a, b) => b.leads - a.leads)
-    .map((hook) => ({
-      label: hook.hook,
-      leads: formatNumber(hook.leads),
-      appointments: formatNumber(hook.appointments),
-      conversion: formatPercent(hook.conversion, 1),
-      costPerLead: formatCurrency(hook.costPerLead, 2),
-      costPerCall: formatCurrency(hook.costPerCall, 2),
-      spend: formatCurrency(hook.spend, 0),
-      badges: {
+    const hookCards = [...activeHooks]
+      .sort((a, b) => b.leads - a.leads)
+      .map((hook) => ({
+        label: hook.hook,
+        leads: formatNumber(hook.leads),
+        rawLeads: hook.leads,
+        appointments: formatNumber(hook.appointments),
+        rawAppointments: hook.appointments,
+        conversion: formatPercent(hook.conversion, 1),
+        costPerLead: formatCurrency(hook.costPerLead, 2),
+        costPerCall: formatCurrency(hook.costPerCall, 2),
+        spend: formatCurrency(hook.spend, 0),
+        badges: {
         bestConversion: bestConversion && hook.hook === bestConversion.hook,
         cheapest: cheapestLeads && hook.hook === cheapestLeads.hook,
         mostVolume: mostVolume && hook.hook === mostVolume.hook,
@@ -1429,6 +1780,7 @@ const computeMetrics = (range) => {
     hookCards,
     hookPerformanceLive: false,
     lostReasons,
+    lostReasonsLive: false,
     summaryCards,
     totalLost
   };
@@ -1439,7 +1791,9 @@ const buildHookMetricsFromLive = (rows) => {
 
   const aggregated = new Map();
   rows.forEach((row) => {
-    const hook = row?.hook ? String(row.hook) : 'Onbekend';
+    const rawHook = row?.hook ? String(row.hook) : 'Onbekend';
+    const campaign = row?.campaign ? String(row.campaign) : 'Onbekend';
+    const hook = rawHook === 'Onbekend' && campaign && campaign !== 'Onbekend' ? campaign : rawHook;
     const leads = Number(row?.leads ?? 0);
     const appointments = Number(row?.appointments ?? 0);
     const current = aggregated.get(hook) || { hook, leads: 0, appointments: 0 };
@@ -1482,17 +1836,19 @@ const buildHookMetricsFromLive = (rows) => {
     ? activeHooks.reduce((best, hook) => (hook.costPerLead > best.costPerLead ? hook : best), fallbackHook)
     : null;
 
-  const hookCards = [...activeHooks]
-    .sort((a, b) => b.leads - a.leads)
-    .map((hook) => ({
-      label: hook.hook,
-      leads: formatNumber(hook.leads),
-      appointments: formatNumber(hook.appointments),
-      conversion: formatPercent(hook.conversion, 1),
-      costPerLead: formatOptionalCurrency(hook.costPerLead, 2),
-      costPerCall: formatOptionalCurrency(hook.costPerCall, 2),
-      spend: formatOptionalCurrency(hook.spend, 0),
-      badges: {
+    const hookCards = [...activeHooks]
+      .sort((a, b) => b.leads - a.leads)
+      .map((hook) => ({
+        label: hook.hook,
+        leads: formatNumber(hook.leads),
+        rawLeads: hook.leads,
+        appointments: formatNumber(hook.appointments),
+        rawAppointments: hook.appointments,
+        conversion: formatPercent(hook.conversion, 1),
+        costPerLead: formatOptionalCurrency(hook.costPerLead, 2),
+        costPerCall: formatOptionalCurrency(hook.costPerCall, 2),
+        spend: formatOptionalCurrency(hook.spend, 0),
+        badges: {
         bestConversion: bestConversion && hook.hook === bestConversion.hook,
         cheapest: cheapestLeads ? hook.hook === cheapestLeads.hook : false,
         mostVolume: mostVolume && hook.hook === mostVolume.hook,
@@ -1505,6 +1861,74 @@ const buildHookMetricsFromLive = (rows) => {
     hookHighlights: { best: bestConversion, worst: worstConversion },
     hookCards
   };
+};
+
+const normalizeLostReasonLabel = (value) => {
+  if (!value) return '';
+  const label = String(value).trim();
+  return label;
+};
+
+const buildLostReasonsFromLive = (rows) => {
+  if (!Array.isArray(rows)) return null;
+
+  const cleaned = rows
+    .map((row) => {
+      const label = normalizeLostReasonLabel(
+        row?.reason ?? row?.lost_reason ?? row?.label ?? row?.lostReason ?? row?.lostreason
+      );
+      const count = Number(row?.total ?? row?.count ?? 0);
+      return {
+        label: label || 'Overig',
+        count: Number.isFinite(count) ? count : 0
+      };
+    })
+    .filter((entry) => entry.count > 0);
+
+  if (!cleaned.length) {
+    return {
+      lostReasons: [
+        {
+          label: 'Geen data',
+          count: 0,
+          value: '0 (0%)',
+          width: '0%',
+          color: LOST_REASON_COLORS[0],
+          highlight: false
+        }
+      ],
+      totalLost: 0
+    };
+  }
+
+  const totalLost = cleaned.reduce((sum, entry) => sum + entry.count, 0);
+  const maxLost = Math.max(...cleaned.map((entry) => entry.count));
+
+  const lostReasons = cleaned
+    .sort((a, b) => b.count - a.count)
+    .map((entry, index) => {
+      const percent = safeDivide(entry.count, totalLost);
+      return {
+        label: entry.label,
+        count: entry.count,
+        value: `${formatNumber(entry.count)} (${formatNumber(percent * 100, 0)}%)`,
+        width: `${Math.round(percent * 100)}%`,
+        color: LOST_REASON_COLORS[index % LOST_REASON_COLORS.length],
+        highlight: entry.count === maxLost && entry.count > 0
+      };
+    });
+
+  return { lostReasons, totalLost };
+};
+
+const updateLostReasonSummary = (metrics, lostReasons, totalLost) => {
+  if (!metrics?.summaryCards?.length || !lostReasons?.length) return;
+  const topReason = lostReasons.find((reason) => reason.highlight) || lostReasons[0];
+  if (!topReason) return;
+  const card = metrics.summaryCards.find((entry) => entry.label === 'Top Verliesreden');
+  if (!card) return;
+  card.value = topReason.label;
+  card.detail = `${formatNumber(safeDivide(topReason.count, totalLost) * 100, 0)}% van verloren leads`;
 };
 
 const applyLiveOverrides = (metrics, range) => {
@@ -1609,11 +2033,10 @@ const applyLiveOverrides = (metrics, range) => {
   }
 
   if (liveState.sourceBreakdown.status === 'ready' && Array.isArray(liveState.sourceBreakdown.rows)) {
-    const liveRows = liveState.sourceBreakdown.rows.map((row) => {
+    let liveRows = liveState.sourceBreakdown.rows.map((row) => {
       const leads = Number(row.leads ?? 0);
       const appointments = Number(row.appointments ?? 0);
       const noLeadInRange = Number(row.appointments_without_lead_in_range ?? 0);
-      const deals = Number(row.deals ?? 0);
 
       return {
         source: row.source ?? 'Onbekend',
@@ -1621,15 +2044,17 @@ const applyLiveOverrides = (metrics, range) => {
         appointments: formatNumber(appointments),
         noLeadInRange: formatNumber(noLeadInRange),
         plan: formatPercent(safeDivide(appointments, leads), 1),
-        deals: formatNumber(deals),
-        toDeals: formatPercent(safeDivide(deals, leads), 1),
         cost: '--',
         rawLeads: leads,
         rawAppointments: appointments,
-        rawNoLeadInRange: noLeadInRange,
-        rawDeals: deals
+        rawNoLeadInRange: noLeadInRange
       };
     });
+
+    if (liveState.finance.status === 'ready') {
+      const spend = Number(liveState.finance.totals?.total_spend ?? 0);
+      liveRows = applyMetaSpendToSourceRows(liveRows, spend);
+    }
 
     metrics.sourceRows = liveRows.length ? liveRows : metrics.sourceRows;
     metrics.sourceRowsLive = liveRows.length > 0;
@@ -1642,6 +2067,56 @@ const applyLiveOverrides = (metrics, range) => {
       metrics.hookCards = hookMetrics.hookCards;
       metrics.hookPerformanceLive = true;
     }
+  }
+
+  if (liveState.lostReasons.status === 'ready' && Array.isArray(liveState.lostReasons.rows)) {
+    const lostMetrics = buildLostReasonsFromLive(liveState.lostReasons.rows);
+    if (lostMetrics) {
+      metrics.lostReasons = lostMetrics.lostReasons;
+      metrics.totalLost = lostMetrics.totalLost;
+      metrics.lostReasonsLive = true;
+      updateLostReasonSummary(metrics, lostMetrics.lostReasons, lostMetrics.totalLost);
+    }
+  }
+
+  if (liveState.finance.status === 'ready') {
+    const totals = liveState.finance.totals || {};
+    const spend = Number(totals.total_spend ?? 0);
+    const leads = Number(totals.total_leads ?? 0);
+    const costPerLead = leads > 0 ? spend / leads : Number.NaN;
+    metrics.financeMetrics = [
+      {
+        label: 'Totale Leadkosten',
+        value: formatCurrency(spend, 0),
+        icon: icons.dollar('lucide lucide-dollar-sign w-4 h-4 text-primary'),
+        className: '',
+        isMock: false
+      },
+      {
+        label: 'Kost per Lead',
+        value: formatOptionalCurrency(costPerLead, 2),
+        icon: icons.chartColumn('lucide lucide-chart-column w-4 h-4 text-primary'),
+        className: '',
+        isMock: false
+      }
+    ];
+  } else if (liveState.finance.status === 'loading') {
+    metrics.financeMetrics = [
+      {
+        label: 'Totale Leadkosten',
+        value: '...',
+        icon: icons.dollar('lucide lucide-dollar-sign w-4 h-4 text-primary'),
+        className: '',
+        isMock: false
+      },
+      {
+        label: 'Kost per Lead',
+        value: '...',
+        icon: icons.chartColumn('lucide lucide-chart-column w-4 h-4 text-primary'),
+        className: '',
+        isMock: false
+      }
+    ];
   }
 
   return metrics;
@@ -1717,14 +2192,6 @@ const renderSourceRows = (rows, isLive) =>
         enabled: isLive && Number(row.rawNoLeadInRange) > 0,
         className: 'drilldown-cell'
       });
-      const dealsValue = renderDrilldownValue({
-        value: row.deals,
-        kind: 'deals',
-        source: row.source,
-        label: 'Deals',
-        enabled: isLive && Number(row.rawDeals) > 0,
-        className: 'drilldown-cell'
-      });
 
       return `<tr class="border-b transition-colors data-[state=selected]:bg-muted hover:bg-muted/50">
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 font-medium">${sourceText}</td>
@@ -1732,8 +2199,6 @@ const renderSourceRows = (rows, isLive) =>
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${appointmentsValue}</td>
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${noLeadValue}</td>
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${row.plan}</td>
-          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${dealsValue}</td>
-          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${row.toDeals}</td>
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${row.cost}</td>
         </tr>`;
     })
@@ -1765,7 +2230,7 @@ const renderDrilldownModal = () => {
 
   const range = drilldownState.range;
   const rangeLabel = range ? `${formatDisplayDate(range.start)} → ${formatDisplayDate(range.end)}` : '';
-  const sourceLabel = drilldownState.source ? `Bron: ${escapeHtml(drilldownState.source)}` : '';
+  const sourceLabel = getDrilldownFilterLabel(drilldownState.kind, drilldownState.source);
   const subtitle = [rangeLabel, sourceLabel].filter(Boolean).join(' · ');
 
   let body = '';
@@ -1814,11 +2279,20 @@ const renderDrilldownModal = () => {
   `;
 };
 
-const renderLostReasons = (reasons) =>
+const renderLostReasons = (reasons, isLive) =>
   reasons
-    .map(
-      (reason) =>
-        `<div class="flex items-center justify-between p-3 bg-secondary/30 rounded-lg">
+    .map((reason) => {
+      const valueMarkup = renderDrilldownValue({
+        value: reason.value,
+        kind: 'lost_reason_leads',
+        source: reason.label,
+        label: 'Verloren leads',
+        enabled: isLive && Number(reason.count) > 0,
+        className: 'text-sm font-medium text-foreground w-16 text-right inline-block',
+        fallbackTag: 'span'
+      });
+
+      return `<div class="flex items-center justify-between p-3 bg-secondary/30 rounded-lg">
           <div class="flex items-center gap-3">
             <div class="w-3 h-3 rounded-full" style="background-color: ${reason.color};"></div>
             <span class="text-sm text-foreground">${reason.label}</span>
@@ -1832,11 +2306,177 @@ const renderLostReasons = (reasons) =>
             <div class="w-24 h-2 bg-secondary rounded-full overflow-hidden">
               <div class="h-full rounded-full" style="width: ${reason.width}; background-color: ${reason.color};"></div>
             </div>
-            <span class="text-sm font-medium text-foreground w-16 text-right">${reason.value}</span>
+            ${valueMarkup}
           </div>
-        </div>`
-    )
+        </div>`;
+    })
     .join('');
+
+const renderLostReasonsChart = (reasons) => {
+  if (!Array.isArray(reasons) || reasons.length === 0) {
+    return '<p class="text-sm text-muted-foreground">Geen data beschikbaar.</p>';
+  }
+
+  const total = reasons.reduce((sum, reason) => sum + (Number(reason.count) || 0), 0);
+  if (!total) {
+    return '<p class="text-sm text-muted-foreground">Geen verloren leads in deze periode.</p>';
+  }
+
+  const defaultIndex = Math.max(0, reasons.findIndex((reason) => reason.highlight));
+  const defaultReason = reasons[defaultIndex] || reasons[0];
+  const defaultPercent = safeDivide(defaultReason?.count ?? 0, total) * 100;
+
+  let cumulative = 0;
+  const gradientStops = reasons.map((reason) => {
+    const count = Number(reason.count) || 0;
+    const start = (cumulative / total) * 100;
+    cumulative += count;
+    const end = (cumulative / total) * 100;
+    return `${reason.color} ${start.toFixed(2)}% ${end.toFixed(2)}%`;
+  });
+
+  const chartStyle = `background: conic-gradient(${gradientStops.join(', ')});`;
+
+  const legend = reasons
+    .map((reason, index) => {
+      const percent = safeDivide(reason.count, total) * 100;
+      const isDefault = index === defaultIndex;
+      return `
+        <button
+          type="button"
+          class="lost-reason-legend-item${isDefault ? ' is-default is-active' : ''}"
+          data-lost-reason-item
+          data-index="${index}"
+          data-count="${reason.count}"
+          data-percent="${percent.toFixed(3)}"
+          data-color="${escapeHtml(reason.color)}"
+          aria-pressed="${isDefault ? 'true' : 'false'}"
+          title="${escapeHtml(reason.label)} - ${formatNumber(percent, 1)}%"
+        >
+          <span class="lost-reason-dot" style="background-color: ${reason.color};"></span>
+          <span class="lost-reason-name" data-lost-label>${escapeHtml(reason.label)}</span>
+          <span class="lost-reason-meta">${formatNumber(percent, 1)}%</span>
+        </button>
+      `;
+    })
+    .join('');
+
+  return `
+    <div class="lost-reason-chart" data-lost-reason-chart data-default-index="${defaultIndex}">
+      <div class="lost-reason-donut" data-lost-donut style="${chartStyle}">
+        <div class="lost-reason-center">
+          <p class="lost-reason-kicker">Verloren leads</p>
+          <p class="lost-reason-total" data-lost-total>${formatNumber(total)}</p>
+          <p class="lost-reason-active" data-lost-active>${escapeHtml(defaultReason?.label ?? 'Onbekend')}</p>
+          <p class="lost-reason-percent" data-lost-percent>${formatNumber(defaultPercent, 1)}%</p>
+        </div>
+      </div>
+      <div class="lost-reason-legend">
+        ${legend}
+      </div>
+    </div>
+  `;
+};
+
+const getLostReasonTip = (reasons) => {
+  if (!Array.isArray(reasons) || reasons.length === 0) {
+    return 'Vul een verliesreden in op je lead om betere inzichten te krijgen.';
+  }
+  const topReason = reasons.find((reason) => reason.highlight) || reasons[0];
+  const labelRaw = topReason?.label ? String(topReason.label) : '';
+  const label = labelRaw ? escapeHtml(labelRaw) : 'Onbekend';
+  const normalized = labelRaw.trim().toLowerCase();
+  if (!topReason || !Number.isFinite(topReason.count) || topReason.count <= 0) {
+    return 'Vul een verliesreden in op je lead om betere inzichten te krijgen.';
+  }
+  if (!labelRaw || normalized === 'geen data' || normalized === 'onbekend') {
+    return 'Vul een verliesreden in op je lead om betere inzichten te krijgen.';
+  }
+  return `"${label}" is je grootste blocker. Overweeg een gratis waardebepaling of exclusieve verkooptips te delen.`;
+};
+
+const bindLostReasonCharts = () => {
+  document.querySelectorAll('[data-lost-reason-chart]').forEach((chart) => {
+    const items = Array.from(chart.querySelectorAll('[data-lost-reason-item]'));
+    if (!items.length) return;
+
+    const donut = chart.querySelector('[data-lost-donut]');
+    const activeLabel = chart.querySelector('[data-lost-active]');
+    const activePercent = chart.querySelector('[data-lost-percent]');
+    const defaultIndex = Number(chart.getAttribute('data-default-index') || 0);
+    const defaultItem = items[defaultIndex] || items[0];
+    let lockedItem = null;
+
+    const toRgba = (color, alpha) => {
+      if (typeof color !== 'string') return '';
+      if (color.startsWith('rgb(')) {
+        return color.replace('rgb(', 'rgba(').replace(')', `, ${alpha})`);
+      }
+      return color;
+    };
+
+    const setActive = (item) => {
+      if (!item) return;
+      const labelNode = item.querySelector('[data-lost-label]');
+      const labelText = labelNode ? labelNode.textContent.trim() : 'Onbekend';
+      const percentRaw = Number(item.getAttribute('data-percent') || 0);
+
+      if (activeLabel) activeLabel.textContent = labelText || 'Onbekend';
+      if (activePercent) activePercent.textContent = `${formatNumber(percentRaw, 1)}%`;
+
+      items.forEach((entry) => {
+        const isActive = entry === item;
+        entry.classList.toggle('is-active', isActive);
+        entry.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+      });
+
+      if (donut) {
+        const color = item.getAttribute('data-color');
+        if (color) {
+          donut.style.boxShadow = `0 0 0 6px ${toRgba(color, 0.2)}`;
+          donut.style.transform = 'scale(1.01)';
+        } else {
+          donut.style.boxShadow = '';
+          donut.style.transform = '';
+        }
+      }
+    };
+
+    const reset = () => {
+      lockedItem = null;
+      setActive(defaultItem);
+    };
+
+    setActive(defaultItem);
+
+    items.forEach((item) => {
+      item.addEventListener('mouseenter', () => {
+        if (lockedItem) return;
+        setActive(item);
+      });
+      item.addEventListener('focus', () => {
+        if (lockedItem) return;
+        setActive(item);
+      });
+      item.addEventListener('mouseleave', () => {
+        if (lockedItem) return;
+        setActive(defaultItem);
+      });
+      item.addEventListener('blur', () => {
+        if (lockedItem) return;
+        setActive(defaultItem);
+      });
+      item.addEventListener('click', () => {
+        if (lockedItem === item) {
+          reset();
+        } else {
+          lockedItem = item;
+          setActive(item);
+        }
+      });
+    });
+  });
+};
 
 const renderSummaryCards = (cards) =>
   cards
@@ -1926,11 +2566,30 @@ const renderHookHighlights = (best, worst) => `
   </div>
 `;
 
-const renderHookCards = (cards) =>
+const renderHookCards = (cards, isLive) =>
   cards
-    .map(
-      (card, index) =>
-        `<div class="rounded-lg border bg-card text-card-foreground shadow-sm relative overflow-hidden">
+    .map((card, index) => {
+      const leadsValue = renderDrilldownValue({
+        value: card.leads,
+        kind: 'hook_leads',
+        source: card.label,
+        label: 'Leads',
+        enabled: isLive && Number(card.rawLeads) > 0,
+        className: 'text-lg font-bold block',
+        fallbackTag: 'p'
+      });
+
+      const appointmentsValue = renderDrilldownValue({
+        value: card.appointments,
+        kind: 'hook_appointments',
+        source: card.label,
+        label: 'Afspraken',
+        enabled: isLive && Number(card.rawAppointments) > 0,
+        className: 'text-lg font-bold text-amber-700 block',
+        fallbackTag: 'p'
+      });
+
+      return `<div class="rounded-lg border bg-card text-card-foreground shadow-sm relative overflow-hidden">
           ${
             index === 0
               ? `<div class="absolute top-0 right-0 w-16 h-16 overflow-hidden">
@@ -1950,11 +2609,11 @@ const renderHookCards = (cards) =>
             <div class="grid grid-cols-3 gap-3 mb-4">
               <div>
                 <p class="text-xs text-muted-foreground">Leads</p>
-                <p class="text-lg font-bold">${card.leads}</p>
+                ${leadsValue}
               </div>
               <div>
                 <p class="text-xs text-muted-foreground">Afspraken</p>
-                <p class="text-lg font-bold text-amber-700">${card.appointments}</p>
+                ${appointmentsValue}
               </div>
               <div>
                 <p class="text-xs text-muted-foreground">Conversie</p>
@@ -1974,8 +2633,8 @@ const renderHookCards = (cards) =>
               </div>
             </div>
           </div>
-        </div>`
-    )
+        </div>`;
+    })
     .join('');
 
 const root = document.getElementById('root');
@@ -1994,7 +2653,9 @@ const buildMarkup = (range) => {
       <aside class="fixed lg:sticky lg:top-0 z-50 h-screen bg-sidebar border-r border-sidebar-border transition-all duration-300 flex flex-col overflow-hidden w-64 translate-x-0 sidebar-panel">
         <div class="h-14 flex items-center justify-between px-4 border-b border-sidebar-border">
           <div class="flex items-center gap-3">
-            <img src="/assets/immo-beguin-logo.svg" alt="Immo Beguin" class="h-8 w-auto brightness-0 invert" />
+            <div class="flex items-center rounded-lg bg-white/90 px-3 py-1.5 shadow-sm ring-1 ring-black/5">
+              <img src="/assets/logos/immogbeguinlogo.png" alt="Immo Beguin" class="h-9 w-auto object-contain" />
+            </div>
           </div>
           <button class="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground hidden lg:flex" data-sidebar-toggle>
             ${icons.chevronLeft('lucide lucide-chevron-left w-4 h-4 transition-transform')}
@@ -2019,7 +2680,9 @@ const buildMarkup = (range) => {
               ${icons.menu('lucide lucide-menu h-5 w-5')}
             </button>
             <div class="flex items-center gap-3">
-              <img src="/assets/immo-beguin-logo.svg" alt="Immo Beguin Logo" class="h-10 w-auto object-contain" />
+              <div class="flex items-center rounded-xl bg-white/80 px-3.5 py-2 shadow-sm ring-1 ring-black/5">
+                <img src="/assets/logos/immogbeguinlogo.png" alt="Immo Beguin Logo" class="h-10 w-auto object-contain" />
+              </div>
               <div class="hidden sm:block">
                 <div class="text-lg font-bold text-primary tracking-tight">Immo Beguin</div>
                 <p class="text-xs text-muted-foreground -mt-0.5">Vastgoed met Passie</p>
@@ -2112,9 +2775,7 @@ const buildMarkup = (range) => {
                         <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Appointments</th>
                         <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Afspraken zonder lead in periode</th>
                         <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Inplan %</th>
-                        <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Deals</th>
-                        <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">% naar Deals</th>
-                        <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Cost per Deal</th>
+                        <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Cost per Afspraak</th>
                       </tr>
                     </thead>
                     <tbody class="[&_tr:last-child]:border-0">
@@ -2128,10 +2789,10 @@ const buildMarkup = (range) => {
               <h2 class="text-lg font-bold text-gray-800 mb-1 flex items-center gap-2">
                 ${icons.dollar('lucide lucide-dollar-sign w-5 h-5 text-primary')}
                 Financiele Metrics
-                ${mockBadge}
+                ${metrics.financeMetrics.some((card) => card.isMock === false) ? '' : mockBadge}
               </h2>
-              <p class="text-sm text-gray-500 mb-4">Kosten, omzet en rendement</p>
-              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+              <p class="text-sm text-gray-500 mb-4">Totale leadkosten en kost per lead</p>
+              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">
                 ${renderKpiCards(metrics.financeMetrics)}
               </div>
             </section>
@@ -2146,14 +2807,14 @@ const buildMarkup = (range) => {
                 ${renderHookHighlights(metrics.hookHighlights.best, metrics.hookHighlights.worst)}
               </div>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                ${renderHookCards(metrics.hookCards)}
+                ${renderHookCards(metrics.hookCards, metrics.hookPerformanceLive)}
               </div>
             </section>
             <section class="bg-white/50 rounded-2xl p-6 shadow-sm border border-gray-200">
               <h2 class="text-lg font-bold text-gray-800 mb-1 flex items-center gap-2">
                 ${icons.triangleAlert('lucide lucide-triangle-alert w-5 h-5 text-orange-500')}
                 Analyse &amp; Inzichten
-                ${mockBadge}
+                ${metrics.lostReasonsLive ? '' : mockBadge}
               </h2>
               <p class="text-sm text-gray-500 mb-4">Verloren leads en verdeling per reden</p>
               <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -2162,16 +2823,16 @@ const buildMarkup = (range) => {
                     <h3 class="font-semibold tracking-tight text-lg flex items-center gap-2">
                       ${icons.triangleAlert('lucide lucide-triangle-alert w-5 h-5 text-orange-500')}
                       Verloren Leads - Redenen
-                      ${mockBadge}
+                      ${metrics.lostReasonsLive ? '' : mockBadge}
                     </h3>
                     <p class="text-sm text-muted-foreground">Analyseer waarom leads niet converteren</p>
                   </div>
                   <div class="p-6 pt-0">
                     <div class="space-y-3">
-                      ${renderLostReasons(metrics.lostReasons)}
+                      ${renderLostReasons(metrics.lostReasons, metrics.lostReasonsLive)}
                     </div>
                     <div class="mt-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-                      <p class="text-sm text-amber-600 dark:text-amber-400"><strong>Tip:</strong> "Wilt zelf verkopen" is je grootste blocker. Overweeg een gratis waardebepaling of exclusieve verkooptips te delen.</p>
+                      <p class="text-sm text-amber-600 dark:text-amber-400"><strong>Tip:</strong> ${getLostReasonTip(metrics.lostReasons)}</p>
                     </div>
                   </div>
                 </div>
@@ -2179,32 +2840,18 @@ const buildMarkup = (range) => {
                   <div class="flex flex-col space-y-1.5 p-6">
                     <h3 class="font-semibold tracking-tight text-lg flex items-center gap-2">
                       Verdeling Verloren Leads
-                      ${mockBadge}
+                      ${metrics.lostReasonsLive ? '' : mockBadge}
                     </h3>
                   </div>
                   <div class="p-6 pt-0">
                     <div class="h-64 flex items-center justify-center">
-                      <img src="/assets/verd-leads-pie.svg" alt="Verdeling verloren leads" class="w-full h-full object-contain" />
+                      ${renderLostReasonsChart(metrics.lostReasons)}
                     </div>
                   </div>
                 </div>
               </div>
-            </section>
-            <section class="bg-white/50 rounded-2xl p-6 shadow-sm border border-gray-200">
-              <h2 class="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
-                ${icons.award('lucide lucide-award w-5 h-5 text-primary')}
-                Samenvatting &amp; Aanbevelingen
-                ${mockBadge}
-              </h2>
-              <div class="rounded-lg border bg-card text-card-foreground shadow-sm bg-gradient-to-r from-primary/10 to-primary/5 border-primary/20">
-                <div class="p-6 pt-6">
-                  <div class="grid grid-cols-1 md:grid-cols-3 gap-6 text-center">
-                    ${renderSummaryCards(metrics.summaryCards)}
-                  </div>
-                </div>
-              </div>
-            </section>
-          </div>
+              </section>
+            </div>
         </main>
         <footer class="h-12 border-t border-border bg-card/50 flex items-center justify-center px-6">
           <p class="text-xs text-muted-foreground font-medium">(c) 2026 Immo Beguin - Vastgoed met Passie</p>
@@ -2225,6 +2872,8 @@ const renderApp = () => {
   ensureLatestSync();
   ensureSourceBreakdown(dateRange);
   ensureHookPerformance(dateRange);
+  ensureFinanceSummary(dateRange);
+  ensureLostReasons(dateRange);
 };
 
 const isDesktop = () => window.matchMedia('(min-width: 1024px)').matches;
@@ -2554,6 +3203,8 @@ const bindInteractions = () => {
       renderApp();
     });
   }
+
+  bindLostReasonCharts();
 };
 
 dateRange = normalizeRange(dateRange.start, dateRange.end);

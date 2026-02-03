@@ -3,3 +3,12 @@ verify_jwt = false
 
 [functions.ghl-admin]
 verify_jwt = true
+
+[functions.meta-sync]
+verify_jwt = false
+
+[functions.google-sync]
+verify_jwt = false
+
+[functions.google-sheet-sync]
+verify_jwt = false

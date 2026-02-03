@@ -12,7 +12,7 @@ Doel: herbruikbare template om GoHighLevel (GHL) data automatisch te synchronise
 
 1. Maak de tabellen aan in Supabase met de SQL-bestanden:
    - `src/schemas/all.sql` (alles-in-1)
-   - of los: `src/schemas/contacts.sql`, `src/schemas/opportunities.sql`, `src/schemas/appointments.sql`, `src/schemas/sync_state.sql`, `src/schemas/ghl_integrations.sql`, `src/schemas/dashboard_config.sql`, `src/schemas/views.sql`, `src/schemas/functions.sql`
+- of los: `src/schemas/contacts.sql`, `src/schemas/opportunities.sql`, `src/schemas/appointments.sql`, `src/schemas/sync_state.sql`, `src/schemas/ghl_integrations.sql`, `src/schemas/dashboard_config.sql`, `src/schemas/lost_reason_lookup.sql`, `src/schemas/marketing_spend.sql`, `src/schemas/views.sql`, `src/schemas/functions.sql`
 
 2. Kopieer `.env.example` naar `.env` en vul in:
 
@@ -81,6 +81,133 @@ supabase secrets set FULL_SYNC_INTERVAL_HOURS=24
 - Run `supabase/schedule.sql` en vervang `PROJECT_REF` en `SYNC_SECRET`.
 
 Daarna draait de sync automatisch elke 15 minuten in Supabase.
+De sync haalt ook (indien mogelijk) de **lost reason** namen op en slaat die op in `public.lost_reason_lookup`.
+
+## Meta leadkosten via Supabase Edge Function (optioneel)
+
+Gebruik deze als je dagelijks Meta spend/leads wilt opslaan voor **Totale Leadkosten** en **Kost per Lead**.
+
+1) **Deploy de Edge Function**
+
+```
+supabase functions deploy meta-sync --no-verify-jwt
+```
+
+2) **Secrets zetten in Supabase**
+
+```
+supabase secrets set META_ACCESS_TOKEN=YOUR_LONG_LIVED_TOKEN
+supabase secrets set META_AD_ACCOUNT_ID=act_1234567890
+supabase secrets set META_LOCATION_ID=YOUR_GHL_LOCATION_ID
+```
+
+Optioneel:
+
+```
+supabase secrets set META_TIMEZONE=Europe/Brussels
+supabase secrets set META_LOOKBACK_DAYS=7
+supabase secrets set META_END_OFFSET_DAYS=1
+supabase secrets set META_LEAD_ACTION_TYPES=lead,omni_lead,offsite_conversion.fb_pixel_lead,onsite_conversion.lead
+supabase secrets set META_API_VERSION=v21.0
+supabase secrets set META_SOURCE_NAME=META
+supabase secrets set META_SYNC_SECRET=YOUR_SYNC_SECRET
+```
+
+3) **Cron job instellen**
+
+- Zet de extensions **pg_cron** en **pg_net** aan in Supabase.
+- Run de Meta-block uit `supabase/schedule.sql` (let op: cron draait in UTC; pas het tijdstip aan voor CET/CEST).
+
+Als `META_LOCATION_ID` leeg is, gebruikt de functie `dashboard_config.id=1`.
+
+De functie schrijft naar `public.marketing_spend_daily`. Het dashboard leest via `get_finance_summary`.
+
+## Google Ads kosten via Supabase Edge Function (optioneel)
+
+Gebruik deze als je dagelijks Google Ads spend/leads wilt opslaan voor **Totale Leadkosten** en **Kost per Lead**.
+
+1) **Deploy de Edge Function**
+
+```
+supabase functions deploy google-sync --no-verify-jwt
+```
+
+2) **Secrets zetten in Supabase**
+
+```
+supabase secrets set GOOGLE_ADS_DEVELOPER_TOKEN=YOUR_DEVELOPER_TOKEN
+supabase secrets set GOOGLE_ADS_CLIENT_ID=YOUR_OAUTH_CLIENT_ID
+supabase secrets set GOOGLE_ADS_CLIENT_SECRET=YOUR_OAUTH_CLIENT_SECRET
+supabase secrets set GOOGLE_ADS_REFRESH_TOKEN=YOUR_REFRESH_TOKEN
+supabase secrets set GOOGLE_ADS_CUSTOMER_ID=1234567890
+supabase secrets set GOOGLE_LOCATION_ID=YOUR_GHL_LOCATION_ID
+```
+
+Optioneel:
+
+```
+supabase secrets set GOOGLE_ADS_LOGIN_CUSTOMER_ID=YOUR_MCC_ID
+supabase secrets set GOOGLE_ADS_API_VERSION=v17
+supabase secrets set GOOGLE_TIMEZONE=Europe/Brussels
+supabase secrets set GOOGLE_LOOKBACK_DAYS=7
+supabase secrets set GOOGLE_END_OFFSET_DAYS=1
+supabase secrets set GOOGLE_SOURCE_NAME="Google Ads"
+```
+
+3) **Cron job instellen**
+
+- Zet de extensions **pg_cron** en **pg_net** aan in Supabase.
+- Run de Google-block uit `supabase/schedule.sql` (let op: cron draait in UTC; pas het tijdstip aan voor CET/CEST).
+
+Als `GOOGLE_LOCATION_ID` leeg is, gebruikt de functie `dashboard_config.id=1`.
+
+De functie schrijft naar `public.marketing_spend_daily`. Het dashboard leest via `get_finance_summary`.
+
+## Google Ads via Google Sheets (tijdelijk alternatief)
+
+Als je Google Ads developer token nog in **Test** staat, kun je toch automatiseren via een geplande Google Ads‑rapportage naar Google Sheets.
+
+1) **Maak Google Ads rapport**
+- Ga naar **Reports → Custom**.
+- Voeg kolommen toe (zoals in Google Ads export): **Day, Cost, Conversions, Currency code** (Account ID is optioneel).
+- Schedule dagelijks naar **Google Sheets**.
+
+2) **Maak de sheet publiek (read‑only)**
+- Open de sheet → **Share** → “Anyone with the link can view”.
+- Gebruik de CSV‑export link:
+  ```
+  https://docs.google.com/spreadsheets/d/SHEET_ID/export?format=csv&gid=GID
+  ```
+  *GID vind je in de URL van de sheet (tabblad).*
+
+3) **Deploy de Edge Function**
+```
+supabase functions deploy google-sheet-sync --no-verify-jwt
+```
+
+4) **Secrets zetten in Supabase**
+```
+supabase secrets set SHEET_CSV_URL="https://docs.google.com/spreadsheets/d/SHEET_ID/export?format=csv&gid=GID"
+supabase secrets set SHEET_LOCATION_ID=YOUR_GHL_LOCATION_ID
+```
+
+Optioneel (kolomnamen aanpassen / headerrij instellen):
+```
+supabase secrets set SHEET_DATE_COLUMN=Day
+supabase secrets set SHEET_COST_COLUMN=Cost
+supabase secrets set SHEET_CONVERSIONS_COLUMN=Conversions
+supabase secrets set SHEET_CURRENCY_COLUMN="Currency code"
+supabase secrets set SHEET_ACCOUNT_COLUMN="Account ID"
+supabase secrets set SHEET_DATE_FORMAT=YYYY-MM-DD
+supabase secrets set SHEET_SOURCE_NAME="Google Ads"
+supabase secrets set SHEET_HEADER_ROW=3
+```
+
+5) **Cron job instellen**
+- Zet **pg_cron** en **pg_net** aan.
+- Run de Google‑sheet block uit `supabase/schedule.sql`.
+
+De functie schrijft naar `public.marketing_spend_daily`. Het dashboard leest via `get_finance_summary`.
 
 ## GHL config in Supabase (optioneel)
 
@@ -88,6 +215,26 @@ Als je niet elke keer lokaal de GHL credentials wilt zetten, kun je ze per klant
 De tabel `ghl_integrations` heeft **RLS aan** zodat de PIT niet via de anon key uitlekt.  
 Gebruik de SQL editor (of service role) om de rij te inserten. De sync gebruikt service role en kan dit gewoon lezen.
 De tabel `dashboard_config` bevat enkel de **publieke** `location_id` (leesbaar via anon) zodat het dashboard automatisch kan filteren.
+Optioneel kun je hier ook custom field IDs bewaren:
+- `hook_field_id` + `campaign_field_id` (hook/campagne performance)
+- `lost_reason_field_id` (verloren lead redenen)
+Als je geen `lost_reason_field_id` hebt, probeert het dashboard een aantal standaard keys uit `raw_data`.
+Gebruik `get_lost_reason_key_candidates` om te ontdekken welke key jouw GHL payload gebruikt.
+Als GHL enkel `lostReasonId` teruggeeft, voeg dan een lookup toe zodat het dashboard de **naam** toont:
+
+```sql
+-- 1) Bekijk welke IDs voorkomen
+select *
+from public.get_lost_reason_id_candidates('YOUR_LOCATION_ID', now() - interval '90 days', now());
+
+-- 2) Koppel ID aan naam
+insert into public.lost_reason_lookup (location_id, reason_id, reason_name)
+values
+  ('YOUR_LOCATION_ID', 'ID_1', 'Wilt zelf verkopen'),
+  ('YOUR_LOCATION_ID', 'ID_2', 'Timing niet goed')
+on conflict (location_id, reason_id)
+do update set reason_name = excluded.reason_name, updated_at = now();
+```
 
 ### Raw data + views (Optie A)
 
@@ -153,6 +300,7 @@ Als `GHL_LOCATION_ID` en `GHL_PRIVATE_INTEGRATION_TOKEN` leeg zijn in `.env`, wo
 - **Contacts**: gebruikt `GET /contacts/` (deprecated, maar stabiel voor bulk sync). Paginatie via `startAfter` en `startAfterId`.
 - **Opportunities**: gebruikt `GET /opportunities/search` met `status=all`, `order=added_asc` en cursors.
 - **Appointments**: haalt eerst alle calendars op en vraagt daarna events op per calendar binnen een tijdswindow.
+- **Lost reasons**: probeert definitions uit pipelines en/of custom fields te lezen en vult `lost_reason_lookup`.
 
 Alle records worden **idempotent** ge-upsert via Supabase (geen duplicaten).  
 De **eerste sync per location** is altijd een full sync (er is nog geen `sync_state`).  
@@ -204,6 +352,46 @@ Voor het dashboard:
 
 - `VITE_GHL_LOCATION_ID` is **optioneel** (override).
 - Als die leeg is, wordt `dashboard_config.location_id` gebruikt.
+
+Voor Meta spend (edge function):
+
+- `META_ACCESS_TOKEN`
+- `META_AD_ACCOUNT_ID`
+- `META_LOCATION_ID` (optioneel als `dashboard_config.id=1` gevuld is)
+- `META_SYNC_SECRET`
+- `META_LEAD_ACTION_TYPES`
+- `META_LOOKBACK_DAYS`
+- `META_END_OFFSET_DAYS`
+- `META_TIMEZONE`
+- `META_API_VERSION`
+
+Voor Google Ads spend (edge function):
+
+- `GOOGLE_ADS_DEVELOPER_TOKEN`
+- `GOOGLE_ADS_CLIENT_ID`
+- `GOOGLE_ADS_CLIENT_SECRET`
+- `GOOGLE_ADS_REFRESH_TOKEN`
+- `GOOGLE_ADS_CUSTOMER_ID`
+- `GOOGLE_LOCATION_ID` (optioneel als `dashboard_config.id=1` gevuld is)
+- `GOOGLE_ADS_LOGIN_CUSTOMER_ID`
+- `GOOGLE_ADS_API_VERSION`
+- `GOOGLE_TIMEZONE`
+- `GOOGLE_LOOKBACK_DAYS`
+- `GOOGLE_END_OFFSET_DAYS`
+- `GOOGLE_SOURCE_NAME`
+
+Voor Google Ads via Sheets (edge function):
+
+- `SHEET_CSV_URL`
+- `SHEET_LOCATION_ID` (optioneel als `dashboard_config.id=1` gevuld is)
+- `SHEET_SOURCE_NAME`
+- `SHEET_ACCOUNT_ID`
+- `SHEET_DATE_COLUMN`
+- `SHEET_COST_COLUMN`
+- `SHEET_CONVERSIONS_COLUMN`
+- `SHEET_CURRENCY_COLUMN`
+- `SHEET_ACCOUNT_COLUMN`
+- `SHEET_DATE_FORMAT`
 
 Overige opties staan in `.env.example`:
 
