@@ -72,8 +72,6 @@ const icons = {
 
 const navLinks = [
   { label: 'Leadgeneratie', href: '/', icon: icons.dashboard('lucide lucide-layout-dashboard w-5 h-5 flex-shrink-0'), active: true },
-  { label: 'Sales Resultaten', href: '/sales-resultaten', icon: icons.target('lucide lucide-target w-5 h-5 flex-shrink-0'), active: false },
-  { label: 'Call Center', href: '/call-center', icon: icons.headphones('lucide lucide-headphones w-5 h-5 flex-shrink-0'), active: false }
 ];
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
