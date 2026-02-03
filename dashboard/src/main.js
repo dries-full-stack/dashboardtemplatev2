@@ -2395,6 +2395,7 @@ const computeMetrics = (range) => {
       source,
       leads: formatNumber(sourceTotals.leads),
       appointments: formatNumber(sourceTotals.appointments),
+      confirmed: formatNumber(sourceTotals.confirmed),
       noLeadInRange: formatNumber(0),
       plan: formatPercent(safeDivide(sourceTotals.appointments, sourceTotals.leads), 1),
       cost: formatCurrency(safeDivide(sourceTotals.cost, sourceTotals.confirmed), 2),
@@ -2801,6 +2802,7 @@ const applyLiveOverrides = (metrics, range) => {
         source: row.source ?? 'Onbekend',
         leads: formatNumber(leads),
         appointments: formatNumber(appointments),
+        confirmed: formatNumber(confirmed),
         noLeadInRange: formatNumber(noLeadInRange),
         plan: formatPercent(safeDivide(appointments, leads), 1),
         cost: '--',
@@ -2945,6 +2947,14 @@ const renderSourceRows = (rows, isLive) =>
         enabled: isLive && Number(row.rawAppointments) > 0,
         className: 'drilldown-cell'
       });
+      const confirmedValue = renderDrilldownValue({
+        value: row.confirmed,
+        kind: 'appointments_confirmed',
+        source: row.source,
+        label: 'Confirmed afspraken',
+        enabled: isLive && Number(row.rawConfirmedAppointments) > 0,
+        className: 'drilldown-cell'
+      });
       const noLeadValue = renderDrilldownValue({
         value: row.noLeadInRange,
         kind: 'appointments_without_lead_in_range',
@@ -2958,6 +2968,7 @@ const renderSourceRows = (rows, isLive) =>
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 font-medium">${sourceText}</td>
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${leadsValue}</td>
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${appointmentsValue}</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${confirmedValue}</td>
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${noLeadValue}</td>
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${row.plan}</td>
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${row.cost}</td>
@@ -3534,6 +3545,7 @@ const buildMarkup = (range) => {
                         <th class="h-12 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0">Bron</th>
                         <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Leads</th>
                         <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Appointments</th>
+                        <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Confirmed</th>
                         <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Afspraken zonder lead in periode</th>
                         <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Inplan %</th>
                         <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Cost per Afspraak</th>

@@ -366,7 +366,7 @@ as $$
         )
       ) as contact_name,
       a.appointment_status,
-      coalesce(
+      public.normalize_source(coalesce(
         a.source,
         (
           select c.source_guess
@@ -390,7 +390,7 @@ as $$
           limit 1
         ),
         'Onbekend'
-      ) as source,
+      )) as source,
       exists (
         select 1
         from public.opportunities_view o
