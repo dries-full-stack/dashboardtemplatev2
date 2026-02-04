@@ -205,20 +205,168 @@ const DRILLDOWN_LABELS = {
 
 const DEFAULT_BOUNDS = { min: '2018-01-01', max: '2035-12-31' };
 
-const mockEntries = [
-  { date: '2026-10-05', source: 'META', hook: 'Bereken mijn woningwaarde', leads: 100, appointments: 39, cancelled: 4, rescheduled: 3, noShow: 2, deals: 9, costPerLead: 12.8, dealValue: 340 },
-  { date: '2026-10-10', source: 'Google Ads', hook: 'Gratis schatting', leads: 80, appointments: 29, cancelled: 3, rescheduled: 2, noShow: 1, deals: 7, costPerLead: 15.2, dealValue: 320 },
-  { date: '2026-10-16', source: 'Makelaar vergelijker', hook: '5 verkooptips', leads: 70, appointments: 25, cancelled: 2, rescheduled: 2, noShow: 1, deals: 5, costPerLead: 14.5, dealValue: 330 },
-  { date: '2026-10-24', source: 'Immoweb', hook: 'Lokale makelaar vs grote groep?', leads: 50, appointments: 19, cancelled: 2, rescheduled: 1, noShow: 1, deals: 4, costPerLead: 16.5, dealValue: 350 },
-  { date: '2026-11-04', source: 'META', hook: 'Bereken mijn woningwaarde', leads: 95, appointments: 36, cancelled: 4, rescheduled: 3, noShow: 2, deals: 8, costPerLead: 12.8, dealValue: 340 },
-  { date: '2026-11-12', source: 'Google Ads', hook: 'Gratis schatting', leads: 70, appointments: 26, cancelled: 3, rescheduled: 2, noShow: 1, deals: 6, costPerLead: 15.2, dealValue: 320 },
-  { date: '2026-11-18', source: 'Makelaar vergelijker', hook: '5 verkooptips', leads: 65, appointments: 23, cancelled: 2, rescheduled: 2, noShow: 1, deals: 5, costPerLead: 14.5, dealValue: 330 },
-  { date: '2026-11-26', source: 'Immoweb', hook: 'Lokale makelaar vs grote groep?', leads: 50, appointments: 18, cancelled: 2, rescheduled: 1, noShow: 0, deals: 4, costPerLead: 16.5, dealValue: 350 },
-  { date: '2026-12-03', source: 'META', hook: 'Bereken mijn woningwaarde', leads: 90, appointments: 34, cancelled: 3, rescheduled: 3, noShow: 2, deals: 7, costPerLead: 12.8, dealValue: 340 },
-  { date: '2026-12-11', source: 'Google Ads', hook: 'Gratis schatting', leads: 65, appointments: 23, cancelled: 2, rescheduled: 2, noShow: 1, deals: 5, costPerLead: 15.2, dealValue: 320 },
-  { date: '2026-12-17', source: 'Makelaar vergelijker', hook: '5 verkooptips', leads: 55, appointments: 19, cancelled: 2, rescheduled: 1, noShow: 1, deals: 4, costPerLead: 14.5, dealValue: 330 },
-  { date: '2026-12-28', source: 'Immoweb', hook: 'Lokale makelaar vs grote groep?', leads: 57, appointments: 21, cancelled: 2, rescheduled: 2, noShow: 1, deals: 5, costPerLead: 16.5, dealValue: 350 }
-];
+const MOCK_ENABLED = import.meta.env.VITE_ENABLE_MOCK_DATA === 'true';
+
+const mockEntries = MOCK_ENABLED
+  ? [
+      {
+        date: '2026-10-05',
+        source: 'META',
+        hook: 'Bereken mijn woningwaarde',
+        leads: 100,
+        appointments: 39,
+        cancelled: 4,
+        rescheduled: 3,
+        noShow: 2,
+        deals: 9,
+        costPerLead: 12.8,
+        dealValue: 340
+      },
+      {
+        date: '2026-10-10',
+        source: 'Google Ads',
+        hook: 'Gratis schatting',
+        leads: 80,
+        appointments: 29,
+        cancelled: 3,
+        rescheduled: 2,
+        noShow: 1,
+        deals: 7,
+        costPerLead: 15.2,
+        dealValue: 320
+      },
+      {
+        date: '2026-10-16',
+        source: 'Makelaar vergelijker',
+        hook: '5 verkooptips',
+        leads: 70,
+        appointments: 25,
+        cancelled: 2,
+        rescheduled: 2,
+        noShow: 1,
+        deals: 5,
+        costPerLead: 14.5,
+        dealValue: 330
+      },
+      {
+        date: '2026-10-24',
+        source: 'Immoweb',
+        hook: 'Lokale makelaar vs grote groep?',
+        leads: 50,
+        appointments: 19,
+        cancelled: 2,
+        rescheduled: 1,
+        noShow: 1,
+        deals: 4,
+        costPerLead: 16.5,
+        dealValue: 350
+      },
+      {
+        date: '2026-11-04',
+        source: 'META',
+        hook: 'Bereken mijn woningwaarde',
+        leads: 95,
+        appointments: 36,
+        cancelled: 4,
+        rescheduled: 3,
+        noShow: 2,
+        deals: 8,
+        costPerLead: 12.8,
+        dealValue: 340
+      },
+      {
+        date: '2026-11-12',
+        source: 'Google Ads',
+        hook: 'Gratis schatting',
+        leads: 70,
+        appointments: 26,
+        cancelled: 3,
+        rescheduled: 2,
+        noShow: 1,
+        deals: 6,
+        costPerLead: 15.2,
+        dealValue: 320
+      },
+      {
+        date: '2026-11-18',
+        source: 'Makelaar vergelijker',
+        hook: '5 verkooptips',
+        leads: 65,
+        appointments: 23,
+        cancelled: 2,
+        rescheduled: 2,
+        noShow: 1,
+        deals: 5,
+        costPerLead: 14.5,
+        dealValue: 330
+      },
+      {
+        date: '2026-11-26',
+        source: 'Immoweb',
+        hook: 'Lokale makelaar vs grote groep?',
+        leads: 50,
+        appointments: 18,
+        cancelled: 2,
+        rescheduled: 1,
+        noShow: 0,
+        deals: 4,
+        costPerLead: 16.5,
+        dealValue: 350
+      },
+      {
+        date: '2026-12-03',
+        source: 'META',
+        hook: 'Bereken mijn woningwaarde',
+        leads: 90,
+        appointments: 34,
+        cancelled: 3,
+        rescheduled: 3,
+        noShow: 2,
+        deals: 7,
+        costPerLead: 12.8,
+        dealValue: 340
+      },
+      {
+        date: '2026-12-11',
+        source: 'Google Ads',
+        hook: 'Gratis schatting',
+        leads: 65,
+        appointments: 23,
+        cancelled: 2,
+        rescheduled: 2,
+        noShow: 1,
+        deals: 5,
+        costPerLead: 15.2,
+        dealValue: 320
+      },
+      {
+        date: '2026-12-17',
+        source: 'Makelaar vergelijker',
+        hook: '5 verkooptips',
+        leads: 55,
+        appointments: 19,
+        cancelled: 2,
+        rescheduled: 1,
+        noShow: 1,
+        deals: 4,
+        costPerLead: 14.5,
+        dealValue: 330
+      },
+      {
+        date: '2026-12-28',
+        source: 'Immoweb',
+        hook: 'Lokale makelaar vs grote groep?',
+        leads: 57,
+        appointments: 21,
+        cancelled: 2,
+        rescheduled: 2,
+        noShow: 1,
+        deals: 5,
+        costPerLead: 16.5,
+        dealValue: 350
+      }
+    ]
+  : [];
 
 const dataBounds = mockEntries.reduce(
   (acc, entry) => {
@@ -237,7 +385,7 @@ const monthBounds = {
 let dateRange = { ...DEFAULT_RANGE };
 let pickerState = { open: false, selecting: 'start', viewMonth: DEFAULT_RANGE.start.slice(0, 7) };
 
-const mockBadge = '<span class="mock-badge">Mock data</span>';
+const mockBadge = MOCK_ENABLED ? '<span class="mock-badge">Mock data</span>' : '';
 const DEBUG_ENABLED = false;
 
 const liveState = {
