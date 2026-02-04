@@ -1,6 +1,7 @@
 import './styles.css';
 import { createClient } from '@supabase/supabase-js';
 import salesMainMarkup from './sales-layout.html?raw';
+import salesEmptyMarkup from './sales-empty-layout.html?raw';
 
 const icon = (paths, className, extra = '') =>
   `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}" ${extra}>${paths}</svg>`;
@@ -152,7 +153,8 @@ const DEFAULT_LAYOUT = [
   }
 ];
 
-const SALES_MAIN_MARKUP = salesMainMarkup.trim();
+const MOCK_ENABLED = import.meta.env.VITE_ENABLE_MOCK_DATA === 'true';
+const SALES_MAIN_MARKUP = (MOCK_ENABLED ? salesMainMarkup : salesEmptyMarkup).trim();
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -204,8 +206,6 @@ const DRILLDOWN_LABELS = {
 };
 
 const DEFAULT_BOUNDS = { min: '2018-01-01', max: '2035-12-31' };
-
-const MOCK_ENABLED = import.meta.env.VITE_ENABLE_MOCK_DATA === 'true';
 
 const mockEntries = MOCK_ENABLED
   ? [
@@ -4074,6 +4074,17 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
 const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
   const branding = resolveBranding();
   const sidebarFooter = configState.dashboardTitle ? `${branding.title} Dashboard` : 'Dashboard Template';
+  const salesStatus = MOCK_ENABLED
+    ? {
+        label: 'Mock data',
+        className: 'bg-amber-500/10 border-amber-500/20 text-amber-600',
+        dotClass: 'bg-amber-500'
+      }
+    : {
+        label: 'Nog geen data',
+        className: 'bg-muted/60 border-border text-muted-foreground',
+        dotClass: 'bg-muted-foreground/60'
+      };
 
   return `
     <div role="region" aria-label="Notifications (F8)" tabindex="-1" style="pointer-events: none;">
@@ -4118,9 +4129,9 @@ const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
             </div>
           </div>
           <div class="flex items-center gap-4">
-            <div class="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-success/10 border border-success/20">
-              <div class="w-2 h-2 rounded-full bg-success animate-pulse"></div>
-              <span class="text-xs font-medium text-success">Live Data</span>
+            <div class="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full border ${salesStatus.className}">
+              <div class="w-2 h-2 rounded-full ${salesStatus.dotClass}"></div>
+              <span class="text-xs font-medium">${salesStatus.label}</span>
             </div>
             ${
               adminModeEnabled
