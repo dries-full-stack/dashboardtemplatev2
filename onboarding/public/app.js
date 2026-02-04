@@ -40,6 +40,9 @@ const netlifyCheckBtn = document.getElementById('netlifyCheck');
 const netlifyStatusNode = document.getElementById('netlifyStatus');
 const teamleaderAction = document.getElementById('teamleaderAction');
 const teamleaderLink = document.getElementById('teamleaderLink');
+const syncAction = document.getElementById('syncAction');
+const syncNowBtn = document.getElementById('syncNow');
+const syncStatusNode = document.getElementById('syncStatus');
 
 const BASIC_STORAGE_KEY = 'onboard-basic';
 const BASIC_FIELDS = ['slug', 'supabaseUrl', 'locationId', 'dashboardTitle', 'dashboardSubtitle', 'logoUrl'];
@@ -52,8 +55,10 @@ let envHints = {
   supabaseAccessToken: false,
   netlifyAuthToken: false,
   supabaseServiceRoleJwt: false,
-  githubToken: false
+  githubToken: false,
+  syncSecret: false
 };
+let lastPayload = null;
 
 const setHidden = (node, hidden) => {
   if (!node) return;
@@ -259,6 +264,15 @@ const setTeamleaderAction = (enabled) => {
   }
 };
 
+const setSyncAction = (enabled) => {
+  if (!syncAction) return;
+  syncAction.classList.toggle('hidden', !enabled);
+  if (!enabled && syncStatusNode) {
+    syncStatusNode.textContent = '';
+    syncStatusNode.classList.remove('ok', 'warn', 'error');
+  }
+};
+
 const splitDomain = (domain) => {
   const clean = normalizeDomain(domain);
   if (!clean) return { host: '', apex: '' };
@@ -394,6 +408,15 @@ const setNetlifyStatus = (text, tone = 'muted') => {
   if (tone === 'error') netlifyStatusNode.classList.add('error');
 };
 
+const setSyncStatus = (text, tone = 'muted') => {
+  if (!syncStatusNode) return;
+  syncStatusNode.textContent = text;
+  syncStatusNode.classList.remove('ok', 'warn', 'error');
+  if (tone === 'ok') syncStatusNode.classList.add('ok');
+  if (tone === 'warn') syncStatusNode.classList.add('warn');
+  if (tone === 'error') syncStatusNode.classList.add('error');
+};
+
 const interpretNetlifyStatus = (result) => {
   const combined = `${result?.stdout || ''}\n${result?.stderr || ''}`.toLowerCase();
   if (combined.includes('not logged in') || combined.includes('logged out')) {
@@ -522,6 +545,7 @@ const buildSummary = () => {
     { label: 'Auto fetch keys', value: yesNo(isFieldChecked('autoFetchKeys')) },
     { label: 'Access token', value: maskedWithHint(getFieldValue('accessToken'), 'supabaseAccessToken') },
     { label: 'Server key', value: maskedWithHint(getFieldValue('serviceRoleKey'), 'supabaseServiceRoleJwt') },
+    { label: 'Sync secret', value: maskedWithHint(getFieldValue('syncSecret'), 'syncSecret') },
     { label: 'Netlify', value: netlifyOn ? 'Aan' : 'Uit' },
     {
       label: 'Netlify site',
@@ -553,7 +577,8 @@ const loadEnvHints = async () => {
       supabaseAccessToken: Boolean(data?.supabaseAccessToken),
       netlifyAuthToken: Boolean(data?.netlifyAuthToken),
       supabaseServiceRoleJwt: Boolean(data?.supabaseServiceRoleJwt),
-      githubToken: Boolean(data?.githubToken)
+      githubToken: Boolean(data?.githubToken),
+      syncSecret: Boolean(data?.syncSecret)
     };
     if (currentStep === TOTAL_STEPS) {
       buildSummary();
@@ -813,6 +838,48 @@ nextStepBtn?.addEventListener('click', () => {
 
 initUi();
 
+syncNowBtn?.addEventListener('click', async () => {
+  const ref = extractProjectRef(supabaseUrlInput?.value || '');
+  if (!ref) {
+    setSyncStatus('Vul een geldige Supabase URL in.', 'error');
+    return;
+  }
+
+  syncNowBtn.disabled = true;
+  setSyncStatus('Sync gestart...', 'muted');
+
+  try {
+    const response = await fetch('/api/ghl-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        projectRef: ref,
+        supabaseUrl: supabaseUrlInput?.value || '',
+        syncSecret: getFieldValue('syncSecret'),
+        fullSync: true
+      })
+    });
+
+    const result = await response.json();
+    if (!response.ok || !result?.ok) {
+      const detail = result?.error ? ` (${result.error})` : '';
+      setSyncStatus(`Sync faalde${detail}`, 'error');
+      return;
+    }
+
+    const summary = result?.data?.results
+      ? Object.entries(result.data.results)
+          .map(([key, value]) => `${key}: ${value}`)
+          .join(', ')
+      : '';
+    setSyncStatus(summary ? `Sync klaar: ${summary}` : 'Sync klaar.', 'ok');
+  } catch (error) {
+    setSyncStatus(error instanceof Error ? error.message : 'Sync faalde.', 'error');
+  } finally {
+    syncNowBtn.disabled = false;
+  }
+});
+
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
   if (currentStep !== TOTAL_STEPS) {
@@ -824,12 +891,13 @@ form.addEventListener('submit', async (event) => {
   setStatus('Bezig met onboarding...', 'muted');
   setOutput('Running...');
   runBtn.disabled = true;
+  lastPayload = buildPayload();
 
   try {
     const response = await fetch('/api/onboard', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(buildPayload())
+      body: JSON.stringify(lastPayload)
     });
 
     const result = await response.json();
@@ -846,6 +914,7 @@ form.addEventListener('submit', async (event) => {
 
     const showTeamleader = result.ok && Boolean(teamleaderToggle?.checked);
     setTeamleaderAction(showTeamleader);
+    setSyncAction(result.ok);
 
     const logs = [
       `Exit code: ${result.exitCode}`,

@@ -209,6 +209,11 @@
               <span class="hint">Vereist voor Apply config + GHL. Gebruik <code>sb_secret_...</code> of legacy <code>eyJ...</code>.</span>
               <input name="serviceRoleKey" type="password" placeholder="sb_secret_... of eyJ..." />
             </label>
+            <label>
+              Sync secret (optioneel)
+              <span class="hint">Alleen nodig als je <code>SYNC_SECRET</code> hebt gezet in Supabase.</span>
+              <input name="syncSecret" type="password" placeholder="SYNC_SECRET" />
+            </label>
           </div>
 
           <div class="grid" data-manual-keys>
@@ -380,6 +385,16 @@
             <p>Open de OAuth flow om de koppeling af te ronden.</p>
           </div>
           <a id="teamleaderLink" class="button-link" href="#" target="_blank" rel="noreferrer">Koppel Teamleader</a>
+        </div>
+        <div id="syncAction" class="sync-action hidden">
+          <div>
+            <h3>Start eerste sync</h3>
+            <p>Laad meteen de eerste GHL data in.</p>
+          </div>
+          <div class="sync-controls">
+            <button type="button" id="syncNow">Start sync</button>
+            <span id="syncStatus" class="status-inline"></span>
+          </div>
         </div>
         <pre id="output" class="output">Nog geen run.</pre>
       </section>

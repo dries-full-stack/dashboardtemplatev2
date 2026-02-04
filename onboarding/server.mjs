@@ -22,6 +22,7 @@ const mimeTypes = {
 };
 
 let isRunning = false;
+let isSyncing = false;
 
 const sendJson = (res, statusCode, payload) => {
   const body = JSON.stringify(payload, null, 2);
@@ -466,12 +467,67 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === 'POST' && req.url === '/api/ghl-sync') {
+    if (isSyncing) {
+      sendJson(res, 409, { error: 'Er draait al een sync.' });
+      return;
+    }
+
+    try {
+      const rawBody = await readBody(req);
+      const data = JSON.parse(rawBody || '{}');
+      const supabaseUrl = sanitizeString(data.supabaseUrl);
+      const explicitRef = sanitizeString(data.projectRef);
+      const projectRef = explicitRef || extractProjectRef(supabaseUrl);
+      if (!projectRef) {
+        sendJson(res, 400, { error: 'Supabase URL of project ref ontbreekt.' });
+        return;
+      }
+
+      const syncSecret = sanitizeString(data.syncSecret) || process.env.SYNC_SECRET || '';
+      const fullSync = data.fullSync !== false;
+      const syncUrl = `https://${projectRef}.supabase.co/functions/v1/ghl-sync?full_sync=${fullSync ? 'true' : 'false'}`;
+
+      const headers = { 'Content-Type': 'application/json' };
+      if (syncSecret) {
+        headers['x-sync-secret'] = syncSecret;
+      }
+
+      isSyncing = true;
+      const response = await fetch(syncUrl, { method: 'POST', headers });
+      const text = await response.text();
+      let parsed = null;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = null;
+      }
+
+      if (!response.ok) {
+        sendJson(res, response.status, {
+          ok: false,
+          status: response.status,
+          error: parsed || text || 'Sync faalde.'
+        });
+        return;
+      }
+
+      sendJson(res, 200, { ok: true, status: response.status, data: parsed || text });
+    } catch (error) {
+      sendJson(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Onbekende fout' });
+    } finally {
+      isSyncing = false;
+    }
+    return;
+  }
+
   if (req.method === 'GET' && req.url === '/api/env-hints') {
     sendJson(res, 200, {
       supabaseAccessToken: Boolean(process.env.SUPABASE_ACCESS_TOKEN),
       netlifyAuthToken: Boolean(process.env.NETLIFY_AUTH_TOKEN),
       supabaseServiceRoleJwt: Boolean(process.env.SUPABASE_SERVICE_ROLE_JWT || process.env.SUPABASE_SECRET_KEY),
-      githubToken: Boolean(process.env.GITHUB_TOKEN)
+      githubToken: Boolean(process.env.GITHUB_TOKEN),
+      syncSecret: Boolean(process.env.SYNC_SECRET)
     });
     return;
   }

@@ -262,6 +262,35 @@ button[disabled] {
   margin: 12px 0 16px;
 }
 
+.sync-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px solid #bbf7d0;
+  background: #ecfdf5;
+  margin: 12px 0 16px;
+}
+
+.sync-action h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.sync-action p {
+  margin: 4px 0 0;
+  color: #065f46;
+  font-size: 0.9rem;
+}
+
+.sync-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .teamleader-action h3 {
   margin: 0;
   font-size: 1.05rem;
