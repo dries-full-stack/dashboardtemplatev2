@@ -36,6 +36,119 @@ npm install
 npm run sync
 ```
 
+## Supabase CLI (aanbevolen)
+
+Voor nieuwe klanten kun je de schema's via CLI pushen. We hebben een base migration toegevoegd:
+
+- `supabase/migrations/20260204160000_base.sql`
+
+Gebruik:
+
+```
+supabase login
+supabase link --project-ref YOUR_PROJECT_REF
+supabase db push
+```
+
+Let op: voor bestaande live klanten draai je bij voorkeur alleen nieuwe migrations (niet opnieuw de base),
+of voer je gerichte SQL uit via de editor.
+
+## Per klant setup (1 database per klant)
+
+Gebruik de bootstrap script om klant-specifieke config + env templates aan te maken:
+
+```
+powershell -ExecutionPolicy Bypass -File scripts/bootstrap-client.ps1
+```
+
+De script maakt o.a.:
+- `clients/<slug>/dashboard_config.sql`
+- `clients/<slug>/dashboard_layout.json`
+- `clients/<slug>/env.dashboard.example`
+- `clients/<slug>/env.sync.example`
+
+## Local onboarding app (voor maximale automatisering)
+
+Start de lokale onboarding UI:
+
+```
+npm run onboard
+```
+
+Open daarna `http://localhost:8787`. Vul de klantgegevens in en start de run.
+De app roept intern `scripts/bootstrap-client.ps1` aan en kan optioneel:
+
+- Supabase CLI login (met access token)
+- project linken + schema pushen
+- dashboard_config upserten via REST (service role key)
+- edge functions deployen
+
+Tip: met een Supabase access token kan de onboarding automatisch de publishable + service role key ophalen.
+
+**Logo’s (makkelijkst):** gebruik een publieke URL (bijv. Supabase Storage of een CDN) en zet die in `dashboard_logo_url`.
+
+### Netlify env sync (optioneel)
+
+Je kunt env vars naar een Netlify site pushen via CLI:
+
+```
+powershell -ExecutionPolicy Bypass -File scripts/netlify-env-sync.ps1
+```
+
+Of via de onboarding UI (Netlify section).
+
+### Volledig geautomatiseerd (optioneel)
+
+Als je een Supabase access token + DB password + service role key hebt, kan de script alles doen:
+
+```
+powershell -ExecutionPolicy Bypass -File scripts/bootstrap-client.ps1 `
+  -Slug immobeguin `
+  -SupabaseUrl https://YOUR_REF.supabase.co `
+  -LocationId YOUR_LOCATION_ID `
+  -AccessToken YOUR_SUPABASE_ACCESS_TOKEN `
+  -DbPassword YOUR_DB_PASSWORD `
+  -ServiceRoleKey YOUR_SUPABASE_SERVICE_ROLE_KEY `
+  -PublishableKey YOUR_SUPABASE_PUBLISHABLE_KEY `
+  -GhlPrivateIntegrationToken YOUR_GHL_PRIVATE_TOKEN `
+  -ApplyConfig `
+  -LinkProject `
+  -PushSchema `
+  -DeployFunctions
+```
+
+`-ApplyConfig` doet een REST upsert naar `dashboard_config` via de service role key (RLS-bypass).
+
+### Extra automatisering
+
+De bootstrap script kan ook:
+- Git branch aanmaken + pushen
+- Netlify site aanmaken
+- Production branch instellen
+- Custom domain toevoegen
+- Netlify DNS CNAME records aanmaken (alleen subdomeinen)
+
+Gebruik de onboarding UI of voeg flags toe aan `scripts/bootstrap-client.ps1`.
+
+## Teamleader OAuth (sales dashboard)
+
+Voor de Teamleader Focus integratie gebruiken we een Supabase Edge Function:
+
+- `teamleader-oauth` (routes: `/start` en `/callback`)
+
+Zet deze secrets in Supabase (via onboarding of CLI):
+
+- `TEAMLEADER_CLIENT_ID`
+- `TEAMLEADER_CLIENT_SECRET`
+- `TEAMLEADER_REDIRECT_URL` (bijv. `https://PROJECT_REF.functions.supabase.co/teamleader-oauth/callback`)
+- `TEAMLEADER_SCOPES` (optioneel, space-separated)
+
+Deploy daarna de functie:
+
+```
+supabase functions deploy teamleader-oauth --project-ref YOUR_PROJECT_REF
+```
+
 Optioneel per entity:
 
 ```
@@ -248,34 +361,10 @@ Voor convenience hebben we views toegevoegd met een `source_guess` kolom:
 Als jouw payload een andere key gebruikt voor source, pas de `coalesce(...)` in `src/schemas/views.sql` aan.
 De source breakdown gebruikt `get_source_breakdown` uit `src/schemas/functions.sql`.
 
-### Admin setup UI (publiek)
+### GHL integratie via onboarding (aanbevolen)
 
-Je kunt via de dashboard UI de integratie opslaan met Supabase Auth (magic link).
-
-1) Zet Supabase Auth klaar:
-
-- **Email provider** aanzetten
-- **Site URL** invullen (voor magic link redirect)
-- Optioneel: zet **signups uit** na setup of gebruik een allowlist/invite-only
-
-2) Deploy de function:
-
-```
-supabase functions deploy ghl-admin
-```
-
-`supabase/config.toml` staat al op `verify_jwt = true` voor `ghl-admin`.
-
-3) Zet in `dashboard/.env`:
-
-```
-VITE_ADMIN_MODE=true
-VITE_SUPABASE_URL=...
-VITE_SUPABASE_PUBLISHABLE_KEY=...
-```
-
-Dan verschijnt een **Setup** knop in de header. Log in met je email en sla `location_id` + PIT op in `ghl_integrations`.
-Daarna wordt automatisch `dashboard_config` bijgewerkt.
+De admin setup UI is verwijderd. Gebruik de onboarding om de GHL Private Integration Token op te slaan
+in `ghl_integrations` (server-side via service role key).
 
 Voorbeeld:
 
@@ -291,6 +380,57 @@ insert into public.dashboard_config (id, location_id)
 values (1, 'YOUR_LOCATION_ID')
 on conflict (id) do update set location_id = excluded.location_id, updated_at = now();
 ```
+
+### Dashboard layout config (per klant)
+
+Naast `location_id` kun je in `dashboard_config` ook de dashboard content/metrics configureren:
+
+- `dashboard_title` (text)
+- `dashboard_subtitle` (text)
+- `dashboard_logo_url` (text, relatief of absolute URL)
+- `dashboard_layout` (jsonb)
+
+`dashboard_layout` kan een array zijn of een object met `sections`. Elke section:
+
+- `kind`: `funnel_metrics` | `source_breakdown` | `finance_metrics` | `hook_performance` | `lost_reasons`
+- `title` / `description` (optioneel)
+- `metric_labels` (optioneel, alleen voor funnel/finance)
+- `columns` (optioneel, CSS grid classes)
+- `enabled` (optioneel, `false` = verbergen)
+
+Je kunt ook de dashboards in de sidebar bepalen via `dashboards`:
+
+- `dashboards`: array van `{ id, label?, enabled? }`
+- `id`: `lead` | `sales` | `call-center`
+- `label`: optioneel, override van de titel
+- `enabled`: `false` om te verbergen
+
+Voorbeeld:
+
+```sql
+update public.dashboard_config
+set dashboard_title = 'Immo Beguin',
+    dashboard_subtitle = 'Lead & Marketing Dashboard',
+    dashboard_logo_url = '/assets/logos/immogbeguinlogo.png',
+    dashboard_layout = '{
+      "sections": [
+        {
+          "kind": "funnel_metrics",
+          "title": "Leads & afspraken",
+          "metric_labels": ["Totaal Leads", "Totaal Afspraken", "Confirmed"]
+        },
+        { "kind": "source_breakdown", "title": "Kanalen" },
+        {
+          "kind": "finance_metrics",
+          "title": "Kosten",
+          "metric_labels": ["Totale Leadkosten", "Kost per Lead"]
+        }
+      ]
+    }'::jsonb
+where id = 1;
+```
+
+Als `dashboard_layout` leeg of `null` is, gebruikt de frontend de default layout.
 
 Als er meerdere actieve records zijn, wordt de meest recent bijgewerkte gebruikt.
 Als `GHL_LOCATION_ID` en `GHL_PRIVATE_INTEGRATION_TOKEN` leeg zijn in `.env`, wordt automatisch deze tabel gebruikt.

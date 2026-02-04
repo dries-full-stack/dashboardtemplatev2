@@ -9,7 +9,8 @@
     "sync:opportunities": "tsx src/index.ts opportunities",
     "sync:appointments": "tsx src/index.ts appointments",
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "onboard": "node onboarding/server.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.48.1",

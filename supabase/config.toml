@@ -12,3 +12,6 @@ verify_jwt = false
 
 [functions.google-sheet-sync]
 verify_jwt = false
+
+[functions.teamleader-oauth]
+verify_jwt = false

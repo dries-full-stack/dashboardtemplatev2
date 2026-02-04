@@ -1,0 +1,53 @@
+﻿{
+    "dashboards":  [
+                       {
+                           "id":  "lead",
+                           "label":  "Leadgeneratie",
+                           "enabled":  true
+                       },
+                       {
+                           "id":  "sales",
+                           "label":  "Sales Resultaten",
+                           "enabled":  true
+                       },
+                       {
+                           "id":  "call-center",
+                           "label":  "Call Center",
+                           "enabled":  false
+                       }
+                   ],
+    "sections":  [
+                     {
+                         "kind":  "funnel_metrics",
+                         "title":  "Leads \u0026 afspraken",
+                         "metric_labels":  [
+                                               "Totaal Leads",
+                                               "Totaal Afspraken",
+                                               "Confirmed",
+                                               "Cancelled",
+                                               "No-Show",
+                                               "Lead -\u003e Afspraak"
+                                           ]
+                     },
+                     {
+                         "kind":  "source_breakdown",
+                         "title":  "Kanalen"
+                     },
+                     {
+                         "kind":  "finance_metrics",
+                         "title":  "Kosten",
+                         "metric_labels":  [
+                                               "Totale Leadkosten",
+                                               "Kost per Lead"
+                                           ]
+                     },
+                     {
+                         "kind":  "hook_performance",
+                         "title":  "Ad Hook Performance"
+                     },
+                     {
+                         "kind":  "lost_reasons",
+                         "title":  "Verliesredenen"
+                     }
+                 ]
+}

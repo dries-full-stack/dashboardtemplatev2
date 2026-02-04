@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Client Onboarding</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="header">
+        <div>
+          <h1>Client Onboarding</h1>
+          <p>Vul de klantgegevens in en start de automatische setup.</p>
+        </div>
+      </header>
+
+      <form id="onboard-form" class="card wizard-form">
+        <div class="wizard-header">
+          <p class="muted">Vul enkel de velden met * in. De rest is optioneel.</p>
+          <ol class="wizard-steps">
+            <li class="wizard-step" data-step-indicator="1">Basis</li>
+            <li class="wizard-step" data-step-indicator="2">Dashboards</li>
+            <li class="wizard-step" data-step-indicator="3">Integraties</li>
+            <li class="wizard-step" data-step-indicator="4">Deploy</li>
+            <li class="wizard-step" data-step-indicator="5">Overzicht</li>
+          </ol>
+        </div>
+
+        <section class="wizard-panel" data-step="1">
+          <h2>Basis</h2>
+          <div class="grid">
+            <label>
+              Slug *
+              <span class="hint">Korte naam voor de klant (bv. immobeguin).</span>
+              <input name="slug" required placeholder="immobeguin" />
+            </label>
+            <label>
+              Supabase URL of project ref *
+              <span class="hint">Plak de Supabase URL of enkel de project ref.</span>
+              <input name="supabaseUrl" required placeholder="https://abcd1234.supabase.co" />
+            </label>
+            <label>
+              GHL Location ID *
+              <input name="locationId" required placeholder="ghl_location_id" />
+            </label>
+            <label>
+              Dashboard titel
+              <input name="dashboardTitle" placeholder="Immo Beguin" />
+            </label>
+            <label>
+              Dashboard subtitel
+              <input name="dashboardSubtitle" placeholder="Lead & Marketing Dashboard" />
+            </label>
+            <label>
+              Logo URL
+              <input name="logoUrl" placeholder="/assets/logos/client.png of https://..." />
+            </label>
+          </div>
+        </section>
+
+        <section class="wizard-panel" data-step="2">
+          <h2>Dashboards</h2>
+          <p class="muted">Selecteer welke dashboards je voor deze klant wil.</p>
+          <div class="options">
+            <label class="checkbox">
+              <input type="checkbox" name="dashboardLead" checked />
+              Leadgeneratie
+            </label>
+            <label class="checkbox">
+              <input type="checkbox" name="dashboardSales" checked />
+              Sales Resultaten
+            </label>
+            <label class="checkbox">
+              <input type="checkbox" name="dashboardCallCenter" />
+              Call Center
+            </label>
+          </div>
+        </section>
+
+        <section class="wizard-panel" data-step="3">
+          <h2>Integraties</h2>
+          <p class="muted">Deze stap is optioneel. Je kan dit later aanvullen.</p>
+          <div class="grid">
+            <label>
+              GHL Private Integration Token
+              <span class="hint">Optioneel, enkel als je GHL data wil syncen.</span>
+              <input name="ghlPrivateIntegrationToken" type="password" placeholder="ghl_private_token" />
+            </label>
+          </div>
+
+          <div class="divider"></div>
+
+          <h3>Teamleader</h3>
+          <label class="checkbox">
+            <input type="checkbox" id="enableTeamleader" name="enableTeamleader" />
+            Teamleader koppelen
+          </label>
+          <p class="muted">
+            De redirect URL moet overeenkomen met de URL in Teamleader Focus.
+          </p>
+          <div class="redirect-helper" data-teamleader>
+            <span class="hint">Gebruik deze redirect URL in Teamleader Focus:</span>
+            <div class="copy-row">
+              <input id="teamleaderRedirectPreview" type="text" readonly />
+              <button type="button" class="button-secondary" id="copyRedirect">Kopieer</button>
+            </div>
+          </div>
+          <div class="grid" data-teamleader>
+            <label>
+              Teamleader Client ID
+              <input name="teamleaderClientId" placeholder="tl_client_id" />
+            </label>
+            <label>
+              Teamleader Client Secret
+              <input name="teamleaderClientSecret" type="password" placeholder="tl_client_secret" />
+            </label>
+            <label>
+              Teamleader Redirect URL
+              <input
+                name="teamleaderRedirectUrl"
+                placeholder="https://PROJECT_REF.functions.supabase.co/teamleader-oauth/callback"
+              />
+            </label>
+            <label>
+              Teamleader Scopes (optioneel)
+              <input name="teamleaderScopes" placeholder="scope1 scope2" />
+            </label>
+          </div>
+        </section>
+
+        <section class="wizard-panel" data-step="4">
+          <div class="notice">
+            <p class="muted">Aanrader: config, functies én base schema laten zetten.</p>
+            <label class="checkbox">
+              <input type="checkbox" id="advancedMode" />
+              Toon geavanceerde opties
+            </label>
+          </div>
+
+          <div class="divider"></div>
+
+          <h2>Automatisering</h2>
+          <div class="options">
+            <label class="checkbox">
+              <input type="checkbox" name="applyConfig" checked />
+              Dashboard config instellen
+            </label>
+            <label class="checkbox">
+              <input type="checkbox" name="deployFunctions" checked />
+              Edge functions deployen
+            </label>
+            <label class="checkbox">
+              <input type="checkbox" name="runMigrations" checked />
+              Base schema (tabellen aanmaken)
+            </label>
+          </div>
+
+          <div class="options" data-advanced>
+            <label class="checkbox">
+              <input type="checkbox" name="createBranch" />
+              Create git branch
+            </label>
+            <label class="checkbox">
+              <input type="checkbox" name="pushBranch" />
+              Push git branch
+            </label>
+            <label class="checkbox">
+              <input type="checkbox" name="linkProject" />
+              Supabase link project
+            </label>
+            <label class="checkbox">
+              <input type="checkbox" name="pushSchema" />
+              Supabase db push (base schema)
+            </label>
+            <label class="checkbox">
+              <input type="checkbox" name="noLayout" />
+              Geen default layout maken
+            </label>
+          </div>
+
+          <div class="divider"></div>
+
+          <h3>Supabase toegang</h3>
+          <p class="muted">
+            Access token is nodig om automatisch keys/secrets te zetten. De secret key is alleen server-side.
+          </p>
+
+          <div class="options">
+            <label class="checkbox">
+              <input type="checkbox" name="autoFetchKeys" checked />
+              Supabase keys automatisch ophalen (aanrader)
+            </label>
+          </div>
+
+          <div class="grid">
+            <label>
+              Supabase access token
+              <span class="hint">Laat leeg om .env.local te gebruiken.</span>
+              <input name="accessToken" type="password" placeholder="sbp_..." />
+            </label>
+            <label data-db-password>
+              DB password
+              <span class="hint">Enkel nodig om tabellen aan te maken (db push).</span>
+              <input name="dbPassword" type="password" placeholder="database password" />
+            </label>
+            <label>
+              Server key (secret of JWT)
+              <span class="hint">Vereist voor Apply config + GHL. Gebruik <code>sb_secret_...</code> of legacy <code>eyJ...</code>.</span>
+              <input name="serviceRoleKey" type="password" placeholder="sb_secret_... of eyJ..." />
+            </label>
+          </div>
+
+          <div class="grid" data-manual-keys>
+            <label>
+              Publishable key
+              <input name="publishableKey" type="password" placeholder="sb_publishable_..." />
+            </label>
+          </div>
+
+          <div class="divider"></div>
+
+          <h3 data-advanced>Git branch (geavanceerd)</h3>
+          <div class="grid" data-advanced>
+            <label>
+              Branch naam
+              <input name="branchName" placeholder="immo-beguin" />
+            </label>
+            <label>
+              Base branch
+              <input name="baseBranch" placeholder="template" />
+            </label>
+          </div>
+
+          <div class="divider"></div>
+
+          <h3>Netlify (optioneel)</h3>
+          <label class="checkbox">
+            <input type="checkbox" id="enableNetlify" />
+            Netlify deploy / env sync
+          </label>
+          <p class="muted">
+            Vul een site ID of naam in om env vars te syncen. Token is optioneel als je al bent ingelogd via CLI.
+          </p>
+          <div class="grid" data-netlify>
+            <label>
+              Netlify site ID
+              <input name="netlifySiteId" placeholder="e50330f3-b357-..." />
+            </label>
+            <label>
+              Netlify site name
+              <input name="netlifySiteName" placeholder="dashboard-immobeguin" />
+            </label>
+            <label>
+              Custom domain
+              <input name="netlifyCustomDomain" placeholder="immobeguin.profitpulse.be" />
+            </label>
+            <label>
+              Netlify auth token (optioneel)
+              <span class="hint">Laat leeg om .env.local te gebruiken.</span>
+              <input name="netlifyAuthToken" type="password" placeholder="nfp_..." />
+            </label>
+            <label>
+              GitHub token (optioneel)
+              <span class="hint">Voor automatische repo toegang. Scope: <code>repo</code> + <code>admin:public_key</code>.</span>
+              <input name="githubToken" type="password" placeholder="ghp_..." />
+            </label>
+            <label>
+              Netlify env file (optioneel)
+              <input name="netlifyEnvFile" placeholder="clients/immobeguin/env.dashboard.example" />
+            </label>
+          </div>
+          <div class="inline-check" data-netlify>
+            <button type="button" class="button-secondary" id="netlifyCheck">Check Netlify login</button>
+            <span class="status-inline" id="netlifyStatus">Nog niet gecheckt.</span>
+          </div>
+          <div class="grid" data-netlify data-advanced>
+            <label>
+              Netlify account slug (optioneel)
+              <input name="netlifyAccountSlug" placeholder="dries-full-stack" />
+            </label>
+            <label>
+              Netlify repo (owner/repo)
+              <input name="netlifyRepo" placeholder="dries-full-stack/dashboardtemplatev2" />
+            </label>
+            <label>
+              Netlify repo branch
+              <input name="netlifyRepoBranch" placeholder="immo-beguin" />
+            </label>
+            <label>
+              Netlify build command
+              <input name="netlifyBuildCommand" placeholder="npm run build" />
+            </label>
+            <label>
+              Netlify publish dir
+              <input name="netlifyPublishDir" placeholder="dist" />
+            </label>
+            <label>
+              Netlify base dir
+              <input name="netlifyBaseDir" placeholder="dashboard" />
+            </label>
+            <label>
+              Domain aliases (comma)
+              <input name="netlifyDomainAliases" placeholder="www.profitpulse.be, app.profitpulse.be" />
+            </label>
+            <label>
+              DNS zone (apex)
+              <input name="netlifyDnsZoneName" placeholder="profitpulse.be" />
+            </label>
+            <label>
+              DNS zone id (optioneel)
+              <input name="netlifyDnsZoneId" placeholder="6981d8f1fbe3..." />
+            </label>
+            <label>
+              DNS host
+              <input name="netlifyDnsHost" placeholder="immo-beguin" />
+            </label>
+            <label>
+              DNS value
+              <input name="netlifyDnsValue" placeholder="dashboardimmobeguin.netlify.app" />
+            </label>
+            <label>
+              DNS TTL (sec)
+              <input name="netlifyDnsTtl" placeholder="3600" />
+            </label>
+          </div>
+
+          <div class="options" data-netlify>
+            <label class="checkbox">
+              <input type="checkbox" name="netlifySyncEnv" checked />
+              Netlify env sync
+            </label>
+            <label class="checkbox">
+              <input type="checkbox" name="netlifyCreateSite" checked />
+              Netlify site create
+            </label>
+            <label class="checkbox">
+              <input type="checkbox" name="netlifyTriggerDeploy" checked />
+              Netlify build trigger
+            </label>
+          </div>
+          <p class="muted" data-netlify>
+            Als je een site laat aanmaken, wordt automatisch een git branch gemaakt en gepusht.
+          </p>
+          <div class="options" data-netlify data-advanced>
+            <label class="checkbox">
+              <input type="checkbox" name="netlifySetProdBranch" />
+              Netlify set production branch
+            </label>
+            <label class="checkbox">
+              <input type="checkbox" name="netlifyCreateDnsRecord" />
+              Netlify DNS CNAME (subdomain)
+            </label>
+            <label class="checkbox">
+              <input type="checkbox" name="netlifyReplaceEnv" />
+              Netlify env replace (danger)
+            </label>
+          </div>
+        </section>
+
+        <section class="wizard-panel" data-step="5">
+          <h2>Overzicht</h2>
+          <p class="muted">Controleer alles en start de onboarding.</p>
+          <div id="summary" class="summary"></div>
+        </section>
+
+        <div class="wizard-nav">
+          <button type="button" class="button-secondary" data-step-prev>Terug</button>
+          <button type="button" data-step-next>Verder</button>
+          <button type="submit" id="run-btn" data-step-submit>Start onboarding</button>
+          <span id="status" class="status"></span>
+        </div>
+      </form>
+
+      <section class="card">
+        <h2>Resultaat</h2>
+        <div id="teamleaderAction" class="teamleader-action hidden">
+          <div>
+            <h3>Koppel Teamleader</h3>
+            <p>Open de OAuth flow om de koppeling af te ronden.</p>
+          </div>
+          <a id="teamleaderLink" class="button-link" href="#" target="_blank" rel="noreferrer">Koppel Teamleader</a>
+        </div>
+        <pre id="output" class="output">Nog geen run.</pre>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

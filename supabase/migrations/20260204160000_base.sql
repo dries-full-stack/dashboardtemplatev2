@@ -1,4 +1,4 @@
-﻿-- Combined schema for GHL → Supabase template
+-- Combined schema for GHL → Supabase template
 
 create table if not exists public.contacts (
   id text not null,
@@ -305,6 +305,36 @@ create policy "Public read lost reason lookup"
   for select
   using (true);
 
+create or replace function public.custom_field_value(
+  p_custom_fields jsonb,
+  p_field_id text
+)
+returns text
+language sql
+immutable
+as $$
+  select nullif(trim(coalesce(arr.value, obj.value)), '')
+  from (
+    select case
+      when jsonb_typeof(p_custom_fields) = 'object' then p_custom_fields->>p_field_id
+      else null
+    end as value
+  ) obj
+  left join lateral (
+    select coalesce(cf->>'value', cf->>'fieldValue', cf->>'field_value', cf->>'text') as value
+    from jsonb_array_elements(
+      case
+        when jsonb_typeof(p_custom_fields) = 'array' then p_custom_fields
+        else '[]'::jsonb
+      end
+    ) cf
+    where cf->>'id' = p_field_id
+       or cf->>'fieldId' = p_field_id
+       or cf->>'name' = p_field_id
+    limit 1
+  ) arr on true;
+$$;
+
 -- Convenience views (raw_data + common source keys)
 drop view if exists public.contacts_view;
 create view public.contacts_view as
@@ -480,36 +510,6 @@ drop function if exists public.normalize_source(text);
 drop function if exists public.normalize_hook_value(text, text);
 drop function if exists public.extract_url_param(text, text);
 drop function if exists public.get_custom_field_options(text);
-
-create or replace function public.custom_field_value(
-  p_custom_fields jsonb,
-  p_field_id text
-)
-returns text
-language sql
-immutable
-as $$
-  select nullif(trim(coalesce(arr.value, obj.value)), '')
-  from (
-    select case
-      when jsonb_typeof(p_custom_fields) = 'object' then p_custom_fields->>p_field_id
-      else null
-    end as value
-  ) obj
-  left join lateral (
-    select coalesce(cf->>'value', cf->>'fieldValue', cf->>'field_value', cf->>'text') as value
-    from jsonb_array_elements(
-      case
-        when jsonb_typeof(p_custom_fields) = 'array' then p_custom_fields
-        else '[]'::jsonb
-      end
-    ) cf
-    where cf->>'id' = p_field_id
-       or cf->>'fieldId' = p_field_id
-       or cf->>'name' = p_field_id
-    limit 1
-  ) arr on true;
-$$;
 
 create or replace function public.extract_url_param(
   p_url text,
@@ -1036,6 +1036,7 @@ as $$
       a.id,
       'appointment',
       a.start_time,
+      a.contact_id,
       a.contact_name,
       a.contact_email,
       a.source,

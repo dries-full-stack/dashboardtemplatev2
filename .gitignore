@@ -1,5 +1,10 @@
 ﻿node_modules
 dist
 .env
+.env.local
 supabase/.temp/
+.netlify/
 .DS_Store
+
+# Local Netlify folder
+.netlify

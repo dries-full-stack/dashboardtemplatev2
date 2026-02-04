@@ -1,5 +1,6 @@
 import './styles.css';
 import { createClient } from '@supabase/supabase-js';
+import salesMainMarkup from './sales-layout.html?raw';
 
 const icon = (paths, className, extra = '') =>
   `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}" ${extra}>${paths}</svg>`;
@@ -70,9 +71,88 @@ const icons = {
     icon('<path d="m15.477 12.89 1.515 8.526a.5.5 0 0 1-.81.47l-3.58-2.687a1 1 0 0 0-1.197 0l-3.586 2.686a.5.5 0 0 1-.81-.469l1.514-8.526"></path><circle cx="12" cy="8" r="6"></circle>', className)
 };
 
-const navLinks = [
-  { label: 'Leadgeneratie', href: '/', icon: icons.dashboard('lucide lucide-layout-dashboard w-5 h-5 flex-shrink-0'), active: true },
+const ROUTES = {
+  lead: '/',
+  sales: '/sales-resultaten',
+  callCenter: '/call-center'
+};
+
+const ALL_DASHBOARD_TABS = [
+  { id: 'lead', label: 'Leadgeneratie', href: ROUTES.lead, icon: icons.dashboard('lucide lucide-layout-dashboard w-5 h-5 flex-shrink-0') },
+  { id: 'sales', label: 'Sales Resultaten', href: ROUTES.sales, icon: icons.target('lucide lucide-target w-5 h-5 flex-shrink-0') },
+  { id: 'call-center', label: 'Call Center', href: ROUTES.callCenter, icon: icons.headphones('lucide lucide-headphones w-5 h-5 flex-shrink-0') }
 ];
+
+const DASHBOARD_LOOKUP = new Map(ALL_DASHBOARD_TABS.map((tab) => [tab.id, tab]));
+
+const normalizePath = (value = '') => {
+  if (!value) return '/';
+  let path = value.split('?')[0].split('#')[0];
+  if (path.endsWith('/index.html')) {
+    path = path.slice(0, -'/index.html'.length);
+  }
+  if (path.length > 1 && path.endsWith('/')) {
+    path = path.slice(0, -1);
+  }
+  return path || '/';
+};
+
+const getRouteId = (availableTabs = ALL_DASHBOARD_TABS) => {
+  const path = normalizePath(window.location.pathname);
+  let candidate = 'lead';
+  if (path === ROUTES.sales) candidate = 'sales';
+  if (path === ROUTES.callCenter) candidate = 'call-center';
+
+  if (!Array.isArray(availableTabs) || availableTabs.length === 0) return candidate;
+  const hasCandidate = availableTabs.some((tab) => tab.id === candidate);
+  if (hasCandidate) return candidate;
+  return availableTabs[0].id || 'lead';
+};
+
+const DEFAULT_BRANDING = {
+  title: 'Your Company',
+  headerSubtitle: 'Performance Dashboard',
+  pageSubtitle: 'Performance Dashboard - Leads, Afspraken & ROI',
+  logoUrl: '/assets/logos/placeholder-logo.svg',
+  logoAlt: 'Company logo'
+};
+
+const DEFAULT_LAYOUT = [
+  {
+    id: 'funnel',
+    kind: 'funnel_metrics',
+    title: 'Funnel Metrics',
+    description: 'Overzicht van leads en afspraken',
+    columns: 'grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3'
+  },
+  {
+    id: 'source',
+    kind: 'source_breakdown',
+    title: 'Source Breakdown',
+    description: 'Prestaties per leadgenerator - Leads = opportunities in periode - extra kolom = afspraken zonder lead in periode'
+  },
+  {
+    id: 'finance',
+    kind: 'finance_metrics',
+    title: 'Financiele Metrics',
+    description: 'Totale leadkosten en kost per lead',
+    columns: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4'
+  },
+  {
+    id: 'hook',
+    kind: 'hook_performance',
+    title: 'Ad Hook Performance',
+    description: 'Vergelijk de prestaties van je advertentie hooks'
+  },
+  {
+    id: 'lost',
+    kind: 'lost_reasons',
+    title: 'Analyse & Inzichten',
+    description: 'Verloren leads en verdeling per reden'
+  }
+];
+
+const SALES_MAIN_MARKUP = salesMainMarkup.trim();
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -235,6 +315,10 @@ const configState = {
   hookFieldId: null,
   campaignFieldId: null,
   lostReasonFieldId: null,
+  dashboardTitle: null,
+  dashboardSubtitle: null,
+  dashboardLogoUrl: null,
+  dashboardLayout: null,
   errorMessage: ''
 };
 
@@ -339,7 +423,9 @@ const loadLocationConfig = async () => {
 
   const { data, error } = await supabase
     .from('dashboard_config')
-    .select('location_id, hook_field_id, campaign_field_id, lost_reason_field_id, updated_at')
+    .select(
+      'location_id, hook_field_id, campaign_field_id, lost_reason_field_id, dashboard_title, dashboard_subtitle, dashboard_logo_url, dashboard_layout, updated_at'
+    )
     .eq('id', 1)
     .maybeSingle();
 
@@ -372,6 +458,10 @@ const loadLocationConfig = async () => {
   configState.hookFieldId = data?.hook_field_id || null;
   configState.campaignFieldId = data?.campaign_field_id || null;
   configState.lostReasonFieldId = data?.lost_reason_field_id || null;
+  configState.dashboardTitle = data?.dashboard_title || null;
+  configState.dashboardSubtitle = data?.dashboard_subtitle || null;
+  configState.dashboardLogoUrl = data?.dashboard_logo_url || null;
+  configState.dashboardLayout = data?.dashboard_layout || null;
 
   const hookChanged =
     prevHookFieldId !== configState.hookFieldId || prevCampaignFieldId !== configState.campaignFieldId;
@@ -2884,16 +2974,19 @@ const applyLiveOverrides = (metrics, range) => {
 
   return metrics;
 };
-const renderNavLinks = navLinks
-  .map((item) =>
-    `<li>
-      <a class="nav-link${item.active ? ' active' : ''}" href="${item.href}">
+const renderNavLinks = (activeId, tabs = ALL_DASHBOARD_TABS) =>
+  tabs
+    .map((item) => {
+      const isActive = item.id === activeId;
+      const label = escapeHtml(item.label);
+      return `<li>
+      <a class="nav-link${isActive ? ' active' : ''}" href="${item.href}"${isActive ? ' aria-current="page"' : ''}>
         ${item.icon}
-        <span>${item.label}</span>
+        <span>${label}</span>
       </a>
-    </li>`
-  )
-  .join('');
+    </li>`;
+    })
+    .join('');
 
 const renderKpiCards = (cards) =>
   cards
@@ -3409,11 +3502,309 @@ const renderHookCards = (cards, isLive) =>
     })
     .join('');
 
+const resolveLayoutSections = (layoutOverride) => {
+  const rawLayout = layoutOverride ?? configState.dashboardLayout;
+  let sections = null;
+  if (Array.isArray(rawLayout)) {
+    sections = rawLayout;
+  } else if (rawLayout && Array.isArray(rawLayout.sections)) {
+    sections = rawLayout.sections;
+  }
+
+  const normalized = (sections || []).filter((section) => section && typeof section === 'object');
+  return normalized.length ? normalized : DEFAULT_LAYOUT;
+};
+
+const resolveDashboardTabs = (layoutOverride) => {
+  const rawLayout = layoutOverride ?? configState.dashboardLayout;
+  const rawTabs = rawLayout && Array.isArray(rawLayout.dashboards) ? rawLayout.dashboards : null;
+  if (!rawTabs) return ALL_DASHBOARD_TABS;
+
+  const normalized = rawTabs
+    .map((entry) => {
+      if (typeof entry === 'string') {
+        const base = DASHBOARD_LOOKUP.get(entry);
+        return base ? { ...base } : null;
+      }
+      if (!entry || typeof entry !== 'object') return null;
+      const id = entry.id || entry.key || '';
+      const base = DASHBOARD_LOOKUP.get(id);
+      if (!base) return null;
+      const enabled = entry.enabled !== false && entry.hidden !== true;
+      if (!enabled) return null;
+      const label = typeof entry.label === 'string' && entry.label.trim() ? entry.label.trim() : base.label;
+      return { ...base, label };
+    })
+    .filter(Boolean);
+
+  return normalized.length ? normalized : ALL_DASHBOARD_TABS;
+};
+
+const resolveBranding = () => {
+  const title = configState.dashboardTitle || DEFAULT_BRANDING.title;
+  const headerSubtitle = configState.dashboardSubtitle || DEFAULT_BRANDING.headerSubtitle;
+  const pageSubtitle = configState.dashboardSubtitle || DEFAULT_BRANDING.pageSubtitle;
+  const logoUrl = configState.dashboardLogoUrl || DEFAULT_BRANDING.logoUrl;
+  const logoAlt = title ? `${title} logo` : DEFAULT_BRANDING.logoAlt;
+
+  return {
+    title: escapeHtml(title),
+    headerSubtitle: escapeHtml(headerSubtitle),
+    pageSubtitle: escapeHtml(pageSubtitle),
+    logoUrl: escapeHtml(logoUrl),
+    logoAlt: escapeHtml(logoAlt)
+  };
+};
+
+const resolveSectionText = (value, fallback) => {
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  return fallback;
+};
+
+const resolveSectionLabels = (section) => {
+  if (!section) return null;
+  if (Array.isArray(section.metric_labels)) return section.metric_labels;
+  if (Array.isArray(section.metricLabels)) return section.metricLabels;
+  return null;
+};
+
+const filterCardsByLabels = (cards, labels) => {
+  if (!Array.isArray(cards)) return [];
+  if (!Array.isArray(labels) || labels.length === 0) return cards;
+  const lookup = new Map(cards.map((card) => [card.label, card]));
+  return labels.map((label) => lookup.get(label)).filter(Boolean);
+};
+
+const isSectionEnabled = (section) => section?.enabled !== false && section?.hidden !== true;
+
+const renderFunnelSection = (section, metrics) => {
+  const cards = filterCardsByLabels(metrics.funnelMetrics, resolveSectionLabels(section));
+  if (!cards.length) return '';
+  const title = escapeHtml(resolveSectionText(section?.title, 'Funnel Metrics'));
+  const description = resolveSectionText(section?.description, 'Overzicht van leads en afspraken');
+  const descriptionMarkup = description ? `<p class="text-sm text-gray-500 mb-4">${escapeHtml(description)}</p>` : '';
+  const columns =
+    typeof section?.columns === 'string' && section.columns.trim()
+      ? section.columns.trim()
+      : 'grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3';
+  const showBadge = cards.some((card) => card.isMock !== false);
+
+  return `
+    <section class="bg-white/50 rounded-2xl p-6 shadow-sm border border-gray-200">
+      <h2 class="text-lg font-bold text-gray-800 mb-1 flex items-center gap-2">
+        ${icons.users('lucide lucide-users w-5 h-5 text-primary')}
+        ${title}
+        ${showBadge ? mockBadge : ''}
+      </h2>
+      ${descriptionMarkup}
+      <div class="${columns}">
+        ${renderKpiCards(cards)}
+      </div>
+    </section>
+  `;
+};
+
+const renderFinanceSection = (section, metrics) => {
+  const cards = filterCardsByLabels(metrics.financeMetrics, resolveSectionLabels(section));
+  if (!cards.length) return '';
+  const title = escapeHtml(resolveSectionText(section?.title, 'Financiele Metrics'));
+  const description = resolveSectionText(section?.description, 'Totale leadkosten en kost per lead');
+  const descriptionMarkup = description ? `<p class="text-sm text-gray-500 mb-4">${escapeHtml(description)}</p>` : '';
+  const columns =
+    typeof section?.columns === 'string' && section.columns.trim()
+      ? section.columns.trim()
+      : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4';
+  const showBadge = !cards.some((card) => card.isMock === false);
+
+  return `
+    <section class="bg-white/50 rounded-2xl p-6 shadow-sm border border-gray-200">
+      <h2 class="text-lg font-bold text-gray-800 mb-1 flex items-center gap-2">
+        ${icons.dollar('lucide lucide-dollar-sign w-5 h-5 text-primary')}
+        ${title}
+        ${showBadge ? mockBadge : ''}
+      </h2>
+      ${descriptionMarkup}
+      <div class="${columns}">
+        ${renderKpiCards(cards)}
+      </div>
+    </section>
+  `;
+};
+
+const renderSourceBreakdownSection = (section, metrics) => {
+  const title = escapeHtml(resolveSectionText(section?.title, 'Source Breakdown'));
+  const description = resolveSectionText(
+    section?.description,
+    'Prestaties per leadgenerator - Leads = opportunities in periode - extra kolom = afspraken zonder lead in periode'
+  );
+  const descriptionMarkup = description ? `<p class="text-sm text-gray-500 mb-4">${escapeHtml(description)}</p>` : '';
+
+  return `
+    <section class="bg-white/50 rounded-2xl p-6 shadow-sm border border-gray-200">
+      <h2 class="text-lg font-bold text-gray-800 mb-1 flex items-center gap-2">
+        ${icons.chartColumn('lucide lucide-chart-column w-5 h-5 text-primary')}
+        ${title}
+        ${metrics.sourceRowsLive ? '' : mockBadge}
+      </h2>
+      ${descriptionMarkup}
+      <div class="overflow-x-auto">
+        <div class="relative w-full overflow-auto">
+          <table class="w-full caption-bottom text-sm">
+            <thead class="[&_tr]:border-b">
+              <tr class="border-b transition-colors data-[state=selected]:bg-muted hover:bg-muted/50">
+                <th class="h-12 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0">Bron</th>
+                <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Leads</th>
+                <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Appointments</th>
+                <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Confirmed</th>
+                <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Afspraken zonder lead in periode</th>
+                <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Inplan %</th>
+                <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Cost per Afspraak</th>
+              </tr>
+            </thead>
+            <tbody class="[&_tr:last-child]:border-0">
+              ${renderSourceRows(metrics.sourceRows, metrics.sourceRowsLive)}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  `;
+};
+
+const renderHookPerformanceSection = (section, metrics) => {
+  const title = escapeHtml(resolveSectionText(section?.title, 'Ad Hook Performance'));
+  const description = resolveSectionText(section?.description, 'Vergelijk de prestaties van je advertentie hooks');
+  const descriptionMarkup = description ? `<p class="text-sm text-gray-500 mb-4">${escapeHtml(description)}</p>` : '';
+
+  return `
+    <section class="bg-white/50 rounded-2xl p-6 shadow-sm border border-gray-200">
+      <h2 class="text-lg font-bold text-gray-800 mb-1 flex items-center gap-2">
+        ${icons.chartColumn('lucide lucide-chart-column w-5 h-5 text-primary')}
+        ${title}
+        ${metrics.hookPerformanceLive ? '' : mockBadge}
+      </h2>
+      ${descriptionMarkup}
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        ${renderHookHighlights(metrics.hookHighlights.best, metrics.hookHighlights.worst)}
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        ${renderHookCards(metrics.hookCards, metrics.hookPerformanceLive)}
+      </div>
+    </section>
+  `;
+};
+
+const renderLostReasonsSection = (section, metrics) => {
+  const title = escapeHtml(resolveSectionText(section?.title, 'Analyse & Inzichten'));
+  const description = resolveSectionText(section?.description, 'Verloren leads en verdeling per reden');
+  const descriptionMarkup = description ? `<p class="text-sm text-gray-500 mb-4">${escapeHtml(description)}</p>` : '';
+
+  return `
+    <section class="bg-white/50 rounded-2xl p-6 shadow-sm border border-gray-200">
+      <h2 class="text-lg font-bold text-gray-800 mb-1 flex items-center gap-2">
+        ${icons.triangleAlert('lucide lucide-triangle-alert w-5 h-5 text-orange-500')}
+        ${title}
+        ${metrics.lostReasonsLive ? '' : mockBadge}
+      </h2>
+      ${descriptionMarkup}
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="rounded-lg border bg-card text-card-foreground shadow-sm">
+          <div class="flex flex-col space-y-1.5 p-6">
+            <h3 class="font-semibold tracking-tight text-lg flex items-center gap-2">
+              ${icons.triangleAlert('lucide lucide-triangle-alert w-5 h-5 text-orange-500')}
+              Verloren Leads - Redenen
+              ${metrics.lostReasonsLive ? '' : mockBadge}
+            </h3>
+            <p class="text-sm text-muted-foreground">Analyseer waarom leads niet converteren</p>
+          </div>
+          <div class="p-6 pt-0">
+            <div class="space-y-3">
+              ${renderLostReasons(metrics.lostReasons, metrics.lostReasonsLive)}
+            </div>
+            <div class="mt-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+              <p class="text-sm text-amber-600 dark:text-amber-400"><strong>Tip:</strong> ${getLostReasonTip(metrics.lostReasons)}</p>
+            </div>
+          </div>
+        </div>
+        <div class="rounded-lg border bg-card text-card-foreground shadow-sm">
+          <div class="flex flex-col space-y-1.5 p-6">
+            <h3 class="font-semibold tracking-tight text-lg flex items-center gap-2">
+              Verdeling Verloren Leads
+              ${metrics.lostReasonsLive ? '' : mockBadge}
+            </h3>
+          </div>
+          <div class="p-6 pt-0">
+            <div class="h-64 flex items-center justify-center">
+              ${renderLostReasonsChart(metrics.lostReasons)}
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  `;
+};
+
+const renderDashboardSections = (layoutOverride, metrics) => {
+  const sections = resolveLayoutSections(layoutOverride);
+  return sections
+    .filter(isSectionEnabled)
+    .map((section) => {
+      const kind = String(section?.kind || section?.type || '').trim();
+      if (!kind) return '';
+      if (kind === 'funnel_metrics') return renderFunnelSection(section, metrics);
+      if (kind === 'source_breakdown') return renderSourceBreakdownSection(section, metrics);
+      if (kind === 'finance_metrics') return renderFinanceSection(section, metrics);
+      if (kind === 'hook_performance') return renderHookPerformanceSection(section, metrics);
+      if (kind === 'lost_reasons') return renderLostReasonsSection(section, metrics);
+      return '';
+    })
+    .filter(Boolean)
+    .join('');
+};
+
+const getRequiredLiveData = (layoutOverride) => {
+  const required = {
+    opportunities: false,
+    appointments: false,
+    sourceBreakdown: false,
+    hookPerformance: false,
+    finance: false,
+    spendBySource: false,
+    lostReasons: false
+  };
+
+  const sections = resolveLayoutSections(layoutOverride);
+  sections.forEach((section) => {
+    if (!isSectionEnabled(section)) return;
+    const kind = String(section?.kind || section?.type || '').trim();
+    if (kind === 'funnel_metrics') {
+      required.opportunities = true;
+      required.appointments = true;
+    } else if (kind === 'source_breakdown') {
+      required.sourceBreakdown = true;
+      required.spendBySource = true;
+    } else if (kind === 'finance_metrics') {
+      required.finance = true;
+    } else if (kind === 'hook_performance') {
+      required.hookPerformance = true;
+      required.spendBySource = true;
+    } else if (kind === 'lost_reasons') {
+      required.lostReasons = true;
+    }
+  });
+
+  return required;
+};
+
 const root = document.getElementById('root');
 
-const buildMarkup = (range) => {
+const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = ALL_DASHBOARD_TABS) => {
   const metrics = applyLiveOverrides(computeMetrics(range), range);
   const debugInfo = getOpportunityDebug(range);
+  const layout = resolveLayoutSections(layoutOverride);
+  const branding = resolveBranding();
+  const sidebarFooter = configState.dashboardTitle ? `${branding.title} Dashboard` : 'Dashboard Template';
+  const activeRoute = routeId || 'lead';
 
   return `
     <div role="region" aria-label="Notifications (F8)" tabindex="-1" style="pointer-events: none;">
@@ -3426,7 +3817,7 @@ const buildMarkup = (range) => {
         <div class="h-14 flex items-center justify-between px-4 border-b border-sidebar-border">
           <div class="flex items-center gap-3">
             <div class="flex items-center rounded-lg bg-white/90 px-3 py-1.5 shadow-sm ring-1 ring-black/5">
-              <img src="/assets/logos/placeholder-logo.svg" alt="Company logo" class="h-9 w-auto object-contain" />
+              <img src="${branding.logoUrl}" alt="${branding.logoAlt}" class="h-9 w-auto object-contain" />
             </div>
           </div>
           <button class="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground hidden lg:flex" data-sidebar-toggle>
@@ -3437,12 +3828,12 @@ const buildMarkup = (range) => {
           <div class="mb-6">
             <h3 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-3 mb-2">Dashboards</h3>
             <ul class="space-y-1">
-              ${renderNavLinks}
+              ${renderNavLinks(activeRoute, dashboardTabs)}
             </ul>
           </div>
         </nav>
         <div class="p-4 border-t border-sidebar-border">
-          <p class="text-xs text-sidebar-foreground/60 text-center">Dashboard Template</p>
+          <p class="text-xs text-sidebar-foreground/60 text-center">${sidebarFooter}</p>
         </div>
       </aside>
       <div class="flex-1 flex flex-col min-w-0">
@@ -3453,11 +3844,11 @@ const buildMarkup = (range) => {
             </button>
             <div class="flex items-center gap-3">
               <div class="flex items-center rounded-xl bg-white/80 px-3.5 py-2 shadow-sm ring-1 ring-black/5">
-                <img src="/assets/logos/placeholder-logo.svg" alt="Company logo" class="h-10 w-auto object-contain" />
+                <img src="${branding.logoUrl}" alt="${branding.logoAlt}" class="h-10 w-auto object-contain" />
               </div>
               <div class="hidden sm:block">
-                <div class="text-lg font-bold text-primary tracking-tight">Your Company</div>
-                <p class="text-xs text-muted-foreground -mt-0.5">Performance Dashboard</p>
+                <div class="text-lg font-bold text-primary tracking-tight">${branding.title}</div>
+                <p class="text-xs text-muted-foreground -mt-0.5">${branding.headerSubtitle}</p>
               </div>
             </div>
           </div>
@@ -3490,8 +3881,8 @@ const buildMarkup = (range) => {
         <main class="flex-1 p-6 overflow-auto">
           <div class="page-header flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-2">
             <div>
-              <h1 class="text-2xl font-bold text-foreground tracking-tight">Your Company</h1>
-              <p class="text-sm text-muted-foreground">Performance Dashboard - Leads, Afspraken &amp; ROI</p>
+              <h1 class="text-2xl font-bold text-foreground tracking-tight">${branding.title}</h1>
+              <p class="text-sm text-muted-foreground">${branding.pageSubtitle}</p>
             </div>
             <div class="date-picker relative flex items-center gap-2 flex-wrap">
               <button class="date-trigger${pickerState.selecting === 'start' && pickerState.open ? ' active' : ''}" type="button" data-date-trigger="start">
@@ -3519,115 +3910,184 @@ const buildMarkup = (range) => {
           }
           ${renderDebugPanel(range)}
           <div class="mt-6 space-y-8">
-            <section class="bg-white/50 rounded-2xl p-6 shadow-sm border border-gray-200">
-              <h2 class="text-lg font-bold text-gray-800 mb-1 flex items-center gap-2">
-                ${icons.users('lucide lucide-users w-5 h-5 text-primary')}
-                Funnel Metrics
-                ${metrics.funnelMetrics.some((card) => card.isMock !== false) ? mockBadge : ''}
-              </h2>
-              <p class="text-sm text-gray-500 mb-4">Overzicht van leads en afspraken</p>
-              <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
-                ${renderKpiCards(metrics.funnelMetrics)}
-              </div>
-            </section>
-            <section class="bg-white/50 rounded-2xl p-6 shadow-sm border border-gray-200">
-              <h2 class="text-lg font-bold text-gray-800 mb-1 flex items-center gap-2">
-                ${icons.chartColumn('lucide lucide-chart-column w-5 h-5 text-primary')}
-                Source Breakdown
-                ${metrics.sourceRowsLive ? '' : mockBadge}
-              </h2>
-              <p class="text-sm text-gray-500 mb-4">Prestaties per leadgenerator - Leads = opportunities in periode - extra kolom = afspraken zonder lead in periode</p>
-              <div class="overflow-x-auto">
-                <div class="relative w-full overflow-auto">
-                  <table class="w-full caption-bottom text-sm">
-                    <thead class="[&_tr]:border-b">
-                      <tr class="border-b transition-colors data-[state=selected]:bg-muted hover:bg-muted/50">
-                        <th class="h-12 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0">Bron</th>
-                        <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Leads</th>
-                        <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Appointments</th>
-                        <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Confirmed</th>
-                        <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Afspraken zonder lead in periode</th>
-                        <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Inplan %</th>
-                        <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Cost per Afspraak</th>
-                      </tr>
-                    </thead>
-                    <tbody class="[&_tr:last-child]:border-0">
-                      ${renderSourceRows(metrics.sourceRows, metrics.sourceRowsLive)}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </section>
-            <section class="bg-white/50 rounded-2xl p-6 shadow-sm border border-gray-200">
-              <h2 class="text-lg font-bold text-gray-800 mb-1 flex items-center gap-2">
-                ${icons.dollar('lucide lucide-dollar-sign w-5 h-5 text-primary')}
-                Financiele Metrics
-                ${metrics.financeMetrics.some((card) => card.isMock === false) ? '' : mockBadge}
-              </h2>
-              <p class="text-sm text-gray-500 mb-4">Totale leadkosten en kost per lead</p>
-              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">
-                ${renderKpiCards(metrics.financeMetrics)}
-              </div>
-            </section>
-            <section class="bg-white/50 rounded-2xl p-6 shadow-sm border border-gray-200">
-              <h2 class="text-lg font-bold text-gray-800 mb-1 flex items-center gap-2">
-                ${icons.chartColumn('lucide lucide-chart-column w-5 h-5 text-primary')}
-                Ad Hook Performance
-                ${metrics.hookPerformanceLive ? '' : mockBadge}
-              </h2>
-              <p class="text-sm text-gray-500 mb-4">Vergelijk de prestaties van je advertentie hooks</p>
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                ${renderHookHighlights(metrics.hookHighlights.best, metrics.hookHighlights.worst)}
-              </div>
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                ${renderHookCards(metrics.hookCards, metrics.hookPerformanceLive)}
-              </div>
-            </section>
-            <section class="bg-white/50 rounded-2xl p-6 shadow-sm border border-gray-200">
-              <h2 class="text-lg font-bold text-gray-800 mb-1 flex items-center gap-2">
-                ${icons.triangleAlert('lucide lucide-triangle-alert w-5 h-5 text-orange-500')}
-                Analyse &amp; Inzichten
-                ${metrics.lostReasonsLive ? '' : mockBadge}
-              </h2>
-              <p class="text-sm text-gray-500 mb-4">Verloren leads en verdeling per reden</p>
-              <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div class="rounded-lg border bg-card text-card-foreground shadow-sm">
-                  <div class="flex flex-col space-y-1.5 p-6">
-                    <h3 class="font-semibold tracking-tight text-lg flex items-center gap-2">
-                      ${icons.triangleAlert('lucide lucide-triangle-alert w-5 h-5 text-orange-500')}
-                      Verloren Leads - Redenen
-                      ${metrics.lostReasonsLive ? '' : mockBadge}
-                    </h3>
-                    <p class="text-sm text-muted-foreground">Analyseer waarom leads niet converteren</p>
-                  </div>
-                  <div class="p-6 pt-0">
-                    <div class="space-y-3">
-                      ${renderLostReasons(metrics.lostReasons, metrics.lostReasonsLive)}
-                    </div>
-                    <div class="mt-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-                      <p class="text-sm text-amber-600 dark:text-amber-400"><strong>Tip:</strong> ${getLostReasonTip(metrics.lostReasons)}</p>
-                    </div>
-                  </div>
-                </div>
-                <div class="rounded-lg border bg-card text-card-foreground shadow-sm">
-                  <div class="flex flex-col space-y-1.5 p-6">
-                    <h3 class="font-semibold tracking-tight text-lg flex items-center gap-2">
-                      Verdeling Verloren Leads
-                      ${metrics.lostReasonsLive ? '' : mockBadge}
-                    </h3>
-                  </div>
-                  <div class="p-6 pt-0">
-                    <div class="h-64 flex items-center justify-center">
-                      ${renderLostReasonsChart(metrics.lostReasons)}
-                    </div>
-                  </div>
-                </div>
-              </div>
-              </section>
-            </div>
+            ${renderDashboardSections(layout, metrics)}
+          </div>
         </main>
         <footer class="h-12 border-t border-border bg-card/50 flex items-center justify-center px-6">
-          <p class="text-xs text-muted-foreground font-medium">(c) 2026 Your Company - Performance Dashboard</p>
+          <p class="text-xs text-muted-foreground font-medium">(c) 2026 ${branding.title} - ${branding.headerSubtitle}</p>
+        </footer>
+      </div>
+    </div>
+    ${renderDrilldownModal()}
+    ${renderAdminModal()}
+  `;
+};
+
+const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
+  const branding = resolveBranding();
+  const sidebarFooter = configState.dashboardTitle ? `${branding.title} Dashboard` : 'Dashboard Template';
+
+  return `
+    <div role="region" aria-label="Notifications (F8)" tabindex="-1" style="pointer-events: none;">
+      <ol tabindex="-1" class="fixed top-0 z-[100] flex max-h-screen w-full flex-col-reverse p-4 sm:bottom-0 sm:right-0 sm:top-auto sm:flex-col md:max-w-[420px]"></ol>
+    </div>
+    <section aria-label="Notifications alt+T" tabindex="-1" aria-live="polite" aria-relevant="additions text" aria-atomic="false"></section>
+    <div class="flex min-h-screen w-full bg-background">
+      <div class="fixed inset-0 bg-background/80 backdrop-blur-sm z-40 lg:hidden sidebar-overlay" data-sidebar-close></div>
+      <aside class="fixed lg:sticky lg:top-0 z-50 h-screen bg-sidebar border-r border-sidebar-border transition-all duration-300 flex flex-col overflow-hidden w-64 translate-x-0 sidebar-panel">
+        <div class="h-14 flex items-center justify-between px-4 border-b border-sidebar-border">
+          <div class="flex items-center gap-3">
+            <img src="${branding.logoUrl}" alt="${branding.logoAlt}" class="h-8 w-auto" />
+          </div>
+          <button class="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground hidden lg:flex" data-sidebar-toggle>
+            ${icons.chevronLeft('lucide lucide-chevron-left w-4 h-4 transition-transform')}
+          </button>
+        </div>
+        <nav class="flex-1 overflow-y-auto py-4 px-3">
+          <div class="mb-6">
+            <h3 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-3 mb-2">Dashboards</h3>
+            <ul class="space-y-1">
+              ${renderNavLinks('sales', dashboardTabs)}
+            </ul>
+          </div>
+        </nav>
+        <div class="p-4 border-t border-sidebar-border">
+          <p class="text-xs text-muted-foreground text-center">${sidebarFooter}</p>
+        </div>
+      </aside>
+      <div class="flex-1 flex flex-col min-w-0">
+        <header class="h-16 border-b border-border bg-gradient-to-r from-card via-card to-card/80 backdrop-blur-sm flex items-center justify-between px-6 sticky top-0 z-40">
+          <div class="flex items-center gap-4">
+            <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 lg:hidden hover:bg-secondary" aria-label="Sluit menu" data-sidebar-toggle>
+              ${icons.menu('lucide lucide-menu h-5 w-5')}
+            </button>
+            <div class="flex items-center gap-3">
+              <img src="${branding.logoUrl}" alt="${branding.logoAlt}" class="h-10 w-auto object-contain" />
+              <div class="hidden sm:block">
+                <div class="text-lg font-bold text-foreground tracking-tight">${branding.title}</div>
+                <p class="text-xs text-muted-foreground -mt-0.5">${branding.headerSubtitle}</p>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-4">
+            <div class="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-success/10 border border-success/20">
+              <div class="w-2 h-2 rounded-full bg-success animate-pulse"></div>
+              <span class="text-xs font-medium text-success">Live Data</span>
+            </div>
+            ${
+              adminModeEnabled
+                ? `<button class="admin-trigger" type="button" data-admin-open>Setup</button>`
+                : ''
+            }
+            <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 hover:bg-secondary" title="Herlaad pagina" data-action="refresh">
+              ${icons.refresh('lucide lucide-refresh-cw h-4 w-4')}
+            </button>
+          </div>
+        </header>
+        <main class="flex-1 p-6 overflow-auto">
+          ${SALES_MAIN_MARKUP}
+        </main>
+        <footer class="h-12 border-t border-border bg-card/30 flex items-center justify-center px-6">
+          <p class="text-xs text-muted-foreground font-medium">(c) 2026 ${branding.title} - ${branding.headerSubtitle}</p>
+        </footer>
+      </div>
+    </div>
+    ${renderDrilldownModal()}
+    ${renderAdminModal()}
+  `;
+};
+
+const buildCallCenterMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
+  const branding = resolveBranding();
+  const sidebarFooter = configState.dashboardTitle ? `${branding.title} Dashboard` : 'Dashboard Template';
+
+  return `
+    <div role="region" aria-label="Notifications (F8)" tabindex="-1" style="pointer-events: none;">
+      <ol tabindex="-1" class="fixed top-0 z-[100] flex max-h-screen w-full flex-col-reverse p-4 sm:bottom-0 sm:right-0 sm:top-auto sm:flex-col md:max-w-[420px]"></ol>
+    </div>
+    <section aria-label="Notifications alt+T" tabindex="-1" aria-live="polite" aria-relevant="additions text" aria-atomic="false"></section>
+    <div class="flex min-h-screen w-full bg-background">
+      <div class="fixed inset-0 bg-background/80 backdrop-blur-sm z-40 lg:hidden sidebar-overlay" data-sidebar-close></div>
+      <aside class="fixed lg:sticky lg:top-0 z-50 h-screen bg-sidebar border-r border-sidebar-border transition-all duration-300 flex flex-col overflow-hidden w-64 translate-x-0 sidebar-panel">
+        <div class="h-14 flex items-center justify-between px-4 border-b border-sidebar-border">
+          <div class="flex items-center gap-3">
+            <div class="flex items-center rounded-lg bg-white/90 px-3 py-1.5 shadow-sm ring-1 ring-black/5">
+              <img src="${branding.logoUrl}" alt="${branding.logoAlt}" class="h-9 w-auto object-contain" />
+            </div>
+          </div>
+          <button class="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground hidden lg:flex" data-sidebar-toggle>
+            ${icons.chevronLeft('lucide lucide-chevron-left w-4 h-4 transition-transform')}
+          </button>
+        </div>
+        <nav class="flex-1 overflow-y-auto py-4 px-3">
+          <div class="mb-6">
+            <h3 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-3 mb-2">Dashboards</h3>
+            <ul class="space-y-1">
+              ${renderNavLinks('call-center', dashboardTabs)}
+            </ul>
+          </div>
+        </nav>
+        <div class="p-4 border-t border-sidebar-border">
+          <p class="text-xs text-sidebar-foreground/60 text-center">${sidebarFooter}</p>
+        </div>
+      </aside>
+      <div class="flex-1 flex flex-col min-w-0">
+        <header class="h-16 border-b border-border bg-card shadow-sm flex items-center justify-between px-6 sticky top-0 z-40">
+          <div class="flex items-center gap-4">
+            <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 lg:hidden hover:bg-accent" aria-label="Sluit menu" data-sidebar-toggle>
+              ${icons.menu('lucide lucide-menu h-5 w-5')}
+            </button>
+            <div class="flex items-center gap-3">
+              <div class="flex items-center rounded-xl bg-white/80 px-3.5 py-2 shadow-sm ring-1 ring-black/5">
+                <img src="${branding.logoUrl}" alt="${branding.logoAlt}" class="h-10 w-auto object-contain" />
+              </div>
+              <div class="hidden sm:block">
+                <div class="text-lg font-bold text-primary tracking-tight">${branding.title}</div>
+                <p class="text-xs text-muted-foreground -mt-0.5">${branding.headerSubtitle}</p>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-4">
+            <div class="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-secondary/10 border border-secondary/20">
+              <div class="w-2 h-2 rounded-full bg-secondary animate-pulse"></div>
+              <div class="flex flex-col leading-tight">
+                <span class="text-xs font-semibold text-secondary">Live Data</span>
+                <span class="text-[10px] text-muted-foreground">
+                  ${
+                    liveState.sync.status === 'loading'
+                      ? 'Laatste sync: laden...'
+                      : liveState.sync.status === 'ready'
+                        ? formatSyncTimestamp(liveState.sync.timestamp)
+                        : 'Laatste sync: onbekend'
+                  }
+                </span>
+              </div>
+            </div>
+            ${
+              adminModeEnabled
+                ? `<button class="admin-trigger" type="button" data-admin-open>Setup</button>`
+                : ''
+            }
+            <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 hover:bg-accent" title="Herlaad pagina" data-action="refresh">
+              ${icons.refresh('lucide lucide-refresh-cw h-4 w-4')}
+            </button>
+          </div>
+        </header>
+        <main class="flex-1 p-6 overflow-auto">
+          <div class="page-header flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+            <div>
+              <h1 class="text-2xl font-bold text-foreground tracking-tight">Call Center</h1>
+              <p class="text-sm text-muted-foreground">Binnenkort beschikbaar. We vullen dit zodra de Teamleader data klaarstaat.</p>
+            </div>
+          </div>
+          <div class="rounded-lg border bg-card text-card-foreground shadow-sm p-6">
+            <p class="text-sm text-muted-foreground">
+              Hier komen de call center KPI's, agent performance en kwaliteitsscores. Zodra we de datafeed hebben, bouwen we dit verder uit.
+            </p>
+          </div>
+        </main>
+        <footer class="h-12 border-t border-border bg-card/50 flex items-center justify-center px-6">
+          <p class="text-xs text-muted-foreground font-medium">(c) 2026 ${branding.title} - ${branding.headerSubtitle}</p>
         </footer>
       </div>
     </div>
@@ -3638,16 +4098,32 @@ const buildMarkup = (range) => {
 
 const renderApp = () => {
   if (!root) return;
-  root.innerHTML = buildMarkup(dateRange);
+  const dashboardTabs = resolveDashboardTabs();
+  const routeId = getRouteId(dashboardTabs);
+  if (routeId === 'sales') {
+    root.innerHTML = buildSalesMarkup(dashboardTabs);
+    bindInteractions();
+    return;
+  }
+  if (routeId === 'call-center') {
+    root.innerHTML = buildCallCenterMarkup(dashboardTabs);
+    bindInteractions();
+    ensureLatestSync();
+    return;
+  }
+
+  const layout = resolveLayoutSections();
+  const required = getRequiredLiveData(layout);
+  root.innerHTML = buildMarkup(dateRange, layout, routeId, dashboardTabs);
   bindInteractions();
-  ensureOpportunityCount(dateRange);
-  ensureAppointmentCounts(dateRange);
+  if (required.opportunities) ensureOpportunityCount(dateRange);
+  if (required.appointments) ensureAppointmentCounts(dateRange);
   ensureLatestSync();
-  ensureSourceBreakdown(dateRange);
-  ensureHookPerformance(dateRange);
-  ensureFinanceSummary(dateRange);
-  ensureSpendBySource(dateRange);
-  ensureLostReasons(dateRange);
+  if (required.sourceBreakdown) ensureSourceBreakdown(dateRange);
+  if (required.hookPerformance) ensureHookPerformance(dateRange);
+  if (required.finance) ensureFinanceSummary(dateRange);
+  if (required.spendBySource) ensureSpendBySource(dateRange);
+  if (required.lostReasons) ensureLostReasons(dateRange);
 };
 
 const isDesktop = () => window.matchMedia('(min-width: 1024px)').matches;
