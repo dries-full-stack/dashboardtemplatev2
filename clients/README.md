@@ -32,6 +32,8 @@ supabase functions deploy ghl-sync --project-ref YOUR_PROJECT_REF
 supabase functions deploy meta-sync --project-ref YOUR_PROJECT_REF
 supabase functions deploy google-sync --project-ref YOUR_PROJECT_REF
 supabase functions deploy google-sheet-sync --project-ref YOUR_PROJECT_REF
+supabase functions deploy teamleader-oauth --project-ref YOUR_PROJECT_REF
+supabase functions deploy teamleader-sync --project-ref YOUR_PROJECT_REF
 ```
 
 ## Wat maakt de script aan?
@@ -88,8 +90,11 @@ Gebruik de onboarding UI om Teamleader secrets te zetten:
 - `TEAMLEADER_REDIRECT_URL`
 - `TEAMLEADER_SCOPES` (optioneel)
 
-Deploy de functie:
+Deploy de functies:
 
 ```
 supabase functions deploy teamleader-oauth --project-ref YOUR_PROJECT_REF
+supabase functions deploy teamleader-sync --project-ref YOUR_PROJECT_REF
 ```
+
+Plan de Teamleader sync (15 min) via `supabase/schedule.sql`.

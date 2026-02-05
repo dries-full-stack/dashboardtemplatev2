@@ -1,4 +1,4 @@
-const form = document.getElementById('onboard-form');
+﻿const form = document.getElementById('onboard-form');
 const output = document.getElementById('output');
 const statusNode = document.getElementById('status');
 const runBtn = document.getElementById('run-btn');
@@ -40,9 +40,14 @@ const netlifyCheckBtn = document.getElementById('netlifyCheck');
 const netlifyStatusNode = document.getElementById('netlifyStatus');
 const teamleaderAction = document.getElementById('teamleaderAction');
 const teamleaderLink = document.getElementById('teamleaderLink');
+const teamleaderSyncAction = document.getElementById('teamleaderSyncAction');
+const teamleaderSyncNowBtn = document.getElementById('teamleaderSyncNow');
+const teamleaderSyncStatusNode = document.getElementById('teamleaderSyncStatus');
 const syncAction = document.getElementById('syncAction');
 const syncNowBtn = document.getElementById('syncNow');
 const syncStatusNode = document.getElementById('syncStatus');
+const dashboardStatusNode = document.getElementById('dashboardStatus');
+const teamleaderAutoSyncInput = form?.querySelector('[name="teamleaderAutoSync"]');
 
 const BASIC_STORAGE_KEY = 'onboard-basic';
 const BASIC_FIELDS = ['slug', 'supabaseUrl', 'locationId', 'dashboardTitle', 'dashboardSubtitle', 'logoUrl'];
@@ -59,6 +64,7 @@ let envHints = {
   syncSecret: false
 };
 let lastPayload = null;
+let teamleaderAutoRunning = false;
 
 const setHidden = (node, hidden) => {
   if (!node) return;
@@ -107,7 +113,13 @@ const setAdvancedMode = (enabled) => {
 const setTeamleaderEnabled = (enabled) => {
   toggleGroup(teamleaderSections, enabled);
   if (!enabled) {
-    clearFields(['teamleaderClientId', 'teamleaderClientSecret', 'teamleaderRedirectUrl', 'teamleaderScopes']);
+    clearFields([
+      'teamleaderClientId',
+      'teamleaderClientSecret',
+      'teamleaderRedirectUrl',
+      'teamleaderScopes',
+      'teamleaderAutoSync'
+    ]);
     if (teamleaderRedirectInput) {
       teamleaderRedirectInput.dataset.userEdited = 'false';
       teamleaderRedirectInput.dataset.autoValue = '';
@@ -273,6 +285,15 @@ const setSyncAction = (enabled) => {
   }
 };
 
+const setTeamleaderSyncAction = (enabled) => {
+  if (!teamleaderSyncAction) return;
+  teamleaderSyncAction.classList.toggle('hidden', !enabled);
+  if (!enabled && teamleaderSyncStatusNode) {
+    teamleaderSyncStatusNode.textContent = '';
+    teamleaderSyncStatusNode.classList.remove('ok', 'warn', 'error');
+  }
+};
+
 const splitDomain = (domain) => {
   const clean = normalizeDomain(domain);
   if (!clean) return { host: '', apex: '' };
@@ -399,6 +420,136 @@ const buildTestLinks = () => {
   ].join('\n');
 };
 
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const buildTeamleaderSyncPayload = () => ({
+  projectRef: extractProjectRef(supabaseUrlInput?.value || ''),
+  supabaseUrl: supabaseUrlInput?.value || '',
+  locationId: getFieldValue('locationId'),
+  syncSecret: getFieldValue('syncSecret'),
+  serviceRoleKey: getFieldValue('serviceRoleKey')
+});
+
+const checkTeamleaderIntegration = async () => {
+  const payload = buildTeamleaderSyncPayload();
+  if (!payload.projectRef || !payload.locationId) {
+    return { ok: false, connected: false, error: 'Supabase URL of location ID ontbreekt.' };
+  }
+
+  const response = await fetch('/api/teamleader-status', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  const result = await response.json();
+  if (!response.ok) {
+    return { ok: false, connected: false, error: result?.error || 'Status check faalde.' };
+  }
+  return result;
+};
+
+const triggerTeamleaderSync = async () => {
+  const payload = buildTeamleaderSyncPayload();
+  if (!payload.projectRef || !payload.locationId) {
+    setTeamleaderSyncStatus('Vul een geldige Supabase URL en location ID in.', 'error');
+    return { ok: false };
+  }
+
+  setTeamleaderSyncStatus('Teamleader sync gestart...', 'muted');
+  if (teamleaderSyncNowBtn) teamleaderSyncNowBtn.disabled = true;
+
+  try {
+    const response = await fetch('/api/teamleader-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const result = await response.json();
+    if (!response.ok || !result?.ok) {
+      const detail = result?.error ? ` (${result.error})` : '';
+      setTeamleaderSyncStatus(`Sync faalde${detail}`, 'error');
+      return { ok: false, result };
+    }
+
+    const summary = result?.data?.results
+      ? Object.entries(result.data.results)
+          .map(([key, value]) => `${key}: ${value}`)
+          .join(', ')
+      : '';
+    setTeamleaderSyncStatus(summary ? `Sync klaar: ${summary}` : 'Sync klaar.', 'ok');
+    return { ok: true, result };
+  } catch (error) {
+    setTeamleaderSyncStatus(error instanceof Error ? error.message : 'Sync faalde.', 'error');
+    return { ok: false, error };
+  } finally {
+    if (teamleaderSyncNowBtn) teamleaderSyncNowBtn.disabled = false;
+  }
+};
+
+const waitForTeamleaderIntegration = async (timeoutMs = 10 * 60 * 1000, intervalMs = 5000) => {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const result = await checkTeamleaderIntegration();
+    if (result?.connected) return result;
+    await wait(intervalMs);
+  }
+  return { ok: false, connected: false, error: 'Timeout: koppeling niet gevonden.' };
+};
+
+const startTeamleaderAutopilot = async () => {
+  if (teamleaderAutoRunning) return;
+  teamleaderAutoRunning = true;
+  const url = buildTeamleaderStartUrl();
+  if (url) {
+    const win = window.open(url, '_blank', 'noopener,noreferrer');
+    if (!win) {
+      setTeamleaderSyncStatus('Popup geblokkeerd. Klik op "Koppel Teamleader".', 'warn');
+    }
+  }
+
+  setTeamleaderSyncStatus('Wachten op Teamleader koppeling...', 'muted');
+  const status = await waitForTeamleaderIntegration();
+  if (!status?.connected) {
+    const detail = status?.error ? ` (${status.error})` : '';
+    setTeamleaderSyncStatus(`Geen koppeling gevonden${detail}`, 'warn');
+    teamleaderAutoRunning = false;
+    return;
+  }
+
+  setTeamleaderSyncStatus('Koppeling ok. Sync gestart...', 'muted');
+  await triggerTeamleaderSync();
+  teamleaderAutoRunning = false;
+};
+
+const waitForDashboardReady = async (timeoutMs = 60000, intervalMs = 1500) => {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const response = await fetch('/api/dashboard-status');
+      const result = await response.json();
+      if (result?.ready) return true;
+    } catch {
+      // ignore
+    }
+    await wait(intervalMs);
+  }
+  return false;
+};
+
+const startDashboardDev = async () => {
+  try {
+    const response = await fetch('/api/dashboard-start', { method: 'POST' });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || result?.ok === false) {
+      return { ok: false, error: result?.error || 'Dashboard start faalde.' };
+    }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'Dashboard start faalde.' };
+  }
+  const ready = await waitForDashboardReady();
+  return { ok: ready };
+};
+
 const setNetlifyStatus = (text, tone = 'muted') => {
   if (!netlifyStatusNode) return;
   netlifyStatusNode.textContent = text;
@@ -415,6 +566,24 @@ const setSyncStatus = (text, tone = 'muted') => {
   if (tone === 'ok') syncStatusNode.classList.add('ok');
   if (tone === 'warn') syncStatusNode.classList.add('warn');
   if (tone === 'error') syncStatusNode.classList.add('error');
+};
+
+const setTeamleaderSyncStatus = (text, tone = 'muted') => {
+  if (!teamleaderSyncStatusNode) return;
+  teamleaderSyncStatusNode.textContent = text;
+  teamleaderSyncStatusNode.classList.remove('ok', 'warn', 'error');
+  if (tone === 'ok') teamleaderSyncStatusNode.classList.add('ok');
+  if (tone === 'warn') teamleaderSyncStatusNode.classList.add('warn');
+  if (tone === 'error') teamleaderSyncStatusNode.classList.add('error');
+};
+
+const setDashboardStatus = (text, tone = 'muted') => {
+  if (!dashboardStatusNode) return;
+  dashboardStatusNode.textContent = text;
+  dashboardStatusNode.classList.remove('ok', 'warn', 'error');
+  if (tone === 'ok') dashboardStatusNode.classList.add('ok');
+  if (tone === 'warn') dashboardStatusNode.classList.add('warn');
+  if (tone === 'error') dashboardStatusNode.classList.add('error');
 };
 
 const interpretNetlifyStatus = (result) => {
@@ -466,6 +635,7 @@ const buildPayload = () => {
     teamleaderRedirectUrl: getValue('teamleaderRedirectUrl'),
     teamleaderScopes: getValue('teamleaderScopes'),
     teamleaderEnabled: Boolean(teamleaderToggle?.checked),
+    teamleaderAutoSync: isChecked('teamleaderAutoSync'),
     branchName: getValue('branchName'),
     baseBranch: getValue('baseBranch'),
     netlifyAccountSlug: getValue('netlifyAccountSlug'),
@@ -499,7 +669,9 @@ const buildPayload = () => {
     netlifySetProdBranch: isChecked('netlifySetProdBranch'),
     netlifyCreateDnsRecord: isChecked('netlifyCreateDnsRecord'),
     netlifyReplaceEnv: isChecked('netlifyReplaceEnv'),
-    noLayout: isChecked('noLayout')
+    noLayout: isChecked('noLayout'),
+    writeDashboardEnv: isChecked('writeDashboardEnv'),
+    openDashboard: isChecked('openDashboard')
   };
 };
 
@@ -539,9 +711,15 @@ const buildSummary = () => {
       label: 'Teamleader client id',
       value: teamleaderOn ? getFieldValue('teamleaderClientId') || '-' : '-'
     },
+    {
+      label: 'Teamleader auto sync',
+      value: teamleaderOn ? yesNo(isFieldChecked('teamleaderAutoSync')) : '-'
+    },
     { label: 'Apply config', value: yesNo(isFieldChecked('applyConfig')) },
     { label: 'Base schema', value: yesNo(isFieldChecked('runMigrations')) },
     { label: 'Deploy functions', value: yesNo(isFieldChecked('deployFunctions')) },
+    { label: 'Dashboard .env', value: yesNo(isFieldChecked('writeDashboardEnv')) },
+    { label: 'Open dashboard', value: yesNo(isFieldChecked('openDashboard')) },
     { label: 'Auto fetch keys', value: yesNo(isFieldChecked('autoFetchKeys')) },
     { label: 'Access token', value: maskedWithHint(getFieldValue('accessToken'), 'supabaseAccessToken') },
     { label: 'Server key', value: maskedWithHint(getFieldValue('serviceRoleKey'), 'supabaseServiceRoleJwt') },
@@ -669,6 +847,8 @@ const initUi = () => {
   syncNetlifyProdBranch();
   syncBranchAutomation();
   setTeamleaderAction(false);
+  setTeamleaderSyncAction(false);
+  setDashboardStatus('');
   if (slugInput?.value && netlifyToggle?.checked) {
     updateNetlifySiteName(slugInput.value);
     updateCustomDomain(slugInput.value);
@@ -798,6 +978,7 @@ advancedToggle?.addEventListener('change', () => {
 teamleaderToggle?.addEventListener('change', () => {
   setTeamleaderEnabled(teamleaderToggle.checked);
   setTeamleaderAction(false);
+  setTeamleaderSyncAction(false);
 });
 
 netlifyToggle?.addEventListener('change', () => {
@@ -880,6 +1061,10 @@ syncNowBtn?.addEventListener('click', async () => {
   }
 });
 
+teamleaderSyncNowBtn?.addEventListener('click', async () => {
+  await triggerTeamleaderSync();
+});
+
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
   if (currentStep !== TOTAL_STEPS) {
@@ -914,7 +1099,25 @@ form.addEventListener('submit', async (event) => {
 
     const showTeamleader = result.ok && Boolean(teamleaderToggle?.checked);
     setTeamleaderAction(showTeamleader);
+    setTeamleaderSyncAction(showTeamleader);
     setSyncAction(result.ok);
+
+    const shouldAutoSync = showTeamleader && isFieldChecked('teamleaderAutoSync');
+    if (shouldAutoSync) {
+      startTeamleaderAutopilot();
+    }
+    if (isFieldChecked('openDashboard')) {
+      setDashboardStatus('Dashboard starten...', 'muted');
+      const dashboardStart = await startDashboardDev();
+      if (dashboardStart?.ok) {
+        setDashboardStatus('Dashboard klaar.', 'ok');
+        window.open('http://localhost:5173', '_blank', 'noopener,noreferrer');
+      } else {
+        setDashboardStatus('Dashboard start faalde.', 'error');
+        setStatus('Dashboard kon niet opstarten.', 'error');
+      }
+    }
+
 
     const logs = [
       `Exit code: ${result.exitCode}`,
@@ -925,6 +1128,18 @@ form.addEventListener('submit', async (event) => {
       '--- STDERR ---',
       result.stderr || '(leeg)'
     ];
+    if (result?.dashboardEnv) {
+      logs.push('', '--- DASHBOARD ENV ---');
+      if (result.dashboardEnv.ok) {
+        logs.push(`Geschreven: ${result.dashboardEnv.path}`);
+        if (result.dashboardEnv.backupPath) {
+          logs.push(`Backup: ${result.dashboardEnv.backupPath}`);
+        }
+      } else {
+        logs.push(`Fout: ${result.dashboardEnv.error || 'Onbekend'}`);
+      }
+    }
+
 
     const testLinks = buildTestLinks();
     if (testLinks) {
@@ -938,3 +1153,4 @@ form.addEventListener('submit', async (event) => {
     runBtn.disabled = false;
   }
 });
+

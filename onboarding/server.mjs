@@ -1,5 +1,5 @@
 import { createServer } from 'http';
-import { readFile } from 'fs/promises';
+import { readFile, writeFile, rename, stat } from 'fs/promises';
 import { spawn } from 'child_process';
 import { extname, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -23,6 +23,11 @@ const mimeTypes = {
 
 let isRunning = false;
 let isSyncing = false;
+let isTeamleaderSyncing = false;
+let lastOnboardingState = null;
+let dashboardProcess = null;
+let dashboardOutput = '';
+const dashboardDir = join(repoRoot, 'dashboard');
 
 const sendJson = (res, statusCode, payload) => {
   const body = JSON.stringify(payload, null, 2);
@@ -95,6 +100,141 @@ const applyEnvDefaults = (payload) => {
   assignIfMissing('ghlPrivateIntegrationToken', 'GHL_PRIVATE_INTEGRATION_TOKEN');
   assignIfMissing('dbPassword', 'SUPABASE_DB_PASSWORD');
   assignIfMissing('githubToken', 'GITHUB_TOKEN');
+};
+
+const fileExists = async (filePath) => {
+  try {
+    await stat(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const writeDashboardEnvFile = async (payload) => {
+  const supabaseUrl =
+    payload.supabaseUrl ||
+    (payload.projectRef ? `https://${payload.projectRef}.supabase.co` : '');
+  const publishableKey = payload.publishableKey || '';
+  const locationId = payload.locationId || '';
+
+  if (!supabaseUrl || !locationId) {
+    return { ok: false, error: 'Supabase URL en location ID zijn vereist.' };
+  }
+  if (!publishableKey) {
+    return { ok: false, error: 'Publishable key ontbreekt.' };
+  }
+
+  const envLines = [
+    `VITE_SUPABASE_URL=${supabaseUrl}`,
+    `VITE_SUPABASE_PUBLISHABLE_KEY=${publishableKey}`,
+    `VITE_GHL_LOCATION_ID=${locationId}`,
+    'VITE_ENABLE_MOCK_DATA=false'
+  ];
+
+  const envPath = join(repoRoot, 'dashboard', '.env');
+  let backupPath = '';
+  if (await fileExists(envPath)) {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    backupPath = `${envPath}.bak-${stamp}`;
+    await rename(envPath, backupPath);
+  }
+
+  await writeFile(envPath, envLines.join('\n') + '\n', 'utf-8');
+  return { ok: true, path: envPath, backupPath };
+};
+
+const checkDashboardReady = async () => {
+  try {
+    const response = await fetch('http://localhost:5173', { method: 'GET' });
+    return response.ok;
+  } catch {
+    return false;
+  }
+};
+
+const startDashboardDevServer = async () => {
+  if (dashboardProcess && !dashboardProcess.killed) {
+    return { ok: true, status: 'already-running' };
+  }
+
+  const nodeModulesPath = join(dashboardDir, 'node_modules');
+  const hasNodeModules = await fileExists(nodeModulesPath);
+  if (!hasNodeModules) {
+    const installResult = await runCommand('npm', ['install'], dashboardDir);
+    if (!installResult.ok) {
+      return { ok: false, status: 'install-failed', output: installResult };
+    }
+  }
+
+  const child = spawn('npm', ['run', 'dev', '--', '--host'], { cwd: dashboardDir, shell: true });
+  dashboardProcess = child;
+  dashboardOutput = '';
+
+  child.stdout.on('data', (chunk) => {
+    dashboardOutput += chunk.toString();
+  });
+  child.stderr.on('data', (chunk) => {
+    dashboardOutput += chunk.toString();
+  });
+  child.on('close', (code) => {
+    dashboardProcess = null;
+    dashboardOutput += `\n[dashboard] exited with ${code ?? 'unknown'}`;
+  });
+
+  return { ok: true, status: 'started' };
+};
+    if (dashboardProcess && !dashboardProcess.killed) {
+      resolve({ ok: true, status: 'already-running' });
+      return;
+    }
+
+    const child = spawn('npm', ['run', 'dev', '--', '--host'], { cwd: dashboardDir, shell: true });
+    dashboardProcess = child;
+    dashboardOutput = '';
+
+    child.stdout.on('data', (chunk) => {
+      dashboardOutput += chunk.toString();
+    });
+    child.stderr.on('data', (chunk) => {
+      dashboardOutput += chunk.toString();
+    });
+    child.on('close', (code) => {
+      dashboardProcess = null;
+      dashboardOutput += `\n[dashboard] exited with ${code ?? 'unknown'}`;
+    });
+
+    resolve({ ok: true, status: 'started' });
+  });
+
+const buildSupabaseRestHeaders = (serviceRoleKey) => {
+  const headers = {
+    'Content-Type': 'application/json; charset=utf-8'
+  };
+  if (serviceRoleKey) {
+    headers.apikey = serviceRoleKey;
+    headers.Authorization = `Bearer ${serviceRoleKey}`;
+  }
+  return headers;
+};
+
+const resolveOnboardingContext = (data = {}) => {
+  const supabaseUrl = sanitizeString(data.supabaseUrl) || lastOnboardingState?.supabaseUrl || '';
+  const projectRef =
+    sanitizeString(data.projectRef) ||
+    extractProjectRef(supabaseUrl) ||
+    lastOnboardingState?.projectRef ||
+    '';
+  const locationId = sanitizeString(data.locationId) || lastOnboardingState?.locationId || '';
+  const serviceRoleKey =
+    sanitizeString(data.serviceRoleKey) ||
+    lastOnboardingState?.serviceRoleKey ||
+    process.env.SUPABASE_SERVICE_ROLE_JWT ||
+    process.env.SUPABASE_SECRET_KEY ||
+    '';
+
+  const resolvedUrl = supabaseUrl || (projectRef ? `https://${projectRef}.supabase.co` : '');
+  return { supabaseUrl: resolvedUrl, projectRef, locationId, serviceRoleKey };
 };
 
 const extractProjectRef = (supabaseUrl) => {
@@ -354,7 +494,7 @@ const server = createServer(async (req, res) => {
         teamleaderClientSecret: sanitizeString(data.teamleaderClientSecret),
         teamleaderRedirectUrl: sanitizeString(data.teamleaderRedirectUrl),
         teamleaderScopes: sanitizeString(data.teamleaderScopes),
-        teamleaderEnabled: Boolean(data.enableTeamleader),
+        teamleaderEnabled: Boolean(data.teamleaderEnabled ?? data.enableTeamleader),
         createBranch: Boolean(data.createBranch),
         pushBranch: Boolean(data.pushBranch),
         branchName: sanitizeString(data.branchName),
@@ -388,7 +528,8 @@ const server = createServer(async (req, res) => {
         netlifySyncEnv: Boolean(data.netlifySyncEnv),
         netlifyReplaceEnv: Boolean(data.netlifyReplaceEnv),
         netlifyCreateDnsRecord: Boolean(data.netlifyCreateDnsRecord),
-        netlifyTriggerDeploy: Boolean(data.netlifyTriggerDeploy)
+        netlifyTriggerDeploy: Boolean(data.netlifyTriggerDeploy),
+        writeDashboardEnv: Boolean(data.writeDashboardEnv)
       };
 
       applyEnvDefaults(payload);
@@ -437,6 +578,14 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+      lastOnboardingState = {
+        supabaseUrl: payload.supabaseUrl,
+        projectRef: payload.projectRef,
+        locationId: payload.locationId,
+        serviceRoleKey: payload.serviceRoleKey,
+        publishableKey: payload.publishableKey
+      };
+
       const args = buildArgs(payload);
       isRunning = true;
 
@@ -451,13 +600,25 @@ const server = createServer(async (req, res) => {
         stderr += chunk.toString();
       });
 
-      child.on('close', (code) => {
+      child.on('close', async (code) => {
         isRunning = false;
+        let dashboardEnv = null;
+        if (code === 0 && payload.writeDashboardEnv) {
+          try {
+            dashboardEnv = await writeDashboardEnvFile(payload);
+          } catch (error) {
+            dashboardEnv = {
+              ok: false,
+              error: error instanceof Error ? error.message : 'Dashboard env schrijven faalde.'
+            };
+          }
+        }
         sendJson(res, 200, {
           ok: code === 0,
           exitCode: code,
           stdout,
-          stderr
+          stderr,
+          dashboardEnv
         });
       });
     } catch (error) {
@@ -518,6 +679,130 @@ const server = createServer(async (req, res) => {
     } finally {
       isSyncing = false;
     }
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/api/teamleader-status') {
+    try {
+      const rawBody = await readBody(req);
+      const data = JSON.parse(rawBody || '{}');
+      const context = resolveOnboardingContext(data);
+
+      if (!context.supabaseUrl || !context.locationId) {
+        sendJson(res, 400, { ok: false, error: 'Supabase URL en location ID zijn vereist.' });
+        return;
+      }
+      if (!context.serviceRoleKey) {
+        sendJson(res, 400, { ok: false, error: 'Service role key ontbreekt.' });
+        return;
+      }
+
+      const url = new URL(`${context.supabaseUrl}/rest/v1/teamleader_integrations`);
+      url.searchParams.set('select', 'location_id,scope,expires_at');
+      url.searchParams.set('location_id', `eq.${context.locationId}`);
+      url.searchParams.set('limit', '1');
+
+      const response = await fetch(url.toString(), {
+        headers: buildSupabaseRestHeaders(context.serviceRoleKey)
+      });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        sendJson(res, response.status, { ok: false, error: payload || 'Status check faalde.' });
+        return;
+      }
+
+      const integration = Array.isArray(payload) && payload.length ? payload[0] : null;
+      sendJson(res, 200, { ok: true, connected: Boolean(integration), integration });
+    } catch (error) {
+      sendJson(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Onbekende fout' });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/api/teamleader-sync') {
+    if (isTeamleaderSyncing) {
+      sendJson(res, 409, { ok: false, error: 'Er draait al een Teamleader sync.' });
+      return;
+    }
+
+    try {
+      const rawBody = await readBody(req);
+      const data = JSON.parse(rawBody || '{}');
+      const context = resolveOnboardingContext(data);
+
+      if (!context.projectRef) {
+        sendJson(res, 400, { ok: false, error: 'Supabase URL of project ref ontbreekt.' });
+        return;
+      }
+
+      const entities = sanitizeString(data.entities);
+      const lookbackMonths = data.lookbackMonths ? Number(data.lookbackMonths) : null;
+      const syncSecret = sanitizeString(data.syncSecret) || process.env.SYNC_SECRET || '';
+
+      const syncUrl = new URL(`https://${context.projectRef}.supabase.co/functions/v1/teamleader-sync`);
+      if (context.locationId) syncUrl.searchParams.set('location_id', context.locationId);
+      if (entities) syncUrl.searchParams.set('entities', entities);
+      if (lookbackMonths && Number.isFinite(lookbackMonths)) {
+        syncUrl.searchParams.set('lookback_months', String(lookbackMonths));
+      }
+
+      const headers = { 'Content-Type': 'application/json' };
+      if (syncSecret) {
+        headers['x-sync-secret'] = syncSecret;
+      }
+
+      isTeamleaderSyncing = true;
+      const response = await fetch(syncUrl.toString(), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          location_id: context.locationId || undefined,
+          entities: entities || undefined,
+          lookback_months: lookbackMonths || undefined
+        })
+      });
+
+      const text = await response.text();
+      let parsed = null;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = null;
+      }
+
+      if (!response.ok) {
+        sendJson(res, response.status, { ok: false, status: response.status, error: parsed || text });
+        return;
+      }
+
+      sendJson(res, 200, { ok: true, status: response.status, data: parsed || text });
+    } catch (error) {
+      sendJson(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Onbekende fout' });
+    } finally {
+      isTeamleaderSyncing = false;
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/api/dashboard-start') {
+    try {
+      const result = await startDashboardDevServer();
+      if (!result.ok) {
+        sendJson(res, 500, { ok: false, ...result });
+        return;
+      }
+      const ready = await checkDashboardReady();
+      sendJson(res, 200, { ok: true, ready, ...result });
+    } catch (error) {
+      sendJson(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Onbekende fout' });
+    }
+    return;
+  }
+
+  if (req.method === 'GET' && req.url === '/api/dashboard-status') {
+    const ready = await checkDashboardReady();
+    sendJson(res, 200, { ok: true, ready });
     return;
   }
 

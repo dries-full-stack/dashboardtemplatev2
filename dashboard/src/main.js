@@ -1,7 +1,6 @@
-import './styles.css';
+﻿import './styles.css';
 import { createClient } from '@supabase/supabase-js';
 import salesMainMarkup from './sales-layout.html?raw';
-import salesEmptyMarkup from './sales-empty-layout.html?raw';
 
 const icon = (paths, className, extra = '') =>
   `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}" ${extra}>${paths}</svg>`;
@@ -154,12 +153,16 @@ const DEFAULT_LAYOUT = [
 ];
 
 const MOCK_ENABLED = import.meta.env.VITE_ENABLE_MOCK_DATA === 'true';
-const SALES_MAIN_MARKUP = (MOCK_ENABLED ? salesMainMarkup : salesEmptyMarkup).trim();
+const SALES_RANGE_MONTHS = 6;
+const SALES_TARGET_MONTHLY_DEALS = 25;
+const SALES_MAIN_MARKUP = salesMainMarkup.trim();
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const ghlLocationId = import.meta.env.VITE_GHL_LOCATION_ID;
 const adminModeEnabled = import.meta.env.VITE_ADMIN_MODE === 'true';
+const teamleaderDealUrlTemplate =
+  import.meta.env.VITE_TEAMLEADER_DEAL_URL_TEMPLATE || 'https://app.teamleader.eu/deals/{id}';
 const supabase =
   supabaseUrl && supabaseKey
     ? createClient(supabaseUrl, supabaseKey, {
@@ -169,11 +172,40 @@ const supabase =
 const adminEndpoint = supabaseUrl ? `${supabaseUrl}/functions/v1/ghl-admin` : '';
 
 const formatIsoDate = (date) => date.toISOString().slice(0, 10);
+const pickFirstUrl = (...candidates) =>
+  candidates.find((value) => typeof value === 'string' && value.startsWith('http')) || '';
+
+const getTeamleaderDealUrlFromRaw = (rawData) => {
+  if (!rawData || typeof rawData !== 'object') return '';
+  const links = rawData.links && typeof rawData.links === 'object' ? rawData.links : {};
+  return pickFirstUrl(
+    rawData.web_url,
+    rawData.url,
+    rawData.link,
+    rawData.permalink,
+    links.web_url,
+    links.url,
+    links.self,
+    links.html
+  );
+};
+
+const buildTeamleaderDealUrl = (dealId, rawData) => {
+  const direct = getTeamleaderDealUrlFromRaw(rawData);
+  if (direct) return direct;
+  if (!teamleaderDealUrlTemplate || !dealId) return '';
+  const encodedId = encodeURIComponent(String(dealId));
+  if (teamleaderDealUrlTemplate.includes('{id}')) {
+    return teamleaderDealUrlTemplate.replace('{id}', encodedId);
+  }
+  return `${teamleaderDealUrlTemplate.replace(/\/$/, '')}/${encodedId}`;
+};
+
 const getDefaultRange = () => {
   const today = new Date();
   const end = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
   const start = new Date(end);
-  start.setUTCDate(start.getUTCDate() - 29);
+  start.setUTCMonth(start.getUTCMonth() - 1);
   return { start: formatIsoDate(start), end: formatIsoDate(end) };
 };
 
@@ -444,6 +476,14 @@ const liveState = {
     errorMessage: '',
     inFlight: false
   }
+};
+
+const salesState = {
+  status: 'idle',
+  data: null,
+  rangeKey: '',
+  errorMessage: '',
+  inFlight: false
 };
 
 let renderQueued = false;
@@ -1014,6 +1054,69 @@ const formatOptionalCurrency = (value, decimals = 2, suffix = '') =>
   Number.isFinite(value) ? `${formatCurrency(value, decimals)}${suffix}` : '--';
 const formatPercent = (value, decimals = 1) => `${formatNumber(value * 100, decimals)}%`;
 const safeDivide = (numerator, denominator) => (denominator ? numerator / denominator : 0);
+const MONTH_LABELS_NL = ['Jan', 'Feb', 'Mrt', 'Apr', 'Mei', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec'];
+const toMonthKey = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+const buildMonthBuckets = (start, end) => {
+  const buckets = [];
+  const cursor = new Date(start.getFullYear(), start.getMonth(), 1);
+  const last = new Date(end.getFullYear(), end.getMonth(), 1);
+  while (cursor <= last) {
+    buckets.push({
+      key: toMonthKey(cursor),
+      label: MONTH_LABELS_NL[cursor.getMonth()],
+      quotes: 0,
+      won: 0
+    });
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  return buckets;
+};
+const getSalesRange = (range) => {
+  if (range?.start && range?.end) {
+    const start = new Date(`${range.start}T00:00:00Z`);
+    const end = new Date(`${range.end}T23:59:59Z`);
+    return { start, end };
+  }
+  const now = new Date();
+  const end = new Date(now);
+  const start = new Date(now);
+  start.setMonth(start.getMonth() - (SALES_RANGE_MONTHS - 1));
+  start.setDate(1);
+  start.setHours(0, 0, 0, 0);
+  return { start, end };
+};
+const parseDate = (value) => {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+const diffDays = (later, earlier) => {
+  if (!later || !earlier) return null;
+  return (later.getTime() - earlier.getTime()) / (1000 * 60 * 60 * 24);
+};
+const formatDays = (value, decimals = 1) =>
+  Number.isFinite(value) ? `${formatNumber(value, decimals)} dagen` : '--';
+const normalizeStatus = (value) => String(value || '').trim().toLowerCase();
+const isWonStatus = (status) => status.includes('won');
+const isLostStatus = (status) =>
+  !isWonStatus(status) &&
+  (status.includes('lost') ||
+    status.includes('declined') ||
+    status.includes('rejected') ||
+    status.includes('cancel') ||
+    status.includes('closed'));
+const formatFullName = (first, last, fallback = 'Onbekend') => {
+  const parts = [first, last].map((value) => (value || '').trim()).filter(Boolean);
+  return parts.length ? parts.join(' ') : fallback;
+};
+const buildInitials = (name) => {
+  if (!name) return '--';
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '--';
+  const first = parts[0]?.[0] || '';
+  const last = parts.length > 1 ? parts[parts.length - 1]?.[0] || '' : '';
+  return `${first}${last}`.toUpperCase();
+};
 const META_SOURCE_BY_LANG = {
   nl: 'Meta - Calculator',
   fr: 'Meta - FR Calculator'
@@ -1591,7 +1694,7 @@ const buildDrilldownTitle = (kind, source, label) => {
   const base = label || DRILLDOWN_LABELS[kind] || 'Records';
   if (!source) return base;
   if (kind?.startsWith('hook_') || kind?.startsWith('lost_reason_')) return base;
-  return `${base} · ${source}`;
+  return `${base} Â· ${source}`;
 };
 
 const getDrilldownFilterLabel = (kind, source) => {
@@ -2021,6 +2124,812 @@ const ensureLatestSync = async () => {
   }
 
   scheduleRender();
+};
+
+const fetchAllRows = async (buildQuery, pageSize = 1000) => {
+  const rows = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await buildQuery().range(from, from + pageSize - 1);
+    if (error) throw error;
+    if (!Array.isArray(data) || data.length === 0) break;
+    rows.push(...data);
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+  return rows;
+};
+
+const extractLossReason = (deal) => {
+  const raw = deal?.raw_data;
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    const directKeys = [
+      'lostReason',
+      'lost_reason',
+      'lostReasonName',
+      'lost_reason_name',
+      'reason',
+      'closedReason',
+      'closed_reason',
+      'statusChangeReason',
+      'status_change_reason',
+      'disposition',
+      'outcome'
+    ];
+    for (const key of directKeys) {
+      const value = raw[key];
+      if (typeof value === 'string' && value.trim()) return value.trim();
+      if (value && typeof value === 'object') {
+        const nested = value.name || value.label || value.reason;
+        if (typeof nested === 'string' && nested.trim()) return nested.trim();
+      }
+    }
+    const nestedStatus = raw.status?.reason;
+    if (typeof nestedStatus === 'string' && nestedStatus.trim()) return nestedStatus.trim();
+  }
+  return null;
+};
+
+const buildSalesMetrics = (activeRange, deals, users, companies, contacts, phases, spendRows) => {
+  const now = new Date();
+  const range = getSalesRange(activeRange);
+  const monthBuckets = buildMonthBuckets(range.start, range.end);
+  const monthMap = new Map(monthBuckets.map((bucket) => [bucket.key, bucket]));
+
+  const companyMap = new Map(
+    (companies || []).map((company) => [
+      company.id,
+      {
+        name: company.name || 'Onbekend',
+        email: company.email || null
+      }
+    ])
+  );
+  const contactMap = new Map(
+    (contacts || []).map((contact) => [
+      contact.id,
+      {
+        name: formatFullName(contact.first_name, contact.last_name, contact.email || contact.phone || 'Contact'),
+        email: contact.email || null
+      }
+    ])
+  );
+  const userMap = new Map(
+    (users || []).map((user) => [
+      user.id,
+      formatFullName(user.first_name, user.last_name, user.email || user.phone || 'Onbekend')
+    ])
+  );
+  const phaseMap = new Map((phases || []).map((phase) => [phase.id, phase]));
+
+  const dealsInRange = [];
+  const wonDeals = [];
+  const lostDeals = [];
+  const openDeals = [];
+  const quoteDurations = [];
+  const cycleDurations = [];
+  const records = [];
+
+  (deals || []).forEach((deal) => {
+    const createdAt = parseDate(deal.created_at);
+    if (!createdAt) return;
+    if (createdAt < range.start || createdAt > range.end) return;
+
+    dealsInRange.push(deal);
+    const status = normalizeStatus(deal.status);
+    const won = isWonStatus(status);
+    const lost = isLostStatus(status);
+
+    if (won) wonDeals.push(deal);
+    if (lost) lostDeals.push(deal);
+    if (!won && !lost) openDeals.push(deal);
+
+    let customerName = deal.title || 'Onbekend';
+    let customerEmail = '';
+    if (deal.customer_type === 'company' && companyMap.has(deal.customer_id)) {
+      const company = companyMap.get(deal.customer_id);
+      customerName = company.name || customerName;
+      customerEmail = company.email || '';
+    } else if (deal.customer_type === 'contact' && contactMap.has(deal.customer_id)) {
+      const contact = contactMap.get(deal.customer_id);
+      customerName = contact.name || customerName;
+      customerEmail = contact.email || '';
+    }
+
+    const phase = phaseMap.get(deal.phase_id);
+    const phaseLabel = phase?.name || '';
+    const statusType = won ? 'won' : lost ? 'lost' : 'open';
+    const sellerId = deal.responsible_user_id || null;
+    const sellerName = sellerId ? userMap.get(sellerId) || 'Onbekend' : null;
+    const lossReason = lost ? (extractLossReason(deal) || deal.status || 'Onbekend') : null;
+    records.push({
+      record_id: deal.id,
+      record_type: 'deal',
+      occurred_at: deal.created_at,
+      contact_name: customerName,
+      contact_email: customerEmail,
+      source: phaseLabel || deal.customer_type || 'Deal',
+      status: deal.status || 'Onbekend',
+      statusType,
+      monthKey: toMonthKey(createdAt),
+      seller_id: sellerId,
+      seller_name: sellerName,
+      loss_reason: lossReason ? String(lossReason).trim() : null,
+      record_url: buildTeamleaderDealUrl(deal.id, deal.raw_data)
+    });
+
+    const updatedAt = parseDate(deal.updated_at);
+    const quoteDays = diffDays(updatedAt, createdAt);
+    if (Number.isFinite(quoteDays) && quoteDays >= 0) quoteDurations.push(quoteDays);
+
+    if (won) {
+      const closedAt = parseDate(deal.closed_at) || updatedAt;
+      const cycleDays = diffDays(closedAt, createdAt);
+      if (Number.isFinite(cycleDays) && cycleDays >= 0) cycleDurations.push(cycleDays);
+    }
+
+    const createdKey = toMonthKey(createdAt);
+    const createdBucket = monthMap.get(createdKey);
+    if (createdBucket) createdBucket.quotes += 1;
+
+    if (won) {
+      const closedAt = parseDate(deal.closed_at) || updatedAt || createdAt;
+      if (closedAt) {
+        const closedKey = toMonthKey(closedAt);
+        const closedBucket = monthMap.get(closedKey);
+        if (closedBucket) closedBucket.won += 1;
+      }
+    }
+  });
+
+  const openValue = openDeals.reduce((sum, deal) => sum + (Number(deal.estimated_value) || 0), 0);
+  const approvalRate = safeDivide(wonDeals.length, dealsInRange.length);
+  const rejectionRate = safeDivide(lostDeals.length, dealsInRange.length);
+  const dealRatio = approvalRate;
+  const avgQuoteTimeDays = quoteDurations.length
+    ? quoteDurations.reduce((sum, value) => sum + value, 0) / quoteDurations.length
+    : null;
+  const avgSalesCycleDays = cycleDurations.length
+    ? cycleDurations.reduce((sum, value) => sum + value, 0) / cycleDurations.length
+    : null;
+
+  const thisMonthKey = toMonthKey(new Date());
+  const dealsThisMonth = dealsInRange.filter((deal) => {
+    const createdAt = parseDate(deal.created_at);
+    return createdAt && toMonthKey(createdAt) === thisMonthKey;
+  }).length;
+  const targetDeals = SALES_TARGET_MONTHLY_DEALS;
+  const targetPercent = safeDivide(dealsThisMonth, targetDeals);
+  const remainingPercent = Math.max(0, 1 - targetPercent);
+
+  const spendTotal = (spendRows || []).reduce((sum, row) => sum + (Number(row.spend) || 0), 0);
+  const costPerCustomer = wonDeals.length ? spendTotal / wonDeals.length : null;
+
+  const lossReasonCounts = {};
+  lostDeals.forEach((deal) => {
+    const reason = extractLossReason(deal) || deal.status || 'Onbekend';
+    const key = String(reason).trim() || 'Onbekend';
+    lossReasonCounts[key] = (lossReasonCounts[key] || 0) + 1;
+  });
+  const lossReasons = Object.entries(lossReasonCounts)
+    .map(([label, count]) => ({ label, count, percent: safeDivide(count, lostDeals.length) }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5);
+
+  const openDealRows = openDeals
+    .map((deal) => {
+      const phase = phaseMap.get(deal.phase_id);
+      let probability = Number(phase?.probability);
+      if (Number.isFinite(probability) && probability > 1) probability /= 100;
+      const probabilityValue = Number.isFinite(probability) ? probability : null;
+      let probabilityLabel = 'Onbekend';
+      let probabilityTone = 'bg-muted text-muted-foreground';
+      if (Number.isFinite(probabilityValue)) {
+        if (probabilityValue >= 0.7) {
+          probabilityLabel = 'Hoog';
+          probabilityTone = 'bg-green-100 text-green-800';
+        } else if (probabilityValue >= 0.4) {
+          probabilityLabel = 'Medium';
+          probabilityTone = 'bg-yellow-100 text-yellow-800';
+        } else {
+          probabilityLabel = 'Laag';
+          probabilityTone = 'bg-red-100 text-red-800';
+        }
+      }
+
+      let customerName = deal.title || 'Onbekend';
+      if (deal.customer_type === 'company' && companyMap.has(deal.customer_id)) {
+        customerName = companyMap.get(deal.customer_id).name || customerName;
+      } else if (deal.customer_type === 'contact' && contactMap.has(deal.customer_id)) {
+        customerName = contactMap.get(deal.customer_id).name || customerName;
+      }
+
+      const createdAt = parseDate(deal.created_at);
+      const daysOpen = createdAt ? Math.max(0, Math.round(diffDays(now, createdAt))) : null;
+      return {
+        id: deal.id,
+        customerName,
+        value: Number(deal.estimated_value) || 0,
+        daysOpen,
+        probabilityLabel,
+        probabilityTone
+      };
+    })
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 6);
+
+  const sellerMap = new Map();
+  dealsInRange.forEach((deal) => {
+    const key = deal.responsible_user_id || 'unknown';
+    if (!sellerMap.has(key)) {
+      const name = key === 'unknown' ? 'Onbekend' : userMap.get(key) || 'Onbekend';
+      sellerMap.set(key, {
+        id: key,
+        name,
+        initials: buildInitials(name),
+        deals: 0,
+        won: 0,
+        lost: 0,
+        cycleSum: 0,
+        cycleCount: 0,
+        revenue: 0
+      });
+    }
+    const seller = sellerMap.get(key);
+    seller.deals += 1;
+    const status = normalizeStatus(deal.status);
+    const won = isWonStatus(status);
+    const lost = isLostStatus(status);
+    if (won) {
+      seller.won += 1;
+      seller.revenue += Number(deal.estimated_value) || 0;
+      const createdAt = parseDate(deal.created_at);
+      const closedAt = parseDate(deal.closed_at) || parseDate(deal.updated_at);
+      const cycle = diffDays(closedAt, createdAt);
+      if (Number.isFinite(cycle) && cycle >= 0) {
+        seller.cycleSum += cycle;
+        seller.cycleCount += 1;
+      }
+    } else if (lost) {
+      seller.lost += 1;
+    }
+  });
+
+  const sellers = Array.from(sellerMap.values())
+    .map((seller) => ({
+      ...seller,
+      conversion: safeDivide(seller.won, seller.deals),
+      avgCycle: seller.cycleCount ? seller.cycleSum / seller.cycleCount : null
+    }))
+    .sort((a, b) => b.won - a.won || b.revenue - a.revenue)
+    .slice(0, 10);
+
+  const totalRevenue = wonDeals.reduce((sum, deal) => sum + (Number(deal.estimated_value) || 0), 0);
+  const summary = {
+    wonDeals: wonDeals.length,
+    revenue: totalRevenue,
+    conversion: approvalRate,
+    avgCycleDays: avgSalesCycleDays
+  };
+
+  return {
+    range,
+    totals: {
+      deals: dealsInRange.length,
+      won: wonDeals.length,
+      lost: lostDeals.length,
+      open: openDeals.length,
+      openValue,
+      avgQuoteTimeDays,
+      avgSalesCycleDays,
+      approvalRate,
+      rejectionRate,
+      dealRatio,
+      costPerCustomer
+    },
+    target: {
+      current: dealsThisMonth,
+      target: targetDeals,
+      percent: targetPercent,
+      remainingPercent
+    },
+    monthly: monthBuckets,
+    lossReasons,
+    openDeals: openDealRows,
+    records,
+    sellers,
+    summary,
+    funnel: {
+      quotes: dealsInRange.length,
+      approved: wonDeals.length,
+      rejected: lostDeals.length
+    }
+  };
+};
+
+const updateSalesStatus = (status, message) => {
+  const badge = document.querySelector('[data-sales-status]');
+  if (!badge) return;
+  const label = badge.querySelector('[data-sales-status-label]');
+  const dot = badge.querySelector('[data-sales-status-dot]');
+  if (label) label.textContent = message || label.textContent;
+  if (!dot) return;
+  dot.className = `w-2 h-2 rounded-full ${
+    status === 'ready'
+      ? 'bg-emerald-500'
+      : status === 'loading'
+        ? 'bg-amber-500'
+        : status === 'error'
+          ? 'bg-destructive'
+          : 'bg-muted-foreground/60'
+  }`;
+};
+
+const buildTrendMarkup = (monthly) => {
+  if (!Array.isArray(monthly) || monthly.length === 0) {
+    return '<div class="text-sm text-muted-foreground">Geen trenddata beschikbaar.</div>';
+  }
+  const maxValue = Math.max(
+    1,
+    ...monthly.map((entry) => Math.max(entry.quotes || 0, entry.won || 0))
+  );
+  const bars = monthly
+    .map((entry) => {
+      const quotesHeight = Math.round(((entry.quotes || 0) / maxValue) * 100);
+      const wonHeight = Math.round(((entry.won || 0) / maxValue) * 100);
+      return `
+        <div class="flex flex-col items-center gap-2 flex-1">
+          <div class="w-full flex items-end gap-1 h-full">
+            <div class="flex-1 rounded-t-md bg-primary/80" style="height:${quotesHeight}%"></div>
+            <div class="flex-1 rounded-t-md bg-emerald-500/70" style="height:${wonHeight}%"></div>
+          </div>
+          <span class="text-xs text-muted-foreground">${entry.label}</span>
+        </div>
+      `;
+    })
+    .join('');
+  return `
+    <div class="flex items-end gap-4 h-[180px] w-full">${bars}</div>
+    <div class="mt-3 flex items-center justify-end gap-4 text-xs text-muted-foreground">
+      <span class="inline-flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-primary/80"></span>Offertes</span>
+      <span class="inline-flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-emerald-500/70"></span>Deals</span>
+    </div>
+  `;
+};
+
+const buildLossReasonsMarkup = (reasons) => {
+  if (!Array.isArray(reasons) || reasons.length === 0) {
+    return '<div class="text-sm text-muted-foreground">Geen verliesredenen gevonden.</div>';
+  }
+  return reasons
+    .map((reason) => {
+      const percent = Math.round((reason.percent || 0) * 100);
+      const reasonLabel = escapeHtml(reason.label);
+      return `
+        <div class="space-y-1">
+          <div class="flex items-center justify-between text-sm">
+            <span class="font-medium">${reasonLabel}</span>
+            <span class="text-muted-foreground" data-sales-drill="lost" data-sales-loss-reason="${reasonLabel}">
+              ${formatNumber(reason.count)} (${percent}%)
+            </span>
+          </div>
+          <div aria-valuemax="100" aria-valuemin="0" role="progressbar" class="relative w-full overflow-hidden rounded-full bg-secondary h-2">
+            <div class="h-full w-full flex-1 bg-primary transition-all" style="transform: translateX(-${100 - percent}%);"></div>
+          </div>
+        </div>
+      `;
+    })
+    .join('');
+};
+
+const buildOpenDealsRows = (deals) => {
+  if (!Array.isArray(deals) || deals.length === 0) {
+    return `
+      <tr class="border-b">
+        <td colspan="4" class="p-4 text-sm text-muted-foreground">Geen open deals gevonden.</td>
+      </tr>
+    `;
+  }
+  return deals
+    .map((deal) => {
+      const days = Number.isFinite(deal.daysOpen) ? deal.daysOpen : '--';
+      const value = Number.isFinite(deal.value) ? formatCurrency(deal.value, 0) : '--';
+      const dealId = escapeHtml(String(deal.id || ''));
+      const dealLabel = escapeHtml(deal.customerName);
+      return `
+        <tr class="border-b transition-colors data-[state=selected]:bg-muted hover:bg-muted/50">
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 font-medium">${dealLabel}</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">
+            <span data-sales-drill="open" data-sales-record-id="${dealId}" data-sales-record-label="${dealLabel}">${value}</span>
+          </td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-center">
+            <span data-sales-drill="open" data-sales-record-id="${dealId}" data-sales-record-label="${dealLabel}">${days}</span>
+          </td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-center">
+            <div class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors ${deal.probabilityTone}">${escapeHtml(deal.probabilityLabel)}</div>
+          </td>
+        </tr>
+      `;
+    })
+    .join('');
+};
+const buildFunnelMarkup = (funnel) => {
+  const total = funnel.quotes || 0;
+  const approved = funnel.approved || 0;
+  const rejected = funnel.rejected || 0;
+  const approvedRate = safeDivide(approved, total);
+  const rejectedRate = safeDivide(rejected, total);
+  return `
+    <div class="grid gap-4 md:grid-cols-3">
+      <div class="rounded-lg bg-blue-500/90 text-white p-4">
+        <p class="text-xs uppercase tracking-wide text-white/70">Offertes</p>
+        <p class="text-2xl font-bold" data-sales-drill="all">${formatNumber(total)}</p>
+        <p class="text-xs text-white/70" data-sales-drill="all">100%</p>
+      </div>
+      <div class="rounded-lg bg-emerald-500/90 text-white p-4">
+        <p class="text-xs uppercase tracking-wide text-white/70">Goedgekeurd</p>
+        <p class="text-2xl font-bold" data-sales-drill="won">${formatNumber(approved)}</p>
+        <p class="text-xs text-white/70" data-sales-drill="won">${formatPercent(approvedRate, 1)}</p>
+      </div>
+      <div class="rounded-lg bg-rose-500/90 text-white p-4">
+        <p class="text-xs uppercase tracking-wide text-white/70">Afgekeurd</p>
+        <p class="text-2xl font-bold" data-sales-drill="lost">${formatNumber(rejected)}</p>
+        <p class="text-xs text-white/70" data-sales-drill="lost">${formatPercent(rejectedRate, 1)}</p>
+      </div>
+    </div>
+  `;
+};
+const buildSellerRows = (sellers) => {
+  if (!Array.isArray(sellers) || sellers.length === 0) {
+    return `
+      <tr class="border-b">
+        <td colspan="8" class="p-4 text-sm text-muted-foreground">Geen verkopersdata gevonden.</td>
+      </tr>
+    `;
+  }
+  return sellers
+    .map((seller, index) => {
+      const conversion = formatPercent(seller.conversion, 1);
+      const avgCycle = seller.avgCycle ? formatDays(seller.avgCycle, 1) : '--';
+      const revenue = seller.revenue ? formatCurrency(seller.revenue, 0) : '--';
+      const sellerId = escapeHtml(String(seller.id || ''));
+      const sellerName = escapeHtml(seller.name);
+      const sellerAttrs = `data-sales-drill="all" data-sales-seller-id="${sellerId}" data-sales-seller-name="${sellerName}"`;
+      return `
+        <tr class="border-b transition-colors data-[state=selected]:bg-muted hover:bg-muted/50">
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0">${index + 1}</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                <span class="text-sm font-semibold text-primary">${escapeHtml(seller.initials)}</span>
+              </div>
+              <span class="font-medium">${sellerName}</span>
+            </div>
+          </td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-center">???</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-center"><span ${sellerAttrs}>${formatNumber(seller.deals)}</span></td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-center">
+            <span class="font-semibold text-primary" ${sellerAttrs}>${formatNumber(seller.won)}</span>
+          </td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-center">
+            <div class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors border-transparent hover:bg-secondary/80 bg-muted text-foreground" ${sellerAttrs}>${conversion}</div>
+          </td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-center">
+            <span class="text-sm text-muted-foreground" ${sellerAttrs}>${avgCycle}</span>
+          </td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right font-semibold"><span ${sellerAttrs}>${revenue}</span></td>
+        </tr>
+      `;
+    })
+    .join('');
+};
+const SALES_DRILLDOWN_CONFIG = {
+  quotes_created: { filter: 'all', label: 'Deals' },
+  quotes_subtext: { filter: 'all', label: 'Deals' },
+  avg_quote_time: { filter: 'all', label: 'Deals' },
+  approved_quotes: { filter: 'won', label: 'Goedgekeurde deals' },
+  approval_rate: { filter: 'won', label: 'Goedgekeurde deals' },
+  deal_ratio: { filter: 'won', label: 'Goedgekeurde deals' },
+  avg_sales_cycle: { filter: 'won', label: 'Goedgekeurde deals' },
+  open_quotes: { filter: 'open', label: 'Open deals' },
+  open_value: { filter: 'open', label: 'Open deals' },
+  rejected_quotes: { filter: 'lost', label: 'Afgekeurde deals' },
+  rejection_rate: { filter: 'lost', label: 'Afgekeurde deals' },
+  cost_per_customer: { filter: 'won', label: 'Goedgekeurde deals' },
+  open_total_value: { filter: 'open', label: 'Open deals' },
+  deals_this_month: { filter: 'month', label: 'Deals deze maand' },
+  deals_target: { filter: 'month', label: 'Deals deze maand' },
+  deals_target_percent: { filter: 'month', label: 'Deals deze maand' },
+  deals_target_remaining: { filter: 'month', label: 'Deals deze maand' },
+  deals_target_progress: { filter: 'month', label: 'Deals deze maand' },
+  summary_won_deals: { filter: 'won', label: 'Goedgekeurde deals' },
+  summary_revenue: { filter: 'won', label: 'Goedgekeurde deals' },
+  summary_conversion: { filter: 'all', label: 'Deals' },
+  summary_cycle: { filter: 'won', label: 'Goedgekeurde deals' },
+  seller_count: { filter: 'all', label: 'Deals' }
+};
+
+const SALES_FILTER_LABELS = {
+  all: 'Deals',
+  won: 'Goedgekeurde deals',
+  lost: 'Afgekeurde deals',
+  open: 'Open deals',
+  month: 'Deals deze maand'
+};
+
+const normalizeSalesKey = (value) => (value ? String(value).trim().toLowerCase() : '');
+
+const getSalesRecordsForFilter = (records, filter, options = {}) => {
+  if (!Array.isArray(records)) return [];
+
+  let rows = records;
+  const effectiveFilter = filter || 'all';
+
+  if (effectiveFilter === 'month') {
+    const monthKey = toMonthKey(new Date());
+    rows = rows.filter((record) => record.monthKey === monthKey);
+  } else if (effectiveFilter !== 'all') {
+    rows = rows.filter((record) => record.statusType === effectiveFilter);
+  }
+
+  if (options.sellerId) {
+    const sellerId = String(options.sellerId);
+    rows = rows.filter((record) => String(record.seller_id || '') === sellerId);
+  }
+
+  if (options.recordId) {
+    const recordId = String(options.recordId);
+    rows = rows.filter((record) => String(record.record_id || '') === recordId);
+  }
+
+  if (options.lossReason) {
+    const target = normalizeSalesKey(options.lossReason);
+    rows = rows.filter((record) => normalizeSalesKey(record.loss_reason) === target);
+  }
+
+  return rows;
+};
+
+const openSalesDrilldownByFilter = (filter, options = {}) => {
+  if (!salesState.data?.records) return;
+  const effectiveFilter = filter || 'all';
+  const rows = getSalesRecordsForFilter(salesState.data.records, effectiveFilter, options);
+
+  let title = options.label || SALES_FILTER_LABELS[effectiveFilter] || 'Deals';
+  if (options.recordLabel) {
+    title = `Deal - ${options.recordLabel}`;
+  } else if (options.sellerName) {
+    title = `Deals - ${options.sellerName}`;
+  } else if (options.lossReason) {
+    title = `Verliesreden - ${options.lossReason}`;
+  }
+
+  drilldownState.open = true;
+  drilldownState.status = 'ready';
+  drilldownState.kind = `sales_${effectiveFilter}`;
+  drilldownState.source = null;
+  drilldownState.title = title;
+  drilldownState.errorMessage = '';
+  drilldownState.rows = rows;
+  drilldownState.range = { ...dateRange };
+  renderApp();
+};
+
+const openSalesDrilldown = (key) => {
+  const config = SALES_DRILLDOWN_CONFIG[key] || { filter: 'all', label: 'Deals' };
+  openSalesDrilldownByFilter(config.filter, { label: config.label });
+};
+
+const bindSalesClicks = () => {
+  const elements = document.querySelectorAll('[data-sales-kpi], [data-sales-drill]');
+  if (!elements.length) return;
+  elements.forEach((element) => {
+    if (element.dataset.salesClickBound === 'true') return;
+    element.dataset.salesClickBound = 'true';
+    element.classList.add('cursor-pointer', 'transition-colors', 'hover:underline');
+    element.addEventListener('click', () => {
+      const filter = element.getAttribute('data-sales-drill');
+      if (filter) {
+        openSalesDrilldownByFilter(filter, {
+          label: element.getAttribute('data-sales-drill-label'),
+          sellerId: element.getAttribute('data-sales-seller-id'),
+          sellerName: element.getAttribute('data-sales-seller-name'),
+          recordId: element.getAttribute('data-sales-record-id'),
+          recordLabel: element.getAttribute('data-sales-record-label'),
+          lossReason: element.getAttribute('data-sales-loss-reason')
+        });
+        return;
+      }
+
+      const key = element.getAttribute('data-sales-kpi');
+      if (!key) return;
+      openSalesDrilldown(key);
+    });
+  });
+};
+
+const applySalesData = (data) => {
+  if (!data) return;
+
+  const setKpi = (key, value) => {
+    const element = document.querySelector(`[data-sales-kpi="${key}"]`);
+    if (element) element.textContent = value;
+  };
+
+  setKpi('quotes_created', formatNumber(data.totals.deals));
+  setKpi('quotes_subtext', `Van ${formatNumber(data.totals.deals)} deals`);
+  setKpi('avg_quote_time', formatDays(data.totals.avgQuoteTimeDays));
+  setKpi('approved_quotes', formatNumber(data.totals.won));
+  setKpi('approval_rate', `${formatPercent(data.totals.approvalRate, 1)} approval rate`);
+  setKpi('deal_ratio', formatPercent(data.totals.dealRatio, 1));
+  setKpi('avg_sales_cycle', formatDays(data.totals.avgSalesCycleDays));
+  setKpi('open_quotes', formatNumber(data.totals.open));
+  setKpi('open_value', data.totals.openValue ? `${formatCurrency(data.totals.openValue, 0)} waarde` : '--');
+  setKpi('rejected_quotes', formatNumber(data.totals.lost));
+  setKpi('rejection_rate', `${formatPercent(data.totals.rejectionRate, 1)} rejection rate`);
+  setKpi(
+    'cost_per_customer',
+    Number.isFinite(data.totals.costPerCustomer) ? formatCurrency(data.totals.costPerCustomer, 0) : '--'
+  );
+  setKpi('open_total_value', data.totals.openValue ? `${formatCurrency(data.totals.openValue, 0)} totaal` : '--');
+
+  setKpi('deals_this_month', formatNumber(data.target.current));
+  setKpi('deals_target', formatNumber(data.target.target));
+  setKpi('deals_target_percent', formatPercent(data.target.percent, 0));
+  setKpi('deals_target_remaining', `${formatNumber(data.target.remainingPercent * 100, 0)}% te gaan`);
+
+  const progress = document.querySelector('[data-sales-kpi="deals_target_progress"]');
+  if (progress) {
+    progress.style.transform = `translateX(-${formatNumber(data.target.remainingPercent * 100, 0)}%)`;
+  }
+
+  const trend = document.querySelector('[data-sales-trend]');
+  if (trend) trend.innerHTML = buildTrendMarkup(data.monthly);
+
+  const reasons = document.querySelector('[data-sales-loss-reasons]');
+  if (reasons) reasons.innerHTML = buildLossReasonsMarkup(data.lossReasons);
+
+  const openDeals = document.querySelector('[data-sales-open-deals]');
+  if (openDeals) openDeals.innerHTML = buildOpenDealsRows(data.openDeals);
+
+  const funnel = document.querySelector('[data-sales-funnel]');
+  if (funnel) funnel.innerHTML = buildFunnelMarkup(data.funnel);
+
+  const sellers = document.querySelector('[data-sales-seller-rows]');
+  if (sellers) sellers.innerHTML = buildSellerRows(data.sellers);
+  setKpi('seller_count', `${formatNumber(data.sellers.length)} verkopers`);
+
+  setKpi('summary_won_deals', formatNumber(data.summary.wonDeals));
+  setKpi('summary_revenue', data.summary.revenue ? formatCurrency(data.summary.revenue, 0) : '--');
+  setKpi('summary_conversion', formatPercent(data.summary.conversion, 1));
+  setKpi('summary_cycle', data.summary.avgCycleDays ? `${formatNumber(data.summary.avgCycleDays, 1)} d` : '--');
+
+  bindSalesClicks();
+  updateSalesStatus(data.totals.deals > 0 ? 'ready' : 'empty', data.totals.deals > 0 ? 'Live data' : 'Nog geen data');
+};
+
+const renderSalesDateControls = () => {
+  const controls = document.querySelector('[data-sales-date-controls]');
+  if (!controls) return;
+
+  const startLabel = controls.querySelector('[data-sales-date-start]');
+  const endLabel = controls.querySelector('[data-sales-date-end]');
+  if (startLabel) startLabel.textContent = formatDisplayDate(dateRange.start);
+  if (endLabel) endLabel.textContent = formatDisplayDate(dateRange.end);
+
+  const startButton = controls.querySelector('[data-date-trigger="start"]');
+  const endButton = controls.querySelector('[data-date-trigger="end"]');
+  if (startButton) {
+    startButton.classList.toggle('active', pickerState.open && pickerState.selecting === 'start');
+  }
+  if (endButton) {
+    endButton.classList.toggle('active', pickerState.open && pickerState.selecting === 'end');
+  }
+
+  const pickerContainer = controls.querySelector('[data-sales-date-picker]');
+  if (pickerContainer) {
+    pickerContainer.innerHTML = renderDatePicker(dateRange);
+  }
+};
+
+const ensureSalesData = async () => {
+  if (!supabase) return;
+  const activeLocationId = configState.locationId || ghlLocationId;
+  if (!activeLocationId) return;
+
+  const key = buildRangeKey(dateRange);
+  if (salesState.rangeKey === key && salesState.status === 'ready') {
+    applySalesData(salesState.data);
+    return;
+  }
+  if (salesState.inFlight) return;
+
+  if (salesState.rangeKey !== key) {
+    salesState.status = 'idle';
+    salesState.data = null;
+  }
+
+  salesState.status = 'loading';
+  salesState.inFlight = true;
+  salesState.errorMessage = '';
+  salesState.rangeKey = key;
+  updateSalesStatus('loading', 'Syncen...');
+
+  const range = getSalesRange(dateRange);
+  const startIso = range.start.toISOString();
+  const endIso = range.end.toISOString();
+  const spendStart = range.start.toISOString().slice(0, 10);
+  const spendEnd = range.end.toISOString().slice(0, 10);
+
+  try {
+    const buildDealsQuery = () =>
+      supabase
+        .from('teamleader_deals')
+        .select(
+          'id,title,location_id,created_at,updated_at,closed_at,status,customer_type,customer_id,responsible_user_id,phase_id,estimated_value,estimated_value_currency,raw_data'
+        )
+        .eq('location_id', activeLocationId)
+        .gte('created_at', startIso)
+        .lte('created_at', endIso);
+
+    const buildUsersQuery = () =>
+      supabase
+        .from('teamleader_users')
+        .select('id,first_name,last_name,email,phone')
+        .eq('location_id', activeLocationId);
+
+    const buildCompaniesQuery = () =>
+      supabase.from('teamleader_companies').select('id,name,email').eq('location_id', activeLocationId);
+
+    const buildContactsQuery = () =>
+      supabase
+        .from('teamleader_contacts')
+        .select('id,first_name,last_name,email,phone')
+        .eq('location_id', activeLocationId);
+
+    const buildPhasesQuery = () =>
+      supabase
+        .from('teamleader_deal_phases')
+        .select('id,name,probability')
+        .eq('location_id', activeLocationId);
+
+    const [
+      deals,
+      users,
+      companies,
+      contacts,
+      phases,
+      spendRows
+    ] = await Promise.all([
+      fetchAllRows(buildDealsQuery),
+      fetchAllRows(buildUsersQuery),
+      fetchAllRows(buildCompaniesQuery),
+      fetchAllRows(buildContactsQuery),
+      fetchAllRows(buildPhasesQuery),
+      supabase
+        .from('marketing_spend_daily')
+        .select('spend,date')
+        .eq('location_id', activeLocationId)
+        .gte('date', spendStart)
+        .lte('date', spendEnd)
+        .then(({ data, error }) => {
+          if (error) throw error;
+          return data || [];
+        })
+    ]);
+
+    const data = buildSalesMetrics(dateRange, deals, users, companies, contacts, phases, spendRows);
+    salesState.status = 'ready';
+    salesState.data = data;
+    salesState.inFlight = false;
+    applySalesData(data);
+  } catch (error) {
+    salesState.status = 'error';
+    salesState.errorMessage = error instanceof Error ? error.message : 'Onbekende fout';
+    salesState.inFlight = false;
+    updateSalesStatus('error', 'Fout bij sync');
+    console.error('Sales sync failed', error);
+  }
 };
 
 const MONTHS_SHORT = ['jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
@@ -3217,15 +4126,25 @@ const renderSourceRows = (rows, isLive) =>
     })
     .join('');
 
-const renderDrilldownRows = (rows) =>
+const renderDrilldownRows = (rows, options = {}) =>
   rows
     .map((row) => {
       const occurred = formatDateTime(row.occurred_at);
-      const contactName = row.contact_name ? escapeHtml(row.contact_name) : '—';
-      const contactEmail = row.contact_email ? escapeHtml(row.contact_email) : '—';
+      const contactName = row.contact_name ? escapeHtml(row.contact_name) : '--';
+      const contactEmail = row.contact_email ? escapeHtml(row.contact_email) : '--';
       const source = row.source ? escapeHtml(row.source) : 'Onbekend';
-      const status = row.status ? escapeHtml(row.status) : '—';
+      const status = row.status ? escapeHtml(row.status) : '--';
       const type = row.record_type ? escapeHtml(row.record_type) : 'record';
+      const teamleaderUrl = options.showTeamleader
+        ? row.record_url || buildTeamleaderDealUrl(row.record_id)
+        : "";
+      const teamleaderCell = options.showTeamleader
+        ? `<td class="px-3 py-2 text-sm text-foreground">${
+            teamleaderUrl
+              ? `<a class="text-primary hover:underline" href="${escapeHtml(teamleaderUrl)}" target="_blank" rel="noreferrer">Open</a>`
+              : '--'
+          }</td>`
+        : "";
 
       return `<tr class="border-b last:border-0">
           <td class="px-3 py-2 text-xs font-semibold uppercase text-muted-foreground">${type}</td>
@@ -3234,17 +4153,18 @@ const renderDrilldownRows = (rows) =>
           <td class="px-3 py-2 text-sm text-muted-foreground">${contactEmail}</td>
           <td class="px-3 py-2 text-sm text-foreground">${source}</td>
           <td class="px-3 py-2 text-sm text-muted-foreground">${status}</td>
+          ${teamleaderCell}
         </tr>`;
     })
     .join('');
-
 const renderDrilldownModal = () => {
   if (!drilldownState.open) return '';
 
   const range = drilldownState.range;
-  const rangeLabel = range ? `${formatDisplayDate(range.start)} → ${formatDisplayDate(range.end)}` : '';
+  const rangeLabel = range ? `${formatDisplayDate(range.start)} â†’ ${formatDisplayDate(range.end)}` : '';
   const sourceLabel = getDrilldownFilterLabel(drilldownState.kind, drilldownState.source);
-  const subtitle = [rangeLabel, sourceLabel].filter(Boolean).join(' · ');
+  const subtitle = [rangeLabel, sourceLabel].filter(Boolean).join(' Â· ');
+  const showTeamleaderLink = String(drilldownState.kind || '').startsWith('sales_');
 
   let body = '';
   if (drilldownState.status === 'loading') {
@@ -3265,10 +4185,12 @@ const renderDrilldownModal = () => {
               <th>Email</th>
               <th>Source</th>
               <th>Status</th>
+              ${showTeamleaderLink ? '<th>Teamleader</th>' : ''}
+              
             </tr>
           </thead>
           <tbody>
-            ${renderDrilldownRows(drilldownState.rows)}
+            ${renderDrilldownRows(drilldownState.rows, { showTeamleader: showTeamleaderLink })}
           </tbody>
         </table>
       </div>
@@ -4129,9 +5051,9 @@ const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
             </div>
           </div>
           <div class="flex items-center gap-4">
-            <div class="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full border ${salesStatus.className}">
-              <div class="w-2 h-2 rounded-full ${salesStatus.dotClass}"></div>
-              <span class="text-xs font-medium">${salesStatus.label}</span>
+            <div class="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full border ${salesStatus.className}" data-sales-status>
+              <div class="w-2 h-2 rounded-full ${salesStatus.dotClass}" data-sales-status-dot></div>
+              <span class="text-xs font-medium" data-sales-status-label>${salesStatus.label}</span>
             </div>
             ${
               adminModeEnabled
@@ -4261,7 +5183,10 @@ const renderApp = () => {
   const routeId = getRouteId(dashboardTabs);
   if (routeId === 'sales') {
     root.innerHTML = buildSalesMarkup(dashboardTabs);
+    renderSalesDateControls();
     bindInteractions();
+    bindSalesClicks();
+    ensureSalesData();
     return;
   }
   if (routeId === 'call-center') {
@@ -4649,6 +5574,8 @@ desktopQuery.addEventListener('change', (event) => {
     closeSidebar();
   }
 });
+
+
 
 
 

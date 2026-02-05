@@ -126,6 +126,10 @@
               Teamleader Scopes (optioneel)
               <input name="teamleaderScopes" placeholder="scope1 scope2" />
             </label>
+            <label class="checkbox" data-teamleader>
+              <input type="checkbox" name="teamleaderAutoSync" checked />
+              Na koppeling automatisch eerste Teamleader sync starten
+            </label>
           </div>
         </section>
 
@@ -153,6 +157,14 @@
             <label class="checkbox">
               <input type="checkbox" name="runMigrations" checked />
               Base schema (tabellen aanmaken)
+            </label>
+            <label class="checkbox">
+              <input type="checkbox" name="writeDashboardEnv" checked />
+              Dashboard .env automatisch invullen
+            </label>
+            <label class="checkbox">
+              <input type="checkbox" name="openDashboard" checked />
+              Dashboard openen na onboarding
             </label>
           </div>
 
@@ -386,6 +398,16 @@
           </div>
           <a id="teamleaderLink" class="button-link" href="#" target="_blank" rel="noreferrer">Koppel Teamleader</a>
         </div>
+        <div id="teamleaderSyncAction" class="sync-action hidden">
+          <div>
+            <h3>Start Teamleader sync</h3>
+            <p>Laad meteen de Teamleader data in.</p>
+          </div>
+          <div class="sync-controls">
+            <button type="button" id="teamleaderSyncNow">Start Teamleader sync</button>
+            <span id="teamleaderSyncStatus" class="status-inline"></span>
+          </div>
+        </div>
         <div id="syncAction" class="sync-action hidden">
           <div>
             <h3>Start eerste sync</h3>
@@ -395,6 +417,10 @@
             <button type="button" id="syncNow">Start sync</button>
             <span id="syncStatus" class="status-inline"></span>
           </div>
+        </div>
+        <div class="inline-check">
+          <span class="muted">Dashboard:</span>
+          <span id="dashboardStatus" class="status-inline"></span>
         </div>
         <pre id="output" class="output">Nog geen run.</pre>
       </section>

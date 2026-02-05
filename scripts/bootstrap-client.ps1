@@ -798,7 +798,7 @@ Write-Host "Client scaffold aangemaakt in $clientDir"
 Write-Host 'Volgende stappen:'
 Write-Host "1) Run base schema: supabase login (1x) -> supabase link --project-ref $ProjectRef -> supabase db push"
 Write-Host "2) Run client config: clients\\$Slug\\dashboard_config.sql (of -ApplyConfig met ServiceRoleKey)"
-Write-Host "3) Deploy functions: supabase functions deploy ghl-sync --project-ref $ProjectRef (idem voor meta-sync/google-sync/google-sheet-sync/teamleader-oauth)"
+Write-Host "3) Deploy functions: supabase functions deploy ghl-sync --project-ref $ProjectRef (idem voor meta-sync/google-sync/google-sheet-sync/teamleader-oauth/teamleader-sync)"
 Write-Host "4) Netlify env sync (optioneel): netlify env:import clients\\$Slug\\env.dashboard.example"
 Write-Host "5) Git branch (optioneel): git branch $BranchName origin/$BaseBranch && git push -u origin $BranchName"
 
@@ -823,6 +823,7 @@ if ($LinkProject -or $PushSchema -or $DeployFunctions) {
     & supabase functions deploy google-sync --project-ref $ProjectRef
     & supabase functions deploy google-sheet-sync --project-ref $ProjectRef
     & supabase functions deploy teamleader-oauth --project-ref $ProjectRef
+    & supabase functions deploy teamleader-sync --project-ref $ProjectRef
   }
 }
 

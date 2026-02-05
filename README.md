@@ -53,6 +53,23 @@ supabase db push
 Let op: voor bestaande live klanten draai je bij voorkeur alleen nieuwe migrations (niet opnieuw de base),
 of voer je gerichte SQL uit via de editor.
 
+## Teamleader Focus (optioneel)
+
+1. Zet secrets in Supabase:
+   - `TEAMLEADER_CLIENT_ID`
+   - `TEAMLEADER_CLIENT_SECRET`
+   - `TEAMLEADER_REDIRECT_URL` (standaard: `https://<project-ref>.supabase.co/functions/v1/teamleader-oauth/callback`)
+   - `TEAMLEADER_SCOPES` (optioneel)
+2. Deploy edge functions:
+   - `supabase functions deploy teamleader-oauth --project-ref YOUR_PROJECT_REF`
+   - `supabase functions deploy teamleader-sync --project-ref YOUR_PROJECT_REF`
+3. Koppel Teamleader via:
+   - `https://YOUR_PROJECT_REF.supabase.co/functions/v1/teamleader-oauth/start?location_id=YOUR_LOCATION_ID`
+4. Plan de sync (15 min) via `supabase/schedule.sql`.
+
+Optionele sync settings (Supabase secrets):
+`TEAMLEADER_LOOKBACK_MONTHS`, `TEAMLEADER_PAGE_SIZE`, `TEAMLEADER_UPSERT_BATCH_SIZE`, `SYNC_OVERLAP_MINUTES`.
+
 ## Per klant setup (1 database per klant)
 
 Gebruik de bootstrap script om klant-specifieke config + env templates aan te maken:

@@ -15,6 +15,21 @@ select
     $$
   );
 
+-- Schedule Teamleader sync every 15 minutes (requires pg_cron + pg_net extensions enabled).
+select
+  cron.schedule(
+    'teamleader-sync-15m',
+    '*/15 * * * *',
+    $$
+    select
+      net.http_post(
+        url := 'https://PROJECT_REF.supabase.co/functions/v1/teamleader-sync',
+        headers := jsonb_build_object('Content-Type', 'application/json'),
+        body := jsonb_build_object('lookback_months', 12)
+      ) as request_id;
+    $$
+  );
+
 -- Schedule Meta + Google Ads sync daily at the same time (pg_cron runs in UTC; adjust for CET/CEST).
 select
   cron.schedule(
