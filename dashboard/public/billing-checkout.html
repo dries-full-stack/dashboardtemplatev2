@@ -208,7 +208,7 @@
     <main class="card" role="main">
       <div class="wrap">
         <div class="badge">Veilige betaling via Stripe</div>
-        <h1 id="title">Activeer je dashboard abonnement</h1>
+        <h1 id="title">Activeer je dashboarding abonnement</h1>
         <p id="subtitle">Kies je plan en rond je betaling af. Na betaling ga je terug naar je dashboard.</p>
 
         <section class="checkout-shell">
@@ -314,7 +314,7 @@
         const profile = getProfileFromConfig(clientSlug, config);
 
         const company = pickFirst(params.get('company'), profile?.company, 'Dashboard');
-        const title = pickFirst(params.get('title'), profile?.title, `Activeer je ${company} abonnement`);
+        const title = pickFirst(params.get('title'), profile?.title, 'Activeer je dashboarding abonnement');
         const subtitle = pickFirst(
           params.get('subtitle'),
           profile?.subtitle,
