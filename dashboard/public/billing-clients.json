@@ -2,8 +2,9 @@
   "defaults": {
     "subtitle": "Kies je plan en rond je betaling af. Na betaling ga je terug naar je dashboard.",
     "return_to": "/",
-    "buy_button_id": "buy_btn_1SyGCIEx02woxVJvOudi0z7K",
-    "pk": "pk_live_51SrN51Ex02woxVJvR0mwuu4VNiU1t7Y07JxUm7wcJfOpGVgeAh8q7rsLYE44DUnwJj285uYkAjVGCdwIGwXSSUuv00kjTMFDRM"
+    "buy_button_id": "buy_btn_1SyIATEx02woxVJviUaL9daG",
+    "pk": "pk_live_51SrN51Ex02woxVJvR0mwuu4VNiU1t7Y07JxUm7wcJfOpGVgeAh8q7rsLYE44DUnwJj285uYkAjVGCdwIGwXSSUuv00kjTMFDRM",
+    "payment_link": "https://buy.stripe.com/3cIfZhd45bIkctjcXteZ201"
   },
   "profiles": {
     "immo-beguin": {

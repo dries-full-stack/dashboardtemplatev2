@@ -140,6 +140,21 @@
         background: #f9fbfe;
       }
 
+      .inline-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        height: 44px;
+        padding: 0 16px;
+        border-radius: 12px;
+        border: 1px solid var(--primary);
+        background: var(--primary);
+        color: #fff;
+        text-decoration: none;
+        font-size: 14px;
+        font-weight: 700;
+      }
+
       .hint {
         margin-top: 10px;
         font-size: 12px;
@@ -354,8 +369,7 @@
         if (buyButtonId && publishableKey) {
           mountBuyButton(buyButtonId, publishableKey, buyRoot);
         } else if (hasPaymentLink) {
-          buyRoot.innerHTML =
-            '<div class="empty">Buy button parameters ontbreken. Gebruik de directe betaallink hieronder.</div>';
+          buyRoot.innerHTML = `<a class="inline-link" href="${paymentLink}" target="_blank" rel="noopener noreferrer">Open beveiligde Stripe checkout</a>`;
         } else {
           buyRoot.innerHTML = '<div class="empty">Geen geldige betaalgegevens gevonden voor deze klant.</div>';
         }
