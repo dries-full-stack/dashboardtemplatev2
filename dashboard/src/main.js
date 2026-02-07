@@ -4247,8 +4247,8 @@ const renderAdminModal = () => {
   const canManageKpi = loggedIn || kpiOnlyMode;
   const modalTitle = settingsButtonLabel;
   const modalSubtitle = adminModeEnabled
-    ? 'Beheer GHL integratie, kostattributie, KPI targets en abonnement links.'
-    : 'Stel Sales KPI targets en abonnement links in voor dit dashboard.';
+    ? 'Beheer GHL integratie, kostattributie en KPI targets.'
+    : 'Stel Sales KPI targets in voor dit dashboard.';
   const signOutButtonMarkup = loggedIn
     ? '<button type="button" class="admin-ghost" data-admin-signout>Uitloggen</button>'
     : '';
@@ -4257,13 +4257,6 @@ const renderAdminModal = () => {
   const mappingStatusClass = adminState.mapping.status === 'error' ? 'error' : 'success';
   const kpiBusy = adminState.kpi.loading || adminState.kpi.saving;
   const kpiStatusClass = adminState.kpi.status === 'error' ? 'error' : 'success';
-  const billingBusy = adminState.billing.loading || adminState.billing.saving;
-  const billingStatusClass = adminState.billing.status === 'error' ? 'error' : 'success';
-  const billingPortalValue = String(adminState.billing.portalUrl ?? configState.billingPortalUrl ?? '').trim();
-  const billingCheckoutValue = String(adminState.billing.checkoutUrl ?? configState.billingCheckoutUrl ?? '').trim();
-  const billingCheckoutEmbedChecked = Boolean(
-    adminState.billing.checkoutEmbed ?? (configState.billingCheckoutEmbed && configState.billingCheckoutUrl)
-  );
   const monthlyDealsTargetValue =
     adminState.kpi.monthlyDealsTarget ||
     String(
@@ -4434,7 +4427,7 @@ const renderAdminModal = () => {
             ? `<div class="admin-meta">${
                 loggedIn
                   ? `Ingelogd als ${escapeHtml(userEmail)}`
-                  : 'Je hoeft niet in te loggen om KPI targets en abonnement links aan te passen.'
+                  : 'Je hoeft niet in te loggen om KPI targets aan te passen.'
               }</div>
                ${
                  adminModeEnabled && loggedIn && adminState.loading
@@ -4522,60 +4515,6 @@ const renderAdminModal = () => {
                       </table>
                     </div>
                     <div class="admin-meta">Leeg = gebruikt default target (placeholder).</div>
-                  </div>
-                </div>
-                <div class="admin-section">
-                  <div class="admin-section-header">
-                    <div>
-                      <h4 class="admin-section-title">Stripe abonnement</h4>
-                      <p class="admin-section-subtitle">
-                        Toon per klant een beheerknop en optioneel een embedded payment link op het dashboard.
-                      </p>
-                    </div>
-                    <div class="admin-mapping-toolbar">
-                      <button type="button" class="admin-submit" data-billing-save ${billingBusy ? 'disabled' : ''}>
-                        ${adminState.billing.saving ? 'Opslaan...' : 'Opslaan'}
-                      </button>
-                    </div>
-                  </div>
-                  ${
-                    adminState.billing.message
-                      ? `<div class="admin-message ${billingStatusClass}">${adminState.billing.message}</div>`
-                      : ''
-                  }
-                  ${adminState.billing.loading ? '<div class="admin-meta">Abonnement instellingen worden geladen...</div>' : ''}
-                  <div class="admin-form">
-                    <label class="admin-label">
-                      Stripe Billing Portal URL (beheer abonnement)
-                      <input
-                        type="url"
-                        class="admin-input"
-                        value="${escapeHtml(billingPortalValue)}"
-                        placeholder="https://billing.stripe.com/p/login/..."
-                        data-billing-portal
-                        ${billingBusy ? 'disabled' : ''}
-                      />
-                    </label>
-                    <label class="admin-label">
-                      Stripe Payment Link URL (upgrade/nieuw plan)
-                      <input
-                        type="url"
-                        class="admin-input"
-                        value="${escapeHtml(billingCheckoutValue)}"
-                        placeholder="https://buy.stripe.com/..."
-                        data-billing-checkout
-                        ${billingBusy ? 'disabled' : ''}
-                      />
-                    </label>
-                    <label class="admin-checkbox">
-                      <input type="checkbox" ${billingCheckoutEmbedChecked ? 'checked' : ''} data-billing-embed ${
-                        billingBusy ? 'disabled' : ''
-                      } />
-                      Toon payment link ook als embed op het dashboard
-                    </label>
-                    <div class="admin-meta">
-                      Gebruik een HTTPS URL of een pad dat start met /. Met een relatief pad werkt dit automatisch op elk domein.
-                    </div>
                   </div>
                 </div>
                 ${
@@ -6073,76 +6012,6 @@ const renderLostReasonsSection = (section, metrics) => {
   `;
 };
 
-const resolveBillingLinks = () => {
-  const portalUrl = resolveBillingUrl(configState.billingPortalUrl);
-  const checkoutUrl = resolveBillingUrl(configState.billingCheckoutUrl);
-  const checkoutEmbed = Boolean(configState.billingCheckoutEmbed && checkoutUrl);
-  return { portalUrl, checkoutUrl, checkoutEmbed };
-};
-
-const renderBillingPanel = () => {
-  const { portalUrl, checkoutUrl, checkoutEmbed } = resolveBillingLinks();
-  if (!portalUrl && !checkoutUrl) return '';
-
-  const portalAction = portalUrl
-    ? `<a
-         href="${escapeHtml(portalUrl)}"
-         target="_blank"
-         rel="noopener noreferrer"
-         class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-semibold h-10 px-4 border border-border bg-background hover:bg-accent hover:text-accent-foreground transition-colors"
-       >
-         Beheer abonnement
-       </a>`
-    : '';
-  const checkoutAction = checkoutUrl
-    ? `<a
-         href="${escapeHtml(checkoutUrl)}"
-         target="_blank"
-         rel="noopener noreferrer"
-         class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-semibold h-10 px-4 border border-border bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
-       >
-         Betaallink openen
-       </a>`
-    : '';
-
-  return `
-    <section class="rounded-lg border bg-card text-card-foreground shadow-sm p-6 mb-6">
-      <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <h2 class="text-lg font-bold text-foreground flex items-center gap-2">
-            ${icons.dollar('lucide lucide-dollar-sign w-5 h-5 text-primary')}
-            Abonnement
-          </h2>
-          <p class="text-sm text-muted-foreground mt-1">
-            Beheer hier je Stripe abonnement en planwijzigingen.
-          </p>
-        </div>
-        <div class="flex flex-wrap gap-2">
-          ${portalAction}
-          ${checkoutAction}
-        </div>
-      </div>
-      ${
-        checkoutEmbed
-          ? `<div class="mt-4">
-               <iframe
-                 src="${escapeHtml(checkoutUrl)}"
-                 title="Stripe betaallink"
-                 loading="lazy"
-                 referrerpolicy="strict-origin-when-cross-origin"
-                 sandbox="allow-forms allow-scripts allow-same-origin allow-popups allow-top-navigation-by-user-activation"
-                 class="w-full min-h-[760px] rounded-lg border border-border bg-background"
-               ></iframe>
-               <p class="text-xs text-muted-foreground mt-2">
-                 Als de embed niet laadt (iframe blokkering), gebruik de knop "Betaallink openen".
-               </p>
-             </div>`
-          : ''
-      }
-    </section>
-  `;
-};
-
 const renderDashboardSections = (layoutOverride, metrics) => {
   const sections = resolveLayoutSections(layoutOverride);
   return sections
@@ -6338,7 +6207,6 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
               : ''
           }
            ${renderDebugPanel(range)}
-           ${renderBillingPanel()}
            <div class="mt-6 relative">
              ${loadingOverlayMarkup}
             <div class="space-y-8${showLoadingOverlay ? ' opacity-0 pointer-events-none select-none' : ''}">
@@ -6453,7 +6321,6 @@ const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
             </div>
           </div>
           <div class="${showLoadingOverlay ? 'opacity-0 pointer-events-none select-none' : ''}" data-sales-loading-content>
-            ${renderBillingPanel()}
             ${SALES_MAIN_MARKUP}
           </div>
         </main>
@@ -6550,7 +6417,6 @@ const buildCallCenterMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
               <p class="text-sm text-muted-foreground">Binnenkort beschikbaar. We vullen dit zodra de Teamleader data klaarstaat.</p>
             </div>
           </div>
-          ${renderBillingPanel()}
           <div class="rounded-lg border bg-card text-card-foreground shadow-sm p-6">
             <p class="text-sm text-muted-foreground">
               Hier komen de call center KPI's, agent performance en kwaliteitsscores. Zodra we de datafeed hebben, bouwen we dit verder uit.
@@ -6660,7 +6526,6 @@ const bindInteractions = () => {
         adminState.auth.status = 'idle';
         adminState.loading = false;
         adminState.kpi.message = '';
-        adminState.billing.message = '';
         renderApp();
         if (authSession) {
           if (adminModeEnabled) {
@@ -6869,30 +6734,6 @@ const bindInteractions = () => {
       });
     }
 
-    const billingPortalInput = document.querySelector('[data-billing-portal]');
-    if (billingPortalInput) {
-      billingPortalInput.addEventListener('input', (event) => {
-        adminState.billing.portalUrl = event.target.value;
-        adminState.billing.hasChanges = true;
-      });
-    }
-
-    const billingCheckoutInput = document.querySelector('[data-billing-checkout]');
-    if (billingCheckoutInput) {
-      billingCheckoutInput.addEventListener('input', (event) => {
-        adminState.billing.checkoutUrl = event.target.value;
-        adminState.billing.hasChanges = true;
-      });
-    }
-
-    const billingEmbedInput = document.querySelector('[data-billing-embed]');
-    if (billingEmbedInput) {
-      billingEmbedInput.addEventListener('change', (event) => {
-        adminState.billing.checkoutEmbed = event.target.checked;
-        adminState.billing.hasChanges = true;
-      });
-    }
-
     const kpiYearPrev = document.querySelector('[data-kpi-year-prev]');
     if (kpiYearPrev) {
       kpiYearPrev.addEventListener('click', () => {
@@ -6932,13 +6773,6 @@ const bindInteractions = () => {
     if (kpiSave) {
       kpiSave.addEventListener('click', () => {
         saveKpiSettings();
-      });
-    }
-
-    const billingSave = document.querySelector('[data-billing-save]');
-    if (billingSave) {
-      billingSave.addEventListener('click', () => {
-        saveBillingSettings();
       });
     }
 
