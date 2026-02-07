@@ -2995,7 +2995,8 @@ const buildSalesMetrics = (
   monthlyTargetDeals,
   monthlyTargetsByMonth,
   appointmentsSupported = true,
-  quotesFromPhaseId = null
+  quotesFromPhaseId = null,
+  quotePhaseTimingSupported = true
 ) => {
   const now = new Date();
   const range = getSalesRange(activeRange);
@@ -3046,6 +3047,7 @@ const buildSalesMetrics = (
     return Math.max(0, Math.min(1, normalized));
   };
   const quoteThresholdPhase = normalizedQuotesFromPhaseId ? phaseMap.get(normalizedQuotesFromPhaseId) : null;
+  const quoteThresholdPhaseName = quoteThresholdPhase?.name || (normalizedQuotesFromPhaseId || null);
   const quoteThresholdSortOrder = quoteThresholdPhase ? normalizeSortOrder(quoteThresholdPhase.sort_order) : null;
   const quoteThresholdProbability = quoteThresholdPhase ? normalizeProbability(quoteThresholdPhase.probability) : null;
   const isQuoteDeal = (deal) => {
@@ -3125,11 +3127,22 @@ const buildSalesMetrics = (
     });
 
     const updatedAt = parseDate(deal.updated_at);
-    const quoteDays = diffDays(updatedAt, createdAt);
+    const quoteMarkerPhaseId =
+      typeof deal.quote_phase_marker_phase_id === 'string' ? deal.quote_phase_marker_phase_id.trim() : '';
+    const quotePhaseStartedAt = parseDate(deal.quote_phase_first_started_at);
+
+    let quoteDays = null;
+    if (normalizedQuotesFromPhaseId && quotePhaseTimingSupported) {
+      if (quoteMarkerPhaseId === normalizedQuotesFromPhaseId && quotePhaseStartedAt) {
+        quoteDays = diffDays(quotePhaseStartedAt, createdAt);
+      }
+    } else {
+      quoteDays = diffDays(updatedAt, createdAt);
+    }
     if (Number.isFinite(quoteDays) && quoteDays >= 0) quoteDurations.push(quoteDays);
 
     if (won) {
-      const closedAt = parseDate(deal.closed_at) || updatedAt;
+      const closedAt = parseDate(deal.closed_at);
       const cycleDays = diffDays(closedAt, createdAt);
       if (Number.isFinite(cycleDays) && cycleDays >= 0) cycleDurations.push(cycleDays);
     }
@@ -3155,6 +3168,7 @@ const buildSalesMetrics = (
   const avgQuoteTimeDays = quoteDurations.length
     ? quoteDurations.reduce((sum, value) => sum + value, 0) / quoteDurations.length
     : null;
+  const avgQuoteTimeCount = quoteDurations.length;
   const avgSalesCycleDays = cycleDurations.length
     ? cycleDurations.reduce((sum, value) => sum + value, 0) / cycleDurations.length
     : null;
@@ -3270,7 +3284,7 @@ const buildSalesMetrics = (
       seller.won += 1;
       seller.revenue += Number(deal.estimated_value) || 0;
       const createdAt = parseDate(deal.created_at);
-      const closedAt = parseDate(deal.closed_at) || parseDate(deal.updated_at);
+      const closedAt = parseDate(deal.closed_at);
       const cycle = diffDays(closedAt, createdAt);
       if (Number.isFinite(cycle) && cycle >= 0) {
         seller.cycleSum += cycle;
@@ -3308,8 +3322,13 @@ const buildSalesMetrics = (
       lost: lostDeals.length,
       open: openDeals.length,
       openValue,
+      spendTotal,
       avgQuoteTimeDays,
+      avgQuoteTimeCount,
+      quotePhaseName: quoteThresholdPhaseName,
+      quotePhaseTimingSupported,
       avgSalesCycleDays,
+      avgSalesCycleCount: cycleDurations.length,
       approvalRate,
       rejectionRate,
       dealRatio,
@@ -3709,6 +3728,84 @@ const bindSalesClicks = () => {
   });
 };
 
+const applySalesInfoTooltips = (data) => {
+  if (!data?.totals) return;
+  const totals = data.totals;
+
+  const quoteCount = Number(totals.quotes) || 0;
+  const totalDeals = Number(totals.allDeals) || 0;
+  const wonCount = Number(totals.won) || 0;
+  const lostCount = Number(totals.lost) || 0;
+  const openCount = Number(totals.open) || 0;
+  const openValue = Number(totals.openValue) || 0;
+  const spendTotal = Number(totals.spendTotal) || 0;
+  const avgQuoteTimeCount = Number(totals.avgQuoteTimeCount) || 0;
+  const quotePhaseName =
+    typeof totals.quotePhaseName === 'string' && totals.quotePhaseName.trim() ? totals.quotePhaseName.trim() : null;
+  const quotePhaseTimingSupported = totals.quotePhaseTimingSupported === true;
+  const avgSalesCycleCount = Number(totals.avgSalesCycleCount) || 0;
+
+  const avgQuoteTimeTooltip =
+    quotePhaseName && quotePhaseTimingSupported
+      ? `Gem. tijd tot offerte = gemiddelde van (eerste keer fase "${quotePhaseName}" bereikt - created_at) in dagen. Nu: ${formatDays(
+          totals.avgQuoteTimeDays
+        )} over ${formatNumber(avgQuoteTimeCount)} deals met gekende fase-timestamp (totaal offertes: ${formatNumber(quoteCount)}).`
+      : `Gem. tijd tot offerte = gemiddelde van (updated_at - created_at) in dagen over alle offertes. Nu: ${formatDays(
+          totals.avgQuoteTimeDays
+        )} over ${formatNumber(avgQuoteTimeCount || quoteCount)} offertes.`;
+
+  const tooltips = {
+    quotes_created: `Offertes gemaakt = aantal deals in de periode die als offerte tellen. Nu: ${formatNumber(quoteCount)} van ${formatNumber(totalDeals)} totale deals.`,
+    avg_quote_time: avgQuoteTimeTooltip,
+    approved_quotes: `Goedgekeurde offertes = aantal offertes met status WON. Formule: ${formatNumber(wonCount)} / ${formatNumber(quoteCount)} = ${formatPercent(
+      totals.approvalRate,
+      1
+    )}.`,
+    deal_ratio: `Deal ratio = goedgekeurde offertes / totale offertes. Formule: ${formatNumber(wonCount)} / ${formatNumber(
+      quoteCount
+    )} = ${formatPercent(totals.dealRatio, 1)}.`,
+    avg_sales_cycle: `Gem. sales cycle = gemiddelde van (closed_at - created_at) in dagen voor gewonnen deals met closed_at. Nu: ${formatDays(
+      totals.avgSalesCycleDays
+    )} over ${formatNumber(avgSalesCycleCount)} deals met closed_at (totaal gewonnen: ${formatNumber(wonCount)}).`,
+    open_quotes: `Hangende offertes = offertes - goedgekeurd - afgekeurd. Formule: ${formatNumber(
+      quoteCount
+    )} - ${formatNumber(wonCount)} - ${formatNumber(lostCount)} = ${formatNumber(
+      openCount
+    )}. Open waarde = som estimated_value van open deals (${formatCurrency(openValue, 0)}).`,
+    rejected_quotes: `Afgekeurde offertes = aantal offertes met status LOST. Formule: ${formatNumber(lostCount)} / ${formatNumber(
+      quoteCount
+    )} = ${formatPercent(totals.rejectionRate, 1)}.`,
+    cost_per_customer: wonCount
+      ? `Kost per klant = totale spend / gewonnen deals. Formule: ${formatCurrency(spendTotal, 0)} / ${formatNumber(
+          wonCount
+        )} = ${formatCurrency(totals.costPerCustomer, 0)}.`
+      : 'Kost per klant = totale spend / gewonnen deals. Nog niet berekend omdat er 0 gewonnen deals zijn in deze periode.'
+  };
+
+  Object.entries(tooltips).forEach(([key, text]) => {
+    const valueNode = document.querySelector(`[data-sales-kpi="${key}"]`);
+    const card = valueNode?.closest('.kpi-card');
+    const infoIcon = card?.querySelector('.lucide-info');
+    if (card) {
+      card.setAttribute('title', text);
+      card.setAttribute('aria-label', text);
+    }
+    if (!infoIcon) return;
+
+    infoIcon.setAttribute('title', text);
+    infoIcon.setAttribute('aria-label', text);
+
+    const existingTitleNode = infoIcon.querySelector('title');
+    if (existingTitleNode) {
+      existingTitleNode.textContent = text;
+    } else {
+      const titleNode = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+      titleNode.textContent = text;
+      infoIcon.prepend(titleNode);
+    }
+  });
+};
+
 const applySalesData = (data) => {
   if (!data) return;
 
@@ -3720,6 +3817,19 @@ const applySalesData = (data) => {
   setKpi('quotes_created', formatNumber(data.totals.quotes));
   setKpi('quotes_subtext', `Van ${formatNumber(data.totals.allDeals)} deals`);
   setKpi('avg_quote_time', formatDays(data.totals.avgQuoteTimeDays));
+  const quotePhaseName =
+    typeof data.totals.quotePhaseName === 'string' && data.totals.quotePhaseName.trim()
+      ? data.totals.quotePhaseName.trim()
+      : '';
+  const quotePhaseTimingSupported = data.totals.quotePhaseTimingSupported === true;
+  setKpi(
+    'avg_quote_time_subtext',
+    quotePhaseName
+      ? quotePhaseTimingSupported
+        ? `Tot fase "${quotePhaseName}"`
+        : `Tot fase "${quotePhaseName}" (fallback)`
+      : 'Tot offertefase'
+  );
   setKpi('approved_quotes', formatNumber(data.totals.won));
   setKpi('approval_rate', `${formatPercent(data.totals.approvalRate, 1)} approval rate`);
   setKpi('deal_ratio', formatPercent(data.totals.dealRatio, 1));
@@ -3733,6 +3843,7 @@ const applySalesData = (data) => {
     Number.isFinite(data.totals.costPerCustomer) ? formatCurrency(data.totals.costPerCustomer, 0) : '--'
   );
   setKpi('open_total_value', data.totals.openValue ? `${formatCurrency(data.totals.openValue, 0)} totaal` : '--');
+  applySalesInfoTooltips(data);
 
   setKpi('deals_this_month', formatNumber(data.target.current));
   setKpi('deals_target', formatNumber(data.target.target));
@@ -3835,8 +3946,13 @@ const ensureSalesData = async () => {
   try {
     const dealsSelectBase =
       'id,title,location_id,created_at,updated_at,closed_at,status,customer_type,customer_id,responsible_user_id,phase_id,estimated_value,estimated_value_currency,raw_data';
-    const dealsSelectWithAppointments = `${dealsSelectBase},had_appointment_phase`;
+    const quotePhaseSelect =
+      'quote_phase_marker_phase_id,quote_phase_first_started_at,quote_phase_last_checked_at';
+    const dealsSelectWithAllOptional = `${dealsSelectBase},had_appointment_phase,${quotePhaseSelect}`;
+    const dealsSelectWithoutAppointments = `${dealsSelectBase},${quotePhaseSelect}`;
+    const dealsSelectWithoutQuotePhase = `${dealsSelectBase},had_appointment_phase`;
     let appointmentsSupported = true;
+    let quotePhaseTimingSupported = true;
 
     const buildDealsQuery = (selectClause) => () =>
       supabase
@@ -3847,17 +3963,28 @@ const ensureSalesData = async () => {
         .lte('created_at', endIso);
 
     const dealsPromise = (async () => {
-      try {
-        return await fetchAllRows(buildDealsQuery(dealsSelectWithAppointments));
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (message.includes('had_appointment_phase') && message.includes('does not exist')) {
-          console.warn('teamleader_deals.had_appointment_phase ontbreekt nog; fallback zonder afsprakenveld.');
-          appointmentsSupported = false;
-          return await fetchAllRows(buildDealsQuery(dealsSelectBase));
+      const attempts = [
+        { selectClause: dealsSelectWithAllOptional, appointments: true, quoteTiming: true },
+        { selectClause: dealsSelectWithoutAppointments, appointments: false, quoteTiming: true },
+        { selectClause: dealsSelectWithoutQuotePhase, appointments: true, quoteTiming: false },
+        { selectClause: dealsSelectBase, appointments: false, quoteTiming: false }
+      ];
+
+      let lastMissingColumnError = null;
+      for (const attempt of attempts) {
+        try {
+          const rows = await fetchAllRows(buildDealsQuery(attempt.selectClause));
+          appointmentsSupported = attempt.appointments;
+          quotePhaseTimingSupported = attempt.quoteTiming;
+          return rows;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          if (!message.includes('does not exist')) throw error;
+          lastMissingColumnError = error;
         }
-        throw error;
       }
+
+      throw lastMissingColumnError || new Error('Kon teamleader_deals niet laden.');
     })();
 
     const buildUsersQuery = () =>
@@ -3931,6 +4058,13 @@ const ensureSalesData = async () => {
           })
       ]);
 
+    if (!appointmentsSupported) {
+      console.warn('teamleader_deals.had_appointment_phase ontbreekt nog; afspraken KPI gebruikt fallback.');
+    }
+    if (!quotePhaseTimingSupported && configState.salesQuotesFromPhaseId) {
+      console.warn('teamleader_deals.quote_phase_* ontbreekt nog; Gem. Tijd tot Offerte gebruikt fallback op updated_at.');
+    }
+
     const data = buildSalesMetrics(
       dateRange,
       deals,
@@ -3943,7 +4077,8 @@ const ensureSalesData = async () => {
       configState.salesMonthlyDealsTarget,
       configState.salesMonthlyDealsTargets,
       appointmentsSupported,
-      configState.salesQuotesFromPhaseId
+      configState.salesQuotesFromPhaseId,
+      quotePhaseTimingSupported
     );
     salesState.status = 'ready';
     salesState.data = data;

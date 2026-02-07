@@ -377,6 +377,10 @@ create table if not exists public.teamleader_deals (
   had_appointment_phase boolean,
   appointment_phase_first_started_at timestamptz,
   appointment_phase_last_checked_at timestamptz,
+  -- Derived: first time the deal entered the configured quote phase.
+  quote_phase_marker_phase_id text,
+  quote_phase_first_started_at timestamptz,
+  quote_phase_last_checked_at timestamptz,
   estimated_value numeric,
   estimated_value_currency text,
   weighted_value numeric,
@@ -398,6 +402,8 @@ create index if not exists teamleader_deals_location_created_idx on public.teaml
 create index if not exists teamleader_deals_updated_at_idx on public.teamleader_deals (updated_at);
 create index if not exists teamleader_deals_had_appointment_idx on public.teamleader_deals (location_id, had_appointment_phase);
 create index if not exists teamleader_deals_appointment_checked_idx on public.teamleader_deals (location_id, appointment_phase_last_checked_at);
+create index if not exists teamleader_deals_quote_phase_marker_idx on public.teamleader_deals (location_id, quote_phase_marker_phase_id);
+create index if not exists teamleader_deals_quote_phase_checked_idx on public.teamleader_deals (location_id, quote_phase_last_checked_at);
 create index if not exists teamleader_deals_raw_data_idx on public.teamleader_deals using gin (raw_data);
 
 create table if not exists public.teamleader_quotations (

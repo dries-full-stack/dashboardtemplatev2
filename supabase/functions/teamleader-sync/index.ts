@@ -645,16 +645,18 @@ const scoreAppointmentPhaseName = (name: unknown) => {
   return 0;
 };
 
-const resolveAppointmentPhaseId = async (locationId: string) => {
+const resolveAppointmentPhase = async (locationId: string) => {
   const { data, error } = await supabase
     .from('teamleader_deal_phases')
-    .select('id,name')
+    .select('id,name,sort_order,probability')
     .eq('location_id', locationId);
   if (error) throw error;
 
   let bestId: string | null = null;
   let bestScore = 0;
   let bestNameLen = Number.POSITIVE_INFINITY;
+  let bestSortOrder: number | null = null;
+  let bestProbability: number | null = null;
 
   for (const row of (data ?? []) as Record<string, unknown>[]) {
     const id = typeof row.id === 'string' ? row.id : null;
@@ -667,10 +669,50 @@ const resolveAppointmentPhaseId = async (locationId: string) => {
       bestId = id;
       bestScore = score;
       bestNameLen = nameLen;
+      const sortOrderRaw = typeof row.sort_order === 'number' ? row.sort_order : Number(row.sort_order);
+      bestSortOrder = Number.isFinite(sortOrderRaw) ? Math.max(0, Math.round(sortOrderRaw)) : null;
+      const probabilityRaw = typeof row.probability === 'number' ? row.probability : Number(row.probability);
+      const normalizedProbability =
+        Number.isFinite(probabilityRaw) ? Math.max(0, Math.min(1, probabilityRaw > 1 ? probabilityRaw / 100 : probabilityRaw)) : null;
+      bestProbability = normalizedProbability;
     }
   }
 
-  return bestId;
+  if (!bestId) return null;
+  return {
+    id: bestId,
+    sortOrder: bestSortOrder,
+    probability: bestProbability
+  };
+};
+
+const resolveSalesQuotesFromPhaseId = async (locationId: string) => {
+  const byLocation = await supabase
+    .from('dashboard_config')
+    .select('sales_quotes_from_phase_id')
+    .eq('location_id', locationId)
+    .maybeSingle();
+  if (byLocation.error) throw byLocation.error;
+
+  const direct =
+    typeof byLocation.data?.sales_quotes_from_phase_id === 'string'
+      ? byLocation.data.sales_quotes_from_phase_id.trim()
+      : '';
+  if (direct) return direct;
+
+  const fallback = await supabase
+    .from('dashboard_config')
+    .select('sales_quotes_from_phase_id')
+    .eq('id', 1)
+    .maybeSingle();
+  if (fallback.error) throw fallback.error;
+
+  const fallbackId =
+    typeof fallback.data?.sales_quotes_from_phase_id === 'string'
+      ? fallback.data.sales_quotes_from_phase_id.trim()
+      : '';
+
+  return fallbackId || null;
 };
 
 const extractPhaseHistory = (dealInfo: Record<string, unknown> | null) => {
@@ -702,11 +744,79 @@ const computeHadAppointmentPhase = (phaseHistory: Record<string, unknown>[], app
   };
 };
 
+const computePhaseFirstStartedAt = (phaseHistory: Record<string, unknown>[], targetPhaseId: string) => {
+  let firstStartedAt: Date | null = null;
+
+  for (const entry of phaseHistory) {
+    const phase = entry.phase as Record<string, unknown> | undefined;
+    const phaseId = phase && typeof phase === 'object' && typeof phase.id === 'string' ? phase.id : null;
+    if (!phaseId || phaseId !== targetPhaseId) continue;
+
+    const startedAt = typeof entry.started_at === 'string' ? entry.started_at : null;
+    const startedDate = parseIso(startedAt);
+    if (startedDate && (!firstStartedAt || startedDate < firstStartedAt)) {
+      firstStartedAt = startedDate;
+    }
+  }
+
+  return firstStartedAt ? firstStartedAt.toISOString() : null;
+};
+
 const shouldCheckAppointmentPhase = (deal: Record<string, unknown>) => {
   if (deal.had_appointment_phase === true) return false;
+  if (deal.had_appointment_phase === false) return true;
 
   const updatedAt = parseIso(deal.updated_at as string | null) ?? parseIso(deal.created_at as string | null);
   const checkedAt = parseIso(deal.appointment_phase_last_checked_at as string | null);
+  if (!checkedAt) return true;
+  if (!updatedAt) return true;
+  return checkedAt < updatedAt;
+};
+
+const normalizePhaseSortOrder = (value: unknown) => {
+  const raw = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(raw)) return null;
+  return Math.max(0, Math.round(raw));
+};
+
+const normalizePhaseProbability = (value: unknown) => {
+  const raw = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(raw)) return null;
+  const normalized = raw > 1 ? raw / 100 : raw;
+  return Math.max(0, Math.min(1, normalized));
+};
+
+const currentPhaseReachedTarget = (
+  currentPhaseId: string | null,
+  targetPhaseId: string,
+  phaseSortOrderById: Map<string, number | null>,
+  phaseProbabilityById: Map<string, number | null>,
+  targetSortOrder: number | null,
+  targetProbability: number | null
+) => {
+  if (!currentPhaseId) return false;
+  if (currentPhaseId === targetPhaseId) return true;
+
+  const currentSortOrder = phaseSortOrderById.get(currentPhaseId) ?? null;
+  if (targetSortOrder !== null && currentSortOrder !== null) {
+    return currentSortOrder >= targetSortOrder;
+  }
+
+  const currentProbability = phaseProbabilityById.get(currentPhaseId) ?? null;
+  if (targetProbability !== null && currentProbability !== null) {
+    return currentProbability >= targetProbability;
+  }
+
+  return false;
+};
+
+const shouldCheckQuotePhase = (deal: Record<string, unknown>, quotePhaseId: string) => {
+  const markerPhaseId =
+    typeof deal.quote_phase_marker_phase_id === 'string' ? deal.quote_phase_marker_phase_id.trim() : '';
+  if (!markerPhaseId || markerPhaseId !== quotePhaseId) return true;
+
+  const updatedAt = parseIso(deal.updated_at as string | null) ?? parseIso(deal.created_at as string | null);
+  const checkedAt = parseIso(deal.quote_phase_last_checked_at as string | null);
   if (!checkedAt) return true;
   if (!updatedAt) return true;
   return checkedAt < updatedAt;
@@ -720,30 +830,42 @@ const syncDealAppointmentPhaseMarkers = async (
 ) => {
   if (maxDeals <= 0) return 0;
 
-  const appointmentPhaseId = await resolveAppointmentPhaseId(locationId);
-  if (!appointmentPhaseId) {
+  const appointmentPhase = await resolveAppointmentPhase(locationId);
+  if (!appointmentPhase) {
     console.warn(`[teamleader-sync] No appointment phase found for location ${locationId}.`);
     return 0;
+  }
+  const appointmentPhaseId = appointmentPhase.id;
+
+  const phaseRowsResult = await supabase
+    .from('teamleader_deal_phases')
+    .select('id,sort_order,probability')
+    .eq('location_id', locationId);
+  if (phaseRowsResult.error) throw phaseRowsResult.error;
+  const phaseRows = (phaseRowsResult.data ?? []) as Record<string, unknown>[];
+  const phaseSortOrderById = new Map<string, number | null>();
+  const phaseProbabilityById = new Map<string, number | null>();
+  for (const row of phaseRows) {
+    if (!row || typeof row !== 'object' || typeof row.id !== 'string') continue;
+    phaseSortOrderById.set(row.id, normalizePhaseSortOrder(row.sort_order));
+    phaseProbabilityById.set(row.id, normalizePhaseProbability(row.probability));
   }
 
   const bufferLimit = Math.min(500, Math.max(maxDeals * 10, maxDeals));
   const buildDealsQuery = () =>
     supabase
       .from('teamleader_deals')
-      .select('id,created_at,updated_at,had_appointment_phase,appointment_phase_last_checked_at')
+      .select('id,phase_id,created_at,updated_at,had_appointment_phase,appointment_phase_last_checked_at')
       .eq('location_id', locationId)
-      .gte('created_at', cutoff.toISOString());
+      .gte('created_at', cutoff.toISOString())
+      // Only queue unresolved/negative rows for re-check. True rows are already settled.
+      .or('had_appointment_phase.is.false,had_appointment_phase.is.null');
 
-  // Ensure we eventually backfill *all* deals: first process unchecked deals (last_checked_at is null),
-  // then fall back to scanning recently updated deals for incremental re-checks.
-  let { data, error } = await buildDealsQuery()
-    .is('appointment_phase_last_checked_at', null)
+  // Process least-recently checked rows first so repeated runs eventually cover the full backlog.
+  const { data, error } = await buildDealsQuery()
+    .order('appointment_phase_last_checked_at', { ascending: true, nullsFirst: true })
     .order('updated_at', { ascending: false })
     .limit(bufferLimit);
-
-  if (!error && (!data || data.length === 0)) {
-    ({ data, error } = await buildDealsQuery().order('updated_at', { ascending: false }).limit(bufferLimit));
-  }
   if (error) {
     const message = error.message ?? String(error);
     if (message.includes('had_appointment_phase') && message.includes('does not exist')) {
@@ -777,7 +899,18 @@ const syncDealAppointmentPhaseMarkers = async (
       });
       const info = (response?.data ?? null) as Record<string, unknown> | null;
       const history = extractPhaseHistory(info);
-      const { hadAppointment, firstStartedAt } = computeHadAppointmentPhase(history, appointmentPhaseId);
+      const phaseId = typeof deal.phase_id === 'string' ? deal.phase_id : null;
+      const fallbackReached = currentPhaseReachedTarget(
+        phaseId,
+        appointmentPhaseId,
+        phaseSortOrderById,
+        phaseProbabilityById,
+        appointmentPhase.sortOrder,
+        appointmentPhase.probability
+      );
+      const computed = computeHadAppointmentPhase(history, appointmentPhaseId);
+      const hadAppointment = computed.hadAppointment || fallbackReached;
+      const firstStartedAt = computed.firstStartedAt;
 
       updates.push({
         id: dealId,
@@ -818,6 +951,102 @@ const syncDealAppointmentPhaseMarkers = async (
     }
     throw error;
   }
+  return updates.length;
+};
+
+const syncDealQuotePhaseMarkers = async (
+  client: TeamleaderClient,
+  locationId: string,
+  cutoff: Date,
+  maxDeals: number
+) => {
+  if (maxDeals <= 0) return 0;
+
+  const quotePhaseId = await resolveSalesQuotesFromPhaseId(locationId);
+  if (!quotePhaseId) {
+    return 0;
+  }
+
+  const bufferLimit = Math.min(500, Math.max(maxDeals * 10, maxDeals));
+  const buildDealsQuery = () =>
+    supabase
+      .from('teamleader_deals')
+      .select('id,created_at,updated_at,quote_phase_marker_phase_id,quote_phase_last_checked_at')
+      .eq('location_id', locationId)
+      .gte('created_at', cutoff.toISOString());
+
+  let { data, error } = await buildDealsQuery()
+    .is('quote_phase_last_checked_at', null)
+    .order('updated_at', { ascending: false })
+    .limit(bufferLimit);
+
+  if (!error && (!data || data.length === 0)) {
+    ({ data, error } = await buildDealsQuery().order('updated_at', { ascending: false }).limit(bufferLimit));
+  }
+  if (error) {
+    const message = error.message ?? String(error);
+    if (message.includes('quote_phase_') && message.includes('does not exist')) {
+      console.warn('[teamleader-sync] teamleader_deals.quote_phase_* ontbreekt (migratie nog niet gedeployed).');
+      return 0;
+    }
+    throw error;
+  }
+
+  const candidates = ((data ?? []) as Record<string, unknown>[])
+    .filter((deal) => deal && typeof deal === 'object' && typeof deal.id === 'string')
+    .filter((deal) => shouldCheckQuotePhase(deal, quotePhaseId))
+    .slice(0, maxDeals);
+
+  if (!candidates.length) return 0;
+
+  const syncedAt = new Date().toISOString();
+  const updates: Record<string, unknown>[] = [];
+
+  for (const deal of candidates) {
+    const dealId = String(deal.id);
+    try {
+      const response = await client.request<Record<string, unknown>>({
+        path: '/deals.info',
+        body: { id: dealId }
+      });
+      const info = (response?.data ?? null) as Record<string, unknown> | null;
+      const history = extractPhaseHistory(info);
+      const firstStartedAt = computePhaseFirstStartedAt(history, quotePhaseId);
+
+      updates.push({
+        id: dealId,
+        location_id: locationId,
+        quote_phase_marker_phase_id: quotePhaseId,
+        quote_phase_first_started_at: firstStartedAt,
+        quote_phase_last_checked_at: syncedAt
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[teamleader-sync] deals.info failed for deal ${dealId}:`, error);
+
+      if (message.includes('Teamleader API 404')) {
+        updates.push({
+          id: dealId,
+          location_id: locationId,
+          quote_phase_marker_phase_id: quotePhaseId,
+          quote_phase_first_started_at: null,
+          quote_phase_last_checked_at: syncedAt
+        });
+      }
+    }
+  }
+
+  try {
+    await upsertRows('teamleader_deals', updates);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('quote_phase_') && message.includes('does not exist')) {
+      console.warn('[teamleader-sync] Kan quote fase-velden niet updaten; migratie nog niet gedeployed.');
+      return 0;
+    }
+    throw error;
+  }
+
   return updates.length;
 };
 
@@ -1108,6 +1337,16 @@ Deno.serve(async (req) => {
         );
         if (checkedDeals > 0) {
           results.deal_appointment_checks = (results.deal_appointment_checks ?? 0) + checkedDeals;
+        }
+
+        const checkedQuoteDeals = await syncDealQuotePhaseMarkers(
+          client,
+          integration.location_id,
+          cutoff,
+          dealInfoMaxPerRun
+        );
+        if (checkedQuoteDeals > 0) {
+          results.deal_quote_phase_checks = (results.deal_quote_phase_checks ?? 0) + checkedQuoteDeals;
         }
       }
 
