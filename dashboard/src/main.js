@@ -161,6 +161,9 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const ghlLocationId = import.meta.env.VITE_GHL_LOCATION_ID;
 const adminModeEnabled = import.meta.env.VITE_ADMIN_MODE === 'true';
+const settingsModeEnabled = import.meta.env.VITE_SETTINGS_MODE === 'true';
+const settingsEnabled = settingsModeEnabled || adminModeEnabled;
+const settingsButtonLabel = adminModeEnabled ? 'Setup' : 'Instellingen';
 const teamleaderDealUrlTemplate =
   import.meta.env.VITE_TEAMLEADER_DEAL_URL_TEMPLATE || 'https://app.teamleader.eu/deals/{id}';
 const supabase =
@@ -503,6 +506,12 @@ const configState = {
   hookFieldId: null,
   campaignFieldId: null,
   lostReasonFieldId: null,
+  salesMonthlyDealsTarget: null,
+  salesMonthlyDealsTargets: null,
+  salesQuotesFromPhaseId: null,
+  billingPortalUrl: null,
+  billingCheckoutUrl: null,
+  billingCheckoutEmbed: false,
   dashboardTitle: null,
   dashboardSubtitle: null,
   dashboardLogoUrl: null,
@@ -536,6 +545,28 @@ const adminState = {
     google: null,
     sourceOptions: [],
     hasChanges: false
+  },
+  kpi: {
+    status: 'idle',
+    message: '',
+    loading: false,
+    saving: false,
+    year: new Date().getFullYear(),
+    monthlyDealsTarget: '',
+    monthlyDealsTargets: {},
+    quotesFromPhaseId: '',
+    quotesPhaseOptions: [],
+    hasChanges: false
+  },
+  billing: {
+    status: 'idle',
+    message: '',
+    loading: false,
+    saving: false,
+    portalUrl: '',
+    checkoutUrl: '',
+    checkoutEmbed: false,
+    hasChanges: false
   }
 };
 
@@ -554,6 +585,34 @@ const resetMappingState = () => {
   };
 };
 
+const resetKpiState = () => {
+  adminState.kpi = {
+    status: 'idle',
+    message: '',
+    loading: false,
+    saving: false,
+    year: new Date().getFullYear(),
+    monthlyDealsTarget: '',
+    monthlyDealsTargets: {},
+    quotesFromPhaseId: '',
+    quotesPhaseOptions: [],
+    hasChanges: false
+  };
+};
+
+const resetBillingState = () => {
+  adminState.billing = {
+    status: 'idle',
+    message: '',
+    loading: false,
+    saving: false,
+    portalUrl: '',
+    checkoutUrl: '',
+    checkoutEmbed: false,
+    hasChanges: false
+  };
+};
+
 const drilldownState = {
   open: false,
   status: 'idle',
@@ -568,7 +627,7 @@ const drilldownState = {
 let authSession = null;
 
 const initAuth = async () => {
-  if (!supabase || !adminModeEnabled) return;
+  if (!supabase || !settingsEnabled) return;
   const { data } = await supabase.auth.getSession();
   authSession = data.session;
   renderApp();
@@ -582,9 +641,14 @@ const initAuth = async () => {
       adminState.auth.status = 'idle';
       adminState.auth.message = '';
       resetMappingState();
+      resetKpiState();
+      resetBillingState();
     } else if (adminState.open) {
-      loadAdminIntegration();
-      loadSpendMapping();
+      if (adminModeEnabled) {
+        loadAdminIntegration();
+        loadSpendMapping();
+      }
+      loadKpiSettings();
     }
     renderApp();
   });
@@ -611,9 +675,8 @@ const loadLocationConfig = async () => {
 
   const { data, error } = await supabase
     .from('dashboard_config')
-    .select(
-      'location_id, hook_field_id, campaign_field_id, lost_reason_field_id, dashboard_title, dashboard_subtitle, dashboard_logo_url, dashboard_layout, updated_at'
-    )
+    // Use '*' so older schemas (missing optional branding/layout columns) don't 400.
+    .select('*')
     .eq('id', 1)
     .maybeSingle();
 
@@ -646,6 +709,21 @@ const loadLocationConfig = async () => {
   configState.hookFieldId = data?.hook_field_id || null;
   configState.campaignFieldId = data?.campaign_field_id || null;
   configState.lostReasonFieldId = data?.lost_reason_field_id || null;
+  configState.salesMonthlyDealsTarget =
+    typeof data?.sales_monthly_deals_target === 'number' && Number.isFinite(data.sales_monthly_deals_target)
+      ? data.sales_monthly_deals_target
+      : null;
+  configState.salesMonthlyDealsTargets =
+    data?.sales_monthly_deals_targets && typeof data.sales_monthly_deals_targets === 'object' && !Array.isArray(data.sales_monthly_deals_targets)
+      ? data.sales_monthly_deals_targets
+      : null;
+  configState.salesQuotesFromPhaseId =
+    typeof data?.sales_quotes_from_phase_id === 'string' && data.sales_quotes_from_phase_id.trim()
+      ? data.sales_quotes_from_phase_id.trim()
+      : null;
+  configState.billingPortalUrl = normalizeBillingUrl(data?.billing_portal_url);
+  configState.billingCheckoutUrl = normalizeBillingUrl(data?.billing_checkout_url);
+  configState.billingCheckoutEmbed = data?.billing_checkout_embed === true;
   configState.dashboardTitle = data?.dashboard_title || null;
   configState.dashboardSubtitle = data?.dashboard_subtitle || null;
   configState.dashboardLogoUrl = data?.dashboard_logo_url || null;
@@ -1041,6 +1119,404 @@ const saveSpendMapping = async () => {
   }
 };
 
+const loadKpiSettings = async () => {
+  if (!supabase || !settingsEnabled) return;
+  if (adminState.kpi.loading || adminState.billing.loading) return;
+
+  adminState.kpi.loading = true;
+  adminState.kpi.status = 'loading';
+  adminState.kpi.message = '';
+  adminState.billing.loading = true;
+  adminState.billing.status = 'loading';
+  adminState.billing.message = '';
+  renderApp();
+
+  try {
+    const { data, error } = await supabase.from('dashboard_config').select('*').eq('id', 1).maybeSingle();
+    if (error) throw error;
+
+    const rawTarget = data?.sales_monthly_deals_target;
+    const rawTargetsByMonth =
+      data?.sales_monthly_deals_targets &&
+      typeof data.sales_monthly_deals_targets === 'object' &&
+      !Array.isArray(data.sales_monthly_deals_targets)
+        ? data.sales_monthly_deals_targets
+        : null;
+    const fallbackTarget =
+      Number.isFinite(configState.salesMonthlyDealsTarget) && configState.salesMonthlyDealsTarget > 0
+        ? configState.salesMonthlyDealsTarget
+        : SALES_TARGET_MONTHLY_DEALS;
+    const target =
+      typeof rawTarget === 'number' && Number.isFinite(rawTarget) && rawTarget > 0 ? rawTarget : fallbackTarget;
+
+    adminState.kpi.monthlyDealsTarget = String(Math.max(1, Math.round(target)));
+
+    const fallbackTargets =
+      configState.salesMonthlyDealsTargets &&
+      typeof configState.salesMonthlyDealsTargets === 'object' &&
+      !Array.isArray(configState.salesMonthlyDealsTargets)
+        ? configState.salesMonthlyDealsTargets
+        : {};
+    const sourceTargets = rawTargetsByMonth || fallbackTargets;
+    const cleanedTargets = {};
+    const monthKeyPattern = /^\d{4}-\d{2}$/;
+    Object.entries(sourceTargets || {}).forEach(([key, value]) => {
+      if (!monthKeyPattern.test(key)) return;
+      const month = Number(key.slice(5));
+      if (!Number.isFinite(month) || month < 1 || month > 12) return;
+      const num = typeof value === 'number' ? value : Number(value);
+      if (!Number.isFinite(num) || num <= 0) return;
+      cleanedTargets[key] = String(Math.max(1, Math.round(num)));
+    });
+    adminState.kpi.monthlyDealsTargets = cleanedTargets;
+
+    const rawQuotesFromPhase = data?.sales_quotes_from_phase_id;
+    const fallbackQuotesFromPhase = configState.salesQuotesFromPhaseId;
+    const normalizedQuotesFromPhase =
+      typeof rawQuotesFromPhase === 'string'
+        ? rawQuotesFromPhase.trim()
+        : typeof fallbackQuotesFromPhase === 'string'
+          ? fallbackQuotesFromPhase.trim()
+          : '';
+    adminState.kpi.quotesFromPhaseId = normalizedQuotesFromPhase || '';
+
+    const rawPortalUrl = normalizeBillingUrl(data?.billing_portal_url);
+    const fallbackPortalUrl = normalizeBillingUrl(configState.billingPortalUrl);
+    const rawCheckoutUrl = normalizeBillingUrl(data?.billing_checkout_url);
+    const fallbackCheckoutUrl = normalizeBillingUrl(configState.billingCheckoutUrl);
+    const portalUrl = rawPortalUrl || fallbackPortalUrl || '';
+    const checkoutUrl = rawCheckoutUrl || fallbackCheckoutUrl || '';
+    const checkoutEmbedFlag = data?.billing_checkout_embed === true || configState.billingCheckoutEmbed === true;
+
+    adminState.billing.portalUrl = portalUrl;
+    adminState.billing.checkoutUrl = checkoutUrl;
+    adminState.billing.checkoutEmbed = Boolean(checkoutUrl && checkoutEmbedFlag);
+
+    const locationId = (configState.locationId || ghlLocationId || data?.location_id || adminState.form.locationId || '').trim();
+    adminState.kpi.quotesPhaseOptions = [];
+    if (locationId) {
+      const { data: phaseRows, error: phaseError } = await supabase
+        .from('teamleader_deal_phases')
+        .select('id,name,probability,sort_order')
+        .eq('location_id', locationId);
+      if (phaseError) {
+        const phaseMessage = phaseError.message ?? String(phaseError);
+        if (phaseMessage.includes('sort_order') && phaseMessage.includes('does not exist')) {
+          const { data: fallbackRows, error: fallbackError } = await supabase
+            .from('teamleader_deal_phases')
+            .select('id,name,probability')
+            .eq('location_id', locationId);
+          if (fallbackError) {
+            console.warn('Unable to load Teamleader deal phases for Sales KPI settings', fallbackError);
+          } else {
+            adminState.kpi.quotesPhaseOptions = (fallbackRows || []).map((row) => ({ ...row, sort_order: null }));
+          }
+        } else {
+          console.warn('Unable to load Teamleader deal phases for Sales KPI settings', phaseError);
+        }
+      } else {
+        adminState.kpi.quotesPhaseOptions = phaseRows || [];
+      }
+    }
+
+    if (!Number.isFinite(Number(adminState.kpi.year))) {
+      adminState.kpi.year = new Date().getFullYear();
+    }
+    adminState.kpi.status = 'ready';
+    adminState.kpi.message = '';
+    adminState.kpi.hasChanges = false;
+    adminState.billing.status = 'ready';
+    adminState.billing.message = '';
+    adminState.billing.hasChanges = false;
+  } catch (error) {
+    adminState.kpi.status = 'error';
+    adminState.kpi.message = error instanceof Error ? error.message : 'Onbekende fout';
+    adminState.billing.status = 'error';
+    adminState.billing.message = error instanceof Error ? error.message : 'Onbekende fout';
+    if (!adminState.kpi.monthlyDealsTarget) {
+      adminState.kpi.monthlyDealsTarget = String(SALES_TARGET_MONTHLY_DEALS);
+    }
+    if (
+      !adminState.kpi.monthlyDealsTargets ||
+      typeof adminState.kpi.monthlyDealsTargets !== 'object' ||
+      Array.isArray(adminState.kpi.monthlyDealsTargets)
+    ) {
+      adminState.kpi.monthlyDealsTargets = {};
+    }
+    if (
+      Object.keys(adminState.kpi.monthlyDealsTargets).length === 0 &&
+      configState.salesMonthlyDealsTargets &&
+      typeof configState.salesMonthlyDealsTargets === 'object' &&
+      !Array.isArray(configState.salesMonthlyDealsTargets)
+    ) {
+      const cleanedTargets = {};
+      const monthKeyPattern = /^\d{4}-\d{2}$/;
+      Object.entries(configState.salesMonthlyDealsTargets).forEach(([key, value]) => {
+        if (!monthKeyPattern.test(key)) return;
+        const month = Number(key.slice(5));
+        if (!Number.isFinite(month) || month < 1 || month > 12) return;
+        const num = typeof value === 'number' ? value : Number(value);
+        if (!Number.isFinite(num) || num <= 0) return;
+        cleanedTargets[key] = String(Math.max(1, Math.round(num)));
+      });
+      adminState.kpi.monthlyDealsTargets = cleanedTargets;
+    }
+
+    if (typeof adminState.kpi.quotesFromPhaseId !== 'string') {
+      adminState.kpi.quotesFromPhaseId = configState.salesQuotesFromPhaseId || '';
+    }
+    if (!Array.isArray(adminState.kpi.quotesPhaseOptions)) {
+      adminState.kpi.quotesPhaseOptions = [];
+    }
+    adminState.billing.portalUrl = configState.billingPortalUrl || '';
+    adminState.billing.checkoutUrl = configState.billingCheckoutUrl || '';
+    adminState.billing.checkoutEmbed = Boolean(configState.billingCheckoutEmbed && configState.billingCheckoutUrl);
+    adminState.billing.hasChanges = false;
+  } finally {
+    adminState.kpi.loading = false;
+    adminState.billing.loading = false;
+    renderApp();
+  }
+};
+
+const saveKpiSettings = async () => {
+  if (!supabase || !settingsEnabled) return;
+  if (adminState.kpi.saving) return;
+
+  const kpiOnlyMode = settingsModeEnabled && !adminModeEnabled;
+  if (adminModeEnabled) {
+    const token = await getAuthToken();
+    if (!token) {
+      adminState.kpi.status = 'error';
+      adminState.kpi.message = 'Log in om KPI instellingen op te slaan.';
+      renderApp();
+      return;
+    }
+  }
+
+  const rawValue = String(adminState.kpi.monthlyDealsTarget ?? '').trim();
+  const parsed = Number(rawValue);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    adminState.kpi.status = 'error';
+    adminState.kpi.message = 'Vul een geldig positief getal in voor de maandelijkse target.';
+    renderApp();
+    return;
+  }
+
+  const target = Math.max(1, Math.round(parsed));
+
+  const monthTargets = adminState.kpi.monthlyDealsTargets;
+  const monthKeyPattern = /^\d{4}-\d{2}$/;
+  const monthOverrides = {};
+  if (monthTargets && typeof monthTargets === 'object' && !Array.isArray(monthTargets)) {
+    for (const [key, value] of Object.entries(monthTargets)) {
+      if (!monthKeyPattern.test(key)) continue;
+      const month = Number(key.slice(5));
+      if (!Number.isFinite(month) || month < 1 || month > 12) continue;
+
+      const raw = String(value ?? '').trim();
+      if (!raw) continue;
+      const num = Number(raw);
+      if (!Number.isFinite(num) || num <= 0) {
+        adminState.kpi.status = 'error';
+        adminState.kpi.message = `Ongeldige maandtarget voor ${key}. Gebruik een positief getal of laat leeg.`;
+        renderApp();
+        return;
+      }
+
+      const rounded = Math.max(1, Math.round(num));
+      if (rounded !== target) {
+        monthOverrides[key] = rounded;
+      }
+    }
+  }
+
+  const quotesFromPhaseIdRaw = String(adminState.kpi.quotesFromPhaseId ?? '').trim();
+  const quotesFromPhaseId = quotesFromPhaseIdRaw || null;
+
+  const locationId = (configState.locationId || ghlLocationId || adminState.form.locationId || '').trim();
+  if (adminModeEnabled && !locationId) {
+    adminState.kpi.status = 'error';
+    adminState.kpi.message = 'Location ID ontbreekt. Sla eerst de integratie op.';
+    renderApp();
+    return;
+  }
+
+  adminState.kpi.saving = true;
+  adminState.kpi.status = 'saving';
+  adminState.kpi.message = '';
+  renderApp();
+
+  try {
+    const now = new Date().toISOString();
+    if (kpiOnlyMode) {
+      const { data, error } = await supabase
+        .from('dashboard_config')
+        .update({
+          sales_monthly_deals_target: target,
+          sales_monthly_deals_targets: monthOverrides,
+          sales_quotes_from_phase_id: quotesFromPhaseId,
+          updated_at: now
+        })
+        .eq('id', 1)
+        .select('id')
+        .maybeSingle();
+      if (error) throw error;
+      if (!data?.id) {
+        throw new Error('dashboard_config ontbreekt. Contacteer je dashboardbeheerder.');
+      }
+    } else {
+      const { error } = await supabase
+        .from('dashboard_config')
+        .upsert(
+          {
+            id: 1,
+            location_id: locationId,
+            sales_monthly_deals_target: target,
+            sales_monthly_deals_targets: monthOverrides,
+            sales_quotes_from_phase_id: quotesFromPhaseId,
+            updated_at: now
+          },
+          { onConflict: 'id' }
+        );
+      if (error) throw error;
+    }
+
+    adminState.kpi.saving = false;
+    adminState.kpi.status = 'success';
+    adminState.kpi.message = 'KPI opgeslagen.';
+    adminState.kpi.hasChanges = false;
+    adminState.kpi.monthlyDealsTarget = String(target);
+    adminState.kpi.monthlyDealsTargets = Object.fromEntries(
+      Object.entries(monthOverrides).map(([key, value]) => [key, String(value)])
+    );
+    adminState.kpi.quotesFromPhaseId = quotesFromPhaseIdRaw;
+
+    configState.salesMonthlyDealsTarget = target;
+    configState.salesMonthlyDealsTargets = monthOverrides;
+    configState.salesQuotesFromPhaseId = quotesFromPhaseId;
+
+    // Refresh Sales metrics if the Sales dashboard is open.
+    const routeId = getRouteId(resolveDashboardTabs());
+    if (routeId === 'sales') {
+      salesState.status = 'idle';
+      salesState.data = null;
+      salesState.rangeKey = '';
+      salesState.errorMessage = '';
+      salesState.inFlight = false;
+      ensureSalesData();
+    }
+  } catch (error) {
+    adminState.kpi.status = 'error';
+    adminState.kpi.message = error instanceof Error ? error.message : 'Onbekende fout';
+  } finally {
+    adminState.kpi.saving = false;
+    renderApp();
+  }
+};
+
+const saveBillingSettings = async () => {
+  if (!supabase || !settingsEnabled) return;
+  if (adminState.billing.saving) return;
+
+  const kpiOnlyMode = settingsModeEnabled && !adminModeEnabled;
+  if (adminModeEnabled) {
+    const token = await getAuthToken();
+    if (!token) {
+      adminState.billing.status = 'error';
+      adminState.billing.message = 'Log in om abonnement instellingen op te slaan.';
+      renderApp();
+      return;
+    }
+  }
+
+  const rawPortalUrl = String(adminState.billing.portalUrl ?? '').trim();
+  const rawCheckoutUrl = String(adminState.billing.checkoutUrl ?? '').trim();
+  const portalUrl = rawPortalUrl ? normalizeBillingUrl(rawPortalUrl) : null;
+  const checkoutUrl = rawCheckoutUrl ? normalizeBillingUrl(rawCheckoutUrl) : null;
+  const checkoutEmbed = Boolean(adminState.billing.checkoutEmbed && checkoutUrl);
+
+  if (rawPortalUrl && !portalUrl) {
+    adminState.billing.status = 'error';
+    adminState.billing.message = 'Gebruik een geldige HTTPS URL of een pad dat start met /.';
+    renderApp();
+    return;
+  }
+
+  if (rawCheckoutUrl && !checkoutUrl) {
+    adminState.billing.status = 'error';
+    adminState.billing.message = 'Gebruik een geldige HTTPS URL of een pad dat start met /.';
+    renderApp();
+    return;
+  }
+
+  const locationId = (configState.locationId || ghlLocationId || adminState.form.locationId || '').trim();
+  if (adminModeEnabled && !locationId) {
+    adminState.billing.status = 'error';
+    adminState.billing.message = 'Location ID ontbreekt. Sla eerst de integratie op.';
+    renderApp();
+    return;
+  }
+
+  adminState.billing.saving = true;
+  adminState.billing.status = 'saving';
+  adminState.billing.message = '';
+  renderApp();
+
+  try {
+    const now = new Date().toISOString();
+    if (kpiOnlyMode) {
+      const { data, error } = await supabase
+        .from('dashboard_config')
+        .update({
+          billing_portal_url: portalUrl,
+          billing_checkout_url: checkoutUrl,
+          billing_checkout_embed: checkoutEmbed,
+          updated_at: now
+        })
+        .eq('id', 1)
+        .select('id')
+        .maybeSingle();
+      if (error) throw error;
+      if (!data?.id) {
+        throw new Error('dashboard_config ontbreekt. Contacteer je dashboardbeheerder.');
+      }
+    } else {
+      const { error } = await supabase
+        .from('dashboard_config')
+        .upsert(
+          {
+            id: 1,
+            location_id: locationId,
+            billing_portal_url: portalUrl,
+            billing_checkout_url: checkoutUrl,
+            billing_checkout_embed: checkoutEmbed,
+            updated_at: now
+          },
+          { onConflict: 'id' }
+        );
+      if (error) throw error;
+    }
+
+    adminState.billing.status = 'success';
+    adminState.billing.message = 'Abonnement instellingen opgeslagen.';
+    adminState.billing.hasChanges = false;
+    adminState.billing.portalUrl = portalUrl || '';
+    adminState.billing.checkoutUrl = checkoutUrl || '';
+    adminState.billing.checkoutEmbed = checkoutEmbed;
+
+    configState.billingPortalUrl = portalUrl;
+    configState.billingCheckoutUrl = checkoutUrl;
+    configState.billingCheckoutEmbed = checkoutEmbed;
+  } catch (error) {
+    adminState.billing.status = 'error';
+    adminState.billing.message = error instanceof Error ? error.message : 'Onbekende fout';
+  } finally {
+    adminState.billing.saving = false;
+    renderApp();
+  }
+};
+
 const formatNumber = (value, decimals = 0) => {
   if (!Number.isFinite(value)) return '0';
   const fixed = value.toFixed(decimals);
@@ -1330,6 +1806,352 @@ const fetchLatestSyncTimestamp = async () => {
   return data?.updated_at ?? null;
 };
 
+const toTrimmedText = (value) => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return null;
+};
+
+const normalizeBillingUrl = (value) => {
+  const text = toTrimmedText(value);
+  if (!text) return null;
+  if (text.startsWith('/') && !text.startsWith('//')) return text;
+  try {
+    const parsed = new URL(text);
+    if (parsed.protocol !== 'https:') return null;
+    return parsed.toString();
+  } catch (_error) {
+    return null;
+  }
+};
+
+const resolveBillingUrl = (value) => {
+  const normalized = normalizeBillingUrl(value);
+  if (!normalized) return null;
+  if (normalized.startsWith('/')) {
+    try {
+      return new URL(normalized, window.location.origin).toString();
+    } catch (_error) {
+      return null;
+    }
+  }
+  return normalized;
+};
+
+// Mirrors public.normalize_source() in SQL.
+const normalizeSourceValue = (value) => {
+  const text = toTrimmedText(value);
+  if (!text) return null;
+  const lowered = text.toLowerCase();
+  if (lowered === 'meta - calculator' || lowered === 'meta ads - calculator') return 'Meta - Calculator';
+  return text;
+};
+
+const normalizeEmailValue = (value) => {
+  const text = toTrimmedText(value);
+  if (!text) return null;
+  return text.toLowerCase();
+};
+
+const isWonOrClosedStatus = (status) => {
+  const text = toTrimmedText(status);
+  if (!text) return false;
+  const lowered = text.toLowerCase();
+  return lowered === 'won' || lowered.includes('won') || lowered.startsWith('closed');
+};
+
+const isAppointmentConfirmedStatus = (status, statusRaw) => {
+  const combined = `${toTrimmedText(status) ?? ''} ${toTrimmedText(statusRaw) ?? ''}`.toLowerCase();
+  return combined.includes('confirm');
+};
+
+const extractCustomFieldValue = (customFields, fieldId) => {
+  const targetId = toTrimmedText(fieldId);
+  if (!targetId) return null;
+  if (!customFields) return null;
+
+  if (typeof customFields === 'object' && !Array.isArray(customFields)) {
+    return toTrimmedText(customFields[targetId]);
+  }
+
+  if (!Array.isArray(customFields)) return null;
+
+  const match = customFields.find((cf) => {
+    if (!cf || typeof cf !== 'object') return false;
+    const id = toTrimmedText(cf.id ?? cf.fieldId ?? cf.field_id);
+    return id === targetId;
+  });
+
+  if (!match || typeof match !== 'object') return null;
+
+  // Different providers/versions use different keys.
+  return toTrimmedText(
+    match.value ??
+      match.fieldValue ??
+      match.field_value ??
+      match.text ??
+      match.fieldValueString ??
+      match.field_value_string ??
+      match.fieldValueNumber ??
+      match.field_value_number ??
+      match.fieldValueBoolean ??
+      match.field_value_boolean ??
+      match.fieldValueDate ??
+      match.fieldValueDateTime
+  );
+};
+
+const firstText = (...candidates) => {
+  for (const candidate of candidates) {
+    const text = toTrimmedText(candidate);
+    if (text) return text;
+  }
+  return null;
+};
+
+const extractLostReasonRaw = (opportunityRaw, lostReasonFieldId, contactRaw) => {
+  const opp = opportunityRaw && typeof opportunityRaw === 'object' ? opportunityRaw : {};
+  const contact = contactRaw && typeof contactRaw === 'object' ? contactRaw : {};
+  const oppCustomFields = opp.customFields ?? opp.custom_fields;
+  const contactCustomFields = contact.customFields ?? contact.custom_fields;
+  const lostReasonId = toTrimmedText(lostReasonFieldId);
+
+  return firstText(
+    lostReasonId ? extractCustomFieldValue(oppCustomFields, lostReasonId) : null,
+    lostReasonId ? extractCustomFieldValue(contactCustomFields, lostReasonId) : null,
+    opp.lostReason,
+    opp.lost_reason,
+    opp.lostReasonName,
+    opp.lost_reason_name,
+    opp.lostReasonId,
+    opp.lost_reason_id,
+    opp.reason,
+    opp.closedReason,
+    opp.closed_reason,
+    opp.statusChangeReason,
+    opp.status_change_reason,
+    opp.disposition,
+    opp.outcome,
+    opp.leadStatus,
+    opp.status?.reason,
+    opp.lostReason?.name,
+    opp.lostReason?.label,
+    opp.lostReason?.reason,
+    opp.lost_reason?.name,
+    opp.lost_reason?.label
+  );
+};
+
+const fetchSourceBreakdownComputed = async (range, activeLocationId) => {
+  const startIso = toUtcStart(range.start);
+  const endIso = toUtcEndExclusive(range.end);
+
+  const opportunities = await fetchAllRows(() =>
+    supabase
+      .from('opportunities_view')
+      .select('id,contact_id,contact_email,source_guess,status,created_at')
+      .eq('location_id', activeLocationId)
+      .gte('created_at', startIso)
+      .lt('created_at', endIso)
+  );
+
+  const leadContactIds = new Set();
+  const leadEmails = new Set();
+  const leadsBySource = new Map();
+  const dealsBySource = new Map();
+
+  opportunities.forEach((row) => {
+    const source = normalizeSourceValue(row?.source_guess) || 'Onbekend';
+    const prevLeads = leadsBySource.get(source) || 0;
+    leadsBySource.set(source, prevLeads + 1);
+
+    if (isWonOrClosedStatus(row?.status)) {
+      const prevDeals = dealsBySource.get(source) || 0;
+      dealsBySource.set(source, prevDeals + 1);
+    }
+
+    const contactId = toTrimmedText(row?.contact_id);
+    if (contactId) leadContactIds.add(contactId);
+
+    const emailNorm = normalizeEmailValue(row?.contact_email);
+    if (emailNorm) leadEmails.add(emailNorm);
+  });
+
+  const appointments = await fetchAllRows(() =>
+    supabase
+      .from('appointments_view')
+      .select('id,contact_id,contact_email,source,appointment_status,appointment_status_raw,start_time')
+      .eq('location_id', activeLocationId)
+      .gte('start_time', startIso)
+      .lt('start_time', endIso)
+  );
+
+  const appointmentContactIds = Array.from(
+    new Set(appointments.map((row) => toTrimmedText(row?.contact_id)).filter(Boolean))
+  );
+
+  let opportunitiesForAppointments = [];
+  if (appointmentContactIds.length) {
+    opportunitiesForAppointments = await fetchAllRows(() =>
+      supabase
+        .from('opportunities_view')
+        .select('contact_id,contact_email,source_guess,created_at')
+        .eq('location_id', activeLocationId)
+        .in('contact_id', appointmentContactIds)
+        .order('created_at', { ascending: false })
+    );
+  }
+
+  const sourceByContactId = new Map();
+  const sourceByEmail = new Map();
+  opportunitiesForAppointments.forEach((row) => {
+    const source = normalizeSourceValue(row?.source_guess);
+    if (!source) return;
+
+    const contactId = toTrimmedText(row?.contact_id);
+    if (contactId && !sourceByContactId.has(contactId)) {
+      sourceByContactId.set(contactId, source);
+    }
+
+    const emailNorm = normalizeEmailValue(row?.contact_email);
+    if (emailNorm && !sourceByEmail.has(emailNorm)) {
+      sourceByEmail.set(emailNorm, source);
+    }
+  });
+
+  const apptAgg = new Map();
+  appointments.forEach((row) => {
+    const contactId = toTrimmedText(row?.contact_id);
+    const emailNorm = normalizeEmailValue(row?.contact_email);
+
+    let source =
+      normalizeSourceValue(row?.source) ||
+      (contactId ? sourceByContactId.get(contactId) : null) ||
+      (emailNorm ? sourceByEmail.get(emailNorm) : null) ||
+      'Onbekend';
+
+    const existing = apptAgg.get(source) || { appointments: 0, confirmed: 0, withoutLead: 0 };
+    existing.appointments += 1;
+    if (isAppointmentConfirmedStatus(row?.appointment_status, row?.appointment_status_raw)) {
+      existing.confirmed += 1;
+    }
+
+    const leadInRange =
+      (contactId && leadContactIds.has(contactId)) || (emailNorm && leadEmails.has(emailNorm));
+    if (!leadInRange) existing.withoutLead += 1;
+    apptAgg.set(source, existing);
+  });
+
+  const sources = new Set([
+    ...Array.from(leadsBySource.keys()),
+    ...Array.from(dealsBySource.keys()),
+    ...Array.from(apptAgg.keys())
+  ]);
+
+  const rows = Array.from(sources).map((source) => {
+    const appts = apptAgg.get(source);
+    return {
+      source,
+      leads: leadsBySource.get(source) || 0,
+      appointments: appts?.appointments || 0,
+      appointments_confirmed: appts?.confirmed || 0,
+      appointments_without_lead_in_range: appts?.withoutLead || 0,
+      deals: dealsBySource.get(source) || 0
+    };
+  });
+
+  rows.sort((a, b) => {
+    const leadDiff = (b.leads ?? 0) - (a.leads ?? 0);
+    if (leadDiff) return leadDiff;
+    const apptDiff = (b.appointments ?? 0) - (a.appointments ?? 0);
+    if (apptDiff) return apptDiff;
+    return String(a.source ?? '').localeCompare(String(b.source ?? ''));
+  });
+
+  return rows;
+};
+
+const fetchLostReasonsComputed = async (range, activeLocationId) => {
+  const startIso = toUtcStart(range.start);
+  const endIso = toUtcEndExclusive(range.end);
+  const lostReasonFieldId = toTrimmedText(configState.lostReasonFieldId);
+
+  const lookupRows = await supabase
+    .from('lost_reason_lookup')
+    .select('reason_id,reason_name')
+    .eq('location_id', activeLocationId)
+    .then(({ data, error }) => {
+      if (error) throw error;
+      return data || [];
+    });
+
+  const lookupById = new Map(
+    lookupRows
+      .map((row) => [toTrimmedText(row?.reason_id), toTrimmedText(row?.reason_name)])
+      .filter(([id, name]) => id && name)
+  );
+
+  const opportunities = await fetchAllRows(
+    () =>
+      supabase
+        .from('opportunities')
+        .select('id,status,contact_id,raw_data,created_at')
+        .eq('location_id', activeLocationId)
+        .gte('created_at', startIso)
+        .lt('created_at', endIso),
+    500
+  );
+
+  let contactsById = null;
+  if (lostReasonFieldId) {
+    const contactIds = Array.from(
+      new Set(opportunities.map((row) => toTrimmedText(row?.contact_id)).filter(Boolean))
+    );
+    contactsById = new Map();
+    const chunkSize = 100;
+    for (let i = 0; i < contactIds.length; i += chunkSize) {
+      const chunk = contactIds.slice(i, i + chunkSize);
+      // contacts PK is (id, location_id), so include location filter.
+      const { data, error } = await supabase
+        .from('contacts')
+        .select('id,raw_data')
+        .eq('location_id', activeLocationId)
+        .in('id', chunk);
+      if (error) throw error;
+      (data || []).forEach((row) => {
+        const id = toTrimmedText(row?.id);
+        if (id) contactsById.set(id, row?.raw_data || null);
+      });
+    }
+  }
+
+  const counts = new Map();
+
+  opportunities.forEach((row) => {
+    if (isWonOrClosedStatus(row?.status)) return;
+    const raw = row?.raw_data || null;
+    const contactRaw = contactsById ? contactsById.get(toTrimmedText(row?.contact_id) || '') : null;
+    const reasonRaw = extractLostReasonRaw(raw, lostReasonFieldId, contactRaw);
+    if (!reasonRaw) return;
+
+    const label = lookupById.get(reasonRaw) || reasonRaw;
+    counts.set(label, (counts.get(label) || 0) + 1);
+  });
+
+  const rows = Array.from(counts.entries()).map(([reason, total]) => ({ reason, total }));
+  rows.sort((a, b) => {
+    const diff = (b.total ?? 0) - (a.total ?? 0);
+    if (diff) return diff;
+    return String(a.reason ?? '').localeCompare(String(b.reason ?? ''));
+  });
+
+  return rows;
+};
+
 const fetchSourceBreakdown = async (range) => {
   if (!supabase) return null;
   const activeLocationId = configState.locationId || ghlLocationId;
@@ -1337,21 +2159,9 @@ const fetchSourceBreakdown = async (range) => {
     throw new Error('Location ID ontbreekt. Voeg deze toe via de setup (dashboard_config).');
   }
 
-  const startIso = toUtcStart(range.start);
-  const endIso = toUtcEndExclusive(range.end);
-
-  const { data, error } = await withTimeout(
-    supabase.rpc('get_source_breakdown', {
-      p_location_id: activeLocationId,
-      p_start: startIso,
-      p_end: endIso
-    }),
-    12000,
-    'Supabase query timeout (source breakdown).'
-  );
-
-  if (error) throw error;
-  return data ?? [];
+  // The RPC version is convenient but can hit low statement_timeout limits on larger datasets.
+  // Compute in the client using indexed table queries instead.
+  return fetchSourceBreakdownComputed(range, activeLocationId);
 };
 
 const fetchHookPerformance = async (range) => {
@@ -1386,21 +2196,8 @@ const fetchLostReasons = async (range) => {
     throw new Error('Location ID ontbreekt. Voeg deze toe via de setup (dashboard_config).');
   }
 
-  const startIso = toUtcStart(range.start);
-  const endIso = toUtcEndExclusive(range.end);
-
-  const { data, error } = await withTimeout(
-    supabase.rpc('get_lost_reasons', {
-      p_location_id: activeLocationId,
-      p_start: startIso,
-      p_end: endIso
-    }),
-    12000,
-    'Supabase query timeout (lost reasons).'
-  );
-
-  if (error) throw error;
-  return data ?? [];
+  // The RPC version can hit low statement_timeout limits. Compute in the client.
+  return fetchLostReasonsComputed(range, activeLocationId);
 };
 
 const fetchFinanceSummary = async (range) => {
@@ -1694,7 +2491,7 @@ const buildDrilldownTitle = (kind, source, label) => {
   const base = label || DRILLDOWN_LABELS[kind] || 'Records';
   if (!source) return base;
   if (kind?.startsWith('hook_') || kind?.startsWith('lost_reason_')) return base;
-  return `${base} Â· ${source}`;
+  return `${base} | ${source}`;
 };
 
 const getDrilldownFilterLabel = (kind, source) => {
@@ -2140,9 +2937,25 @@ const fetchAllRows = async (buildQuery, pageSize = 1000) => {
   return rows;
 };
 
-const extractLossReason = (deal) => {
+const extractLossReason = (deal, lostReasonById) => {
   const raw = deal?.raw_data;
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    // Teamleader stores the lost reason as an id reference (and optional remark).
+    const remark = raw.lost_reason?.remark ?? raw.lostReason?.remark;
+    if (typeof remark === 'string' && remark.trim()) return remark.trim();
+
+    const reasonId =
+      raw.lost_reason?.reason?.id ??
+      raw.lostReason?.reason?.id ??
+      raw.lost_reason_id ??
+      raw.lostReasonId ??
+      raw.lost_reason?.id ??
+      raw.lostReason?.id;
+    if (typeof reasonId === 'string' && reasonId.trim()) {
+      const name = lostReasonById?.get(reasonId.trim());
+      if (typeof name === 'string' && name.trim()) return name.trim();
+    }
+
     const directKeys = [
       'lostReason',
       'lost_reason',
@@ -2170,11 +2983,29 @@ const extractLossReason = (deal) => {
   return null;
 };
 
-const buildSalesMetrics = (activeRange, deals, users, companies, contacts, phases, spendRows) => {
+const buildSalesMetrics = (
+  activeRange,
+  deals,
+  users,
+  companies,
+  contacts,
+  phases,
+  spendRows,
+  lostReasonsLookupRows,
+  monthlyTargetDeals,
+  monthlyTargetsByMonth,
+  appointmentsSupported = true,
+  quotesFromPhaseId = null
+) => {
   const now = new Date();
   const range = getSalesRange(activeRange);
   const monthBuckets = buildMonthBuckets(range.start, range.end);
   const monthMap = new Map(monthBuckets.map((bucket) => [bucket.key, bucket]));
+  const lostReasonById = new Map(
+    (lostReasonsLookupRows || [])
+      .filter((row) => row && row.id && row.name)
+      .map((row) => [String(row.id), String(row.name)])
+  );
 
   const companyMap = new Map(
     (companies || []).map((company) => [
@@ -2202,6 +3033,38 @@ const buildSalesMetrics = (activeRange, deals, users, companies, contacts, phase
   );
   const phaseMap = new Map((phases || []).map((phase) => [phase.id, phase]));
 
+  const normalizedQuotesFromPhaseId = typeof quotesFromPhaseId === 'string' ? quotesFromPhaseId.trim() : '';
+  const normalizeSortOrder = (value) => {
+    const raw = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(raw)) return null;
+    return Math.max(0, Math.round(raw));
+  };
+  const normalizeProbability = (value) => {
+    const raw = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(raw)) return null;
+    const normalized = raw > 1 ? raw / 100 : raw;
+    return Math.max(0, Math.min(1, normalized));
+  };
+  const quoteThresholdPhase = normalizedQuotesFromPhaseId ? phaseMap.get(normalizedQuotesFromPhaseId) : null;
+  const quoteThresholdSortOrder = quoteThresholdPhase ? normalizeSortOrder(quoteThresholdPhase.sort_order) : null;
+  const quoteThresholdProbability = quoteThresholdPhase ? normalizeProbability(quoteThresholdPhase.probability) : null;
+  const isQuoteDeal = (deal) => {
+    if (!normalizedQuotesFromPhaseId) return true;
+    const phaseId = String(deal?.phase_id ?? '');
+    const phase = phaseMap.get(phaseId);
+    if (!phase) return phaseId === normalizedQuotesFromPhaseId;
+    const sortOrder = normalizeSortOrder(phase.sort_order);
+    if (quoteThresholdSortOrder !== null && sortOrder !== null) {
+      return sortOrder >= quoteThresholdSortOrder;
+    }
+    const probability = normalizeProbability(phase.probability);
+    if (quoteThresholdProbability !== null && probability !== null) {
+      return probability >= quoteThresholdProbability;
+    }
+    return phaseId === normalizedQuotesFromPhaseId;
+  };
+
+  let allDealsInRangeCount = 0;
   const dealsInRange = [];
   const wonDeals = [];
   const lostDeals = [];
@@ -2214,6 +3077,9 @@ const buildSalesMetrics = (activeRange, deals, users, companies, contacts, phase
     const createdAt = parseDate(deal.created_at);
     if (!createdAt) return;
     if (createdAt < range.start || createdAt > range.end) return;
+
+    allDealsInRangeCount += 1;
+    if (!isQuoteDeal(deal)) return;
 
     dealsInRange.push(deal);
     const status = normalizeStatus(deal.status);
@@ -2241,7 +3107,7 @@ const buildSalesMetrics = (activeRange, deals, users, companies, contacts, phase
     const statusType = won ? 'won' : lost ? 'lost' : 'open';
     const sellerId = deal.responsible_user_id || null;
     const sellerName = sellerId ? userMap.get(sellerId) || 'Onbekend' : null;
-    const lossReason = lost ? (extractLossReason(deal) || deal.status || 'Onbekend') : null;
+    const lossReason = lost ? (extractLossReason(deal, lostReasonById) || 'Onbekend') : null;
     records.push({
       record_id: deal.id,
       record_type: 'deal',
@@ -2298,7 +3164,15 @@ const buildSalesMetrics = (activeRange, deals, users, companies, contacts, phase
     const createdAt = parseDate(deal.created_at);
     return createdAt && toMonthKey(createdAt) === thisMonthKey;
   }).length;
-  const targetDeals = SALES_TARGET_MONTHLY_DEALS;
+  const defaultTargetDeals =
+    Number.isFinite(monthlyTargetDeals) && monthlyTargetDeals > 0 ? monthlyTargetDeals : SALES_TARGET_MONTHLY_DEALS;
+  const monthOverrideRaw =
+    monthlyTargetsByMonth && typeof monthlyTargetsByMonth === 'object'
+      ? monthlyTargetsByMonth[thisMonthKey]
+      : null;
+  const monthOverride = typeof monthOverrideRaw === 'number' ? monthOverrideRaw : Number(monthOverrideRaw);
+  const targetDeals =
+    Number.isFinite(monthOverride) && monthOverride > 0 ? monthOverride : defaultTargetDeals;
   const targetPercent = safeDivide(dealsThisMonth, targetDeals);
   const remainingPercent = Math.max(0, 1 - targetPercent);
 
@@ -2307,7 +3181,7 @@ const buildSalesMetrics = (activeRange, deals, users, companies, contacts, phase
 
   const lossReasonCounts = {};
   lostDeals.forEach((deal) => {
-    const reason = extractLossReason(deal) || deal.status || 'Onbekend';
+    const reason = extractLossReason(deal, lostReasonById) || 'Onbekend';
     const key = String(reason).trim() || 'Onbekend';
     lossReasonCounts[key] = (lossReasonCounts[key] || 0) + 1;
   });
@@ -2367,6 +3241,8 @@ const buildSalesMetrics = (activeRange, deals, users, companies, contacts, phase
         id: key,
         name,
         initials: buildInitials(name),
+        appointments: 0,
+        appointmentsPending: 0,
         deals: 0,
         won: 0,
         lost: 0,
@@ -2377,6 +3253,16 @@ const buildSalesMetrics = (activeRange, deals, users, companies, contacts, phase
     }
     const seller = sellerMap.get(key);
     seller.deals += 1;
+
+    if (appointmentsSupported) {
+      const hadAppointmentPhase = deal?.had_appointment_phase;
+      if (hadAppointmentPhase === true) {
+        seller.appointments += 1;
+      } else if (hadAppointmentPhase === null || hadAppointmentPhase === undefined) {
+        seller.appointmentsPending += 1;
+      }
+    }
+
     const status = normalizeStatus(deal.status);
     const won = isWonStatus(status);
     const lost = isLostStatus(status);
@@ -2414,8 +3300,10 @@ const buildSalesMetrics = (activeRange, deals, users, companies, contacts, phase
 
   return {
     range,
+    appointmentsSupported,
     totals: {
-      deals: dealsInRange.length,
+      allDeals: allDealsInRangeCount,
+      quotes: dealsInRange.length,
       won: wonDeals.length,
       lost: lostDeals.length,
       open: openDeals.length,
@@ -2448,38 +3336,90 @@ const buildSalesMetrics = (activeRange, deals, users, companies, contacts, phase
 };
 
 const updateSalesStatus = (status, message) => {
+  const overlay = document.querySelector('[data-sales-loading-overlay]');
+  const content = document.querySelector('[data-sales-loading-content]');
+  const isBlocking = status === 'loading' || status === 'idle' || status === 'error';
+  if (overlay) overlay.classList.toggle('hidden', !isBlocking);
+  if (content) {
+    content.classList.toggle('opacity-0', isBlocking);
+    content.classList.toggle('pointer-events-none', isBlocking);
+    content.classList.toggle('select-none', isBlocking);
+  }
+
+  if (overlay) {
+    const spinner = overlay.querySelector('[data-sales-loading-spinner]');
+    if (spinner) spinner.classList.toggle('hidden', status === 'error');
+    const overlayMessage = overlay.querySelector('[data-sales-loading-message]');
+    if (overlayMessage) overlayMessage.textContent = message || overlayMessage.textContent;
+    const panel = overlay.querySelector('[data-sales-loading-panel]');
+    if (panel) {
+      panel.classList.toggle('border-border/60', status !== 'error');
+      panel.classList.toggle('border-destructive/30', status === 'error');
+    }
+  }
+
   const badge = document.querySelector('[data-sales-status]');
-  if (!badge) return;
-  const label = badge.querySelector('[data-sales-status-label]');
-  const dot = badge.querySelector('[data-sales-status-dot]');
-  if (label) label.textContent = message || label.textContent;
-  if (!dot) return;
-  dot.className = `w-2 h-2 rounded-full ${
-    status === 'ready'
-      ? 'bg-emerald-500'
-      : status === 'loading'
-        ? 'bg-amber-500'
-        : status === 'error'
-          ? 'bg-destructive'
-          : 'bg-muted-foreground/60'
-  }`;
+  if (badge) {
+    const label = badge.querySelector('[data-sales-status-label]');
+    const dot = badge.querySelector('[data-sales-status-dot]');
+    if (label) label.textContent = message || label.textContent;
+
+    const badgeStatusClass =
+      status === 'ready'
+        ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-700'
+        : status === 'loading' || status === 'idle'
+          ? 'bg-amber-500/10 border-amber-500/20 text-amber-600'
+          : status === 'error'
+            ? 'bg-destructive/10 border-destructive/20 text-destructive'
+            : 'bg-muted/60 border-border text-muted-foreground';
+    badge.className = `hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full border ${badgeStatusClass}`;
+
+    if (dot) {
+      dot.className = `w-2 h-2 rounded-full ${
+        status === 'ready'
+          ? 'bg-emerald-500'
+        : status === 'loading'
+            ? 'bg-amber-500'
+            : status === 'error'
+              ? 'bg-destructive'
+              : 'bg-muted-foreground/60'
+      }`;
+    }
+  }
 };
 
 const buildTrendMarkup = (monthly) => {
   if (!Array.isArray(monthly) || monthly.length === 0) {
     return '<div class="text-sm text-muted-foreground">Geen trenddata beschikbaar.</div>';
   }
+
+  const totalQuotes = monthly.reduce((sum, entry) => sum + (Number(entry?.quotes) || 0), 0);
+  const totalWon = monthly.reduce((sum, entry) => sum + (Number(entry?.won) || 0), 0);
+  if (totalQuotes === 0 && totalWon === 0) {
+    return `
+      <div class="h-[180px] w-full flex items-center justify-center text-sm text-muted-foreground">
+        Nog geen offertes of deals in deze periode.
+      </div>
+      <div class="mt-3 flex items-center justify-end gap-4 text-xs text-muted-foreground">
+        <span class="inline-flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-primary/80"></span>Offertes</span>
+        <span class="inline-flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-emerald-500/70"></span>Deals</span>
+      </div>
+    `;
+  }
+
   const maxValue = Math.max(
     1,
     ...monthly.map((entry) => Math.max(entry.quotes || 0, entry.won || 0))
   );
   const bars = monthly
     .map((entry) => {
-      const quotesHeight = Math.round(((entry.quotes || 0) / maxValue) * 100);
-      const wonHeight = Math.round(((entry.won || 0) / maxValue) * 100);
+      const quotes = Number(entry?.quotes) || 0;
+      const won = Number(entry?.won) || 0;
+      const quotesHeight = Math.round((quotes / maxValue) * 100);
+      const wonHeight = Math.round((won / maxValue) * 100);
       return `
-        <div class="flex flex-col items-center gap-2 flex-1">
-          <div class="w-full flex items-end gap-1 h-full">
+        <div class="flex flex-col items-center gap-2 flex-1 h-full">
+          <div class="w-full flex items-end gap-1 flex-1">
             <div class="flex-1 rounded-t-md bg-primary/80" style="height:${quotesHeight}%"></div>
             <div class="flex-1 rounded-t-md bg-emerald-500/70" style="height:${wonHeight}%"></div>
           </div>
@@ -2489,7 +3429,7 @@ const buildTrendMarkup = (monthly) => {
     })
     .join('');
   return `
-    <div class="flex items-end gap-4 h-[180px] w-full">${bars}</div>
+    <div class="flex gap-4 h-[180px] w-full">${bars}</div>
     <div class="mt-3 flex items-center justify-end gap-4 text-xs text-muted-foreground">
       <span class="inline-flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-primary/80"></span>Offertes</span>
       <span class="inline-flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-emerald-500/70"></span>Deals</span>
@@ -2579,7 +3519,8 @@ const buildFunnelMarkup = (funnel) => {
     </div>
   `;
 };
-const buildSellerRows = (sellers) => {
+const buildSellerRows = (sellers, options = {}) => {
+  const appointmentsSupported = options.appointmentsSupported !== false;
   if (!Array.isArray(sellers) || sellers.length === 0) {
     return `
       <tr class="border-b">
@@ -2595,6 +3536,26 @@ const buildSellerRows = (sellers) => {
       const sellerId = escapeHtml(String(seller.id || ''));
       const sellerName = escapeHtml(seller.name);
       const sellerAttrs = `data-sales-drill="all" data-sales-seller-id="${sellerId}" data-sales-seller-name="${sellerName}"`;
+      const pendingAppointments = Number(seller.appointmentsPending) || 0;
+      const knownAppointments = formatNumber(seller.appointments || 0);
+      const appointmentLabel = pendingAppointments > 0 ? `${knownAppointments}+` : knownAppointments;
+      const appointmentsCell = !appointmentsSupported
+        ? `
+            <span class="inline-flex items-center justify-center text-xs text-muted-foreground" title="Afspraken zijn niet beschikbaar omdat teamleader_deals.had_appointment_phase ontbreekt (migratie nog niet gedeployed).">
+              --
+            </span>
+          `
+        : pendingAppointments > 0
+          ? `
+              <div class="inline-flex items-center justify-center gap-2" title="Afspraken worden nog berekend voor ${pendingAppointments} deal(s). Teamleader phase history wordt op de achtergrond gesynct.">
+                <span class="font-medium" ${sellerAttrs}>${appointmentLabel}</span>
+                <span class="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                  <span class="inline-block h-4 w-4 rounded-full border-2 border-muted-foreground/20 border-t-primary animate-spin"></span>
+                  <span>nog ${formatNumber(pendingAppointments)}</span>
+                </span>
+              </div>
+            `
+          : `<span class="font-medium" ${sellerAttrs}>${appointmentLabel}</span>`;
       return `
         <tr class="border-b transition-colors data-[state=selected]:bg-muted hover:bg-muted/50">
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0">${index + 1}</td>
@@ -2606,7 +3567,7 @@ const buildSellerRows = (sellers) => {
               <span class="font-medium">${sellerName}</span>
             </div>
           </td>
-          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-center">???</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-center">${appointmentsCell}</td>
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-center"><span ${sellerAttrs}>${formatNumber(seller.deals)}</span></td>
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-center">
             <span class="font-semibold text-primary" ${sellerAttrs}>${formatNumber(seller.won)}</span>
@@ -2624,8 +3585,8 @@ const buildSellerRows = (sellers) => {
     .join('');
 };
 const SALES_DRILLDOWN_CONFIG = {
-  quotes_created: { filter: 'all', label: 'Deals' },
-  quotes_subtext: { filter: 'all', label: 'Deals' },
+  quotes_created: { filter: 'all', label: 'Offertes' },
+  quotes_subtext: { filter: 'all', label: 'Offertes' },
   avg_quote_time: { filter: 'all', label: 'Deals' },
   approved_quotes: { filter: 'won', label: 'Goedgekeurde deals' },
   approval_rate: { filter: 'won', label: 'Goedgekeurde deals' },
@@ -2756,8 +3717,8 @@ const applySalesData = (data) => {
     if (element) element.textContent = value;
   };
 
-  setKpi('quotes_created', formatNumber(data.totals.deals));
-  setKpi('quotes_subtext', `Van ${formatNumber(data.totals.deals)} deals`);
+  setKpi('quotes_created', formatNumber(data.totals.quotes));
+  setKpi('quotes_subtext', `Van ${formatNumber(data.totals.allDeals)} deals`);
   setKpi('avg_quote_time', formatDays(data.totals.avgQuoteTimeDays));
   setKpi('approved_quotes', formatNumber(data.totals.won));
   setKpi('approval_rate', `${formatPercent(data.totals.approvalRate, 1)} approval rate`);
@@ -2796,7 +3757,7 @@ const applySalesData = (data) => {
   if (funnel) funnel.innerHTML = buildFunnelMarkup(data.funnel);
 
   const sellers = document.querySelector('[data-sales-seller-rows]');
-  if (sellers) sellers.innerHTML = buildSellerRows(data.sellers);
+  if (sellers) sellers.innerHTML = buildSellerRows(data.sellers, { appointmentsSupported: data.appointmentsSupported });
   setKpi('seller_count', `${formatNumber(data.sellers.length)} verkopers`);
 
   setKpi('summary_won_deals', formatNumber(data.summary.wonDeals));
@@ -2805,7 +3766,7 @@ const applySalesData = (data) => {
   setKpi('summary_cycle', data.summary.avgCycleDays ? `${formatNumber(data.summary.avgCycleDays, 1)} d` : '--');
 
   bindSalesClicks();
-  updateSalesStatus(data.totals.deals > 0 ? 'ready' : 'empty', data.totals.deals > 0 ? 'Live data' : 'Nog geen data');
+  updateSalesStatus(data.totals.allDeals > 0 ? 'ready' : 'empty', data.totals.allDeals > 0 ? 'Live data' : 'Nog geen data');
 };
 
 const renderSalesDateControls = () => {
@@ -2835,7 +3796,17 @@ const renderSalesDateControls = () => {
 const ensureSalesData = async () => {
   if (!supabase) return;
   const activeLocationId = configState.locationId || ghlLocationId;
-  if (!activeLocationId) return;
+  if (!activeLocationId) {
+    if (configState.status === 'idle') {
+      loadLocationConfig();
+    }
+    if (configState.status === 'loading') {
+      updateSalesStatus('loading', 'Dashboard config laden...');
+    } else if (configState.status === 'error') {
+      updateSalesStatus('error', configState.errorMessage || 'Location ID ontbreekt.');
+    }
+    return;
+  }
 
   const key = buildRangeKey(dateRange);
   if (salesState.rangeKey === key && salesState.status === 'ready') {
@@ -2862,15 +3833,32 @@ const ensureSalesData = async () => {
   const spendEnd = range.end.toISOString().slice(0, 10);
 
   try {
-    const buildDealsQuery = () =>
+    const dealsSelectBase =
+      'id,title,location_id,created_at,updated_at,closed_at,status,customer_type,customer_id,responsible_user_id,phase_id,estimated_value,estimated_value_currency,raw_data';
+    const dealsSelectWithAppointments = `${dealsSelectBase},had_appointment_phase`;
+    let appointmentsSupported = true;
+
+    const buildDealsQuery = (selectClause) => () =>
       supabase
         .from('teamleader_deals')
-        .select(
-          'id,title,location_id,created_at,updated_at,closed_at,status,customer_type,customer_id,responsible_user_id,phase_id,estimated_value,estimated_value_currency,raw_data'
-        )
+        .select(selectClause)
         .eq('location_id', activeLocationId)
         .gte('created_at', startIso)
         .lte('created_at', endIso);
+
+    const dealsPromise = (async () => {
+      try {
+        return await fetchAllRows(buildDealsQuery(dealsSelectWithAppointments));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes('had_appointment_phase') && message.includes('does not exist')) {
+          console.warn('teamleader_deals.had_appointment_phase ontbreekt nog; fallback zonder afsprakenveld.');
+          appointmentsSupported = false;
+          return await fetchAllRows(buildDealsQuery(dealsSelectBase));
+        }
+        throw error;
+      }
+    })();
 
     const buildUsersQuery = () =>
       supabase
@@ -2887,38 +3875,76 @@ const ensureSalesData = async () => {
         .select('id,first_name,last_name,email,phone')
         .eq('location_id', activeLocationId);
 
-    const buildPhasesQuery = () =>
+    const buildPhasesQuery = (selectClause) => () =>
       supabase
         .from('teamleader_deal_phases')
-        .select('id,name,probability')
+        .select(selectClause)
         .eq('location_id', activeLocationId);
 
-    const [
+    const phasesPromise = (async () => {
+      try {
+        return await fetchAllRows(buildPhasesQuery('id,name,probability,sort_order'));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes('sort_order') && message.includes('does not exist')) {
+          console.warn('teamleader_deal_phases.sort_order ontbreekt nog; fallback op probability-gebaseerde fasefiltering.');
+          return await fetchAllRows(buildPhasesQuery('id,name,probability'));
+        }
+        throw error;
+      }
+    })();
+
+      const [
+        deals,
+        users,
+        companies,
+        contacts,
+        phases,
+        spendRows,
+        lostReasonsLookup
+      ] = await Promise.all([
+        dealsPromise,
+        fetchAllRows(buildUsersQuery),
+        fetchAllRows(buildCompaniesQuery),
+        fetchAllRows(buildContactsQuery),
+        phasesPromise,
+        supabase
+          .from('marketing_spend_daily')
+          .select('spend,date')
+          .eq('location_id', activeLocationId)
+          .gte('date', spendStart)
+          .lte('date', spendEnd)
+          .then(({ data, error }) => {
+            if (error) throw error;
+            return data || [];
+          }),
+        supabase
+          .from('teamleader_lost_reasons')
+          .select('id,name')
+          .eq('location_id', activeLocationId)
+          .then(({ data, error }) => {
+            if (error) {
+              console.warn('Unable to load Teamleader lost reasons lookup', error);
+              return [];
+            }
+            return data || [];
+          })
+      ]);
+
+    const data = buildSalesMetrics(
+      dateRange,
       deals,
       users,
       companies,
       contacts,
       phases,
-      spendRows
-    ] = await Promise.all([
-      fetchAllRows(buildDealsQuery),
-      fetchAllRows(buildUsersQuery),
-      fetchAllRows(buildCompaniesQuery),
-      fetchAllRows(buildContactsQuery),
-      fetchAllRows(buildPhasesQuery),
-      supabase
-        .from('marketing_spend_daily')
-        .select('spend,date')
-        .eq('location_id', activeLocationId)
-        .gte('date', spendStart)
-        .lte('date', spendEnd)
-        .then(({ data, error }) => {
-          if (error) throw error;
-          return data || [];
-        })
-    ]);
-
-    const data = buildSalesMetrics(dateRange, deals, users, companies, contacts, phases, spendRows);
+      spendRows,
+      lostReasonsLookup,
+      configState.salesMonthlyDealsTarget,
+      configState.salesMonthlyDealsTargets,
+      appointmentsSupported,
+      configState.salesQuotesFromPhaseId
+    );
     salesState.status = 'ready';
     salesState.data = data;
     salesState.inFlight = false;
@@ -3213,13 +4239,117 @@ const renderDebugPanel = (range) => {
 };
 
 const renderAdminModal = () => {
-  if (!adminModeEnabled) return '';
+  if (!settingsEnabled) return '';
 
   const loggedIn = Boolean(authSession);
   const userEmail = authSession?.user?.email || '';
+  const kpiOnlyMode = settingsModeEnabled && !adminModeEnabled;
+  const canManageKpi = loggedIn || kpiOnlyMode;
+  const modalTitle = settingsButtonLabel;
+  const modalSubtitle = adminModeEnabled
+    ? 'Beheer GHL integratie, kostattributie, KPI targets en abonnement links.'
+    : 'Stel Sales KPI targets en abonnement links in voor dit dashboard.';
+  const signOutButtonMarkup = loggedIn
+    ? '<button type="button" class="admin-ghost" data-admin-signout>Uitloggen</button>'
+    : '';
   const adminBusy = adminState.loading || adminState.status === 'saving';
   const mappingBusy = adminState.mapping.loading || adminState.mapping.saving;
   const mappingStatusClass = adminState.mapping.status === 'error' ? 'error' : 'success';
+  const kpiBusy = adminState.kpi.loading || adminState.kpi.saving;
+  const kpiStatusClass = adminState.kpi.status === 'error' ? 'error' : 'success';
+  const billingBusy = adminState.billing.loading || adminState.billing.saving;
+  const billingStatusClass = adminState.billing.status === 'error' ? 'error' : 'success';
+  const billingPortalValue = String(adminState.billing.portalUrl ?? configState.billingPortalUrl ?? '').trim();
+  const billingCheckoutValue = String(adminState.billing.checkoutUrl ?? configState.billingCheckoutUrl ?? '').trim();
+  const billingCheckoutEmbedChecked = Boolean(
+    adminState.billing.checkoutEmbed ?? (configState.billingCheckoutEmbed && configState.billingCheckoutUrl)
+  );
+  const monthlyDealsTargetValue =
+    adminState.kpi.monthlyDealsTarget ||
+    String(
+      Number.isFinite(configState.salesMonthlyDealsTarget) && configState.salesMonthlyDealsTarget > 0
+        ? Math.round(configState.salesMonthlyDealsTarget)
+        : SALES_TARGET_MONTHLY_DEALS
+    );
+  const kpiYearRaw = Number(adminState.kpi.year);
+  const kpiYear = Number.isFinite(kpiYearRaw) ? kpiYearRaw : new Date().getFullYear();
+  const monthOverrides =
+    adminState.kpi.monthlyDealsTargets &&
+    typeof adminState.kpi.monthlyDealsTargets === 'object' &&
+    !Array.isArray(adminState.kpi.monthlyDealsTargets)
+      ? adminState.kpi.monthlyDealsTargets
+      : {};
+  const monthRowsMarkup = Array.from({ length: 12 })
+    .map((_, idx) => {
+      const month = idx + 1;
+      const monthKey = `${kpiYear}-${pad2(month)}`;
+      const label = `${MONTH_LABELS_NL[idx]} ${kpiYear}`;
+      const value = monthOverrides[monthKey] ?? '';
+      return `
+        <tr>
+          <td>${escapeHtml(label)}</td>
+          <td>
+            <input
+              type="number"
+              class="admin-input admin-mapping-input"
+              value="${escapeHtml(String(value))}"
+              placeholder="${escapeHtml(monthlyDealsTargetValue)}"
+              min="1"
+              step="1"
+              data-kpi-month="${escapeHtml(monthKey)}"
+              ${kpiBusy ? 'disabled' : ''}
+            />
+          </td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  const quotesFromPhaseIdValue = String(
+    adminState.kpi.quotesFromPhaseId ?? configState.salesQuotesFromPhaseId ?? ''
+  ).trim();
+  const normalizeProbability = (value) => {
+    const raw = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(raw)) return null;
+    const normalized = raw > 1 ? raw / 100 : raw;
+    return Math.max(0, Math.min(1, normalized));
+  };
+  const normalizeSortOrder = (value) => {
+    const raw = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(raw)) return null;
+    return Math.max(0, Math.round(raw));
+  };
+  const quotePhaseRows = (Array.isArray(adminState.kpi.quotesPhaseOptions) ? adminState.kpi.quotesPhaseOptions : [])
+    .filter((row) => row && row.id && row.name)
+    .map((row) => {
+      const id = String(row.id);
+      const name = String(row.name);
+      const prob = normalizeProbability(row.probability);
+      const sortOrder = normalizeSortOrder(row.sort_order);
+      return { id, name, prob, sortOrder };
+    })
+    .sort((a, b) => {
+      if (a.sortOrder !== null && b.sortOrder !== null && a.sortOrder !== b.sortOrder) {
+        return a.sortOrder - b.sortOrder;
+      }
+      const aProb = a.prob ?? 2;
+      const bProb = b.prob ?? 2;
+      if (aProb !== bProb) return aProb - bProb;
+      return a.name.localeCompare(b.name);
+    });
+  const quotePhaseOptionsMarkup = [
+    `<option value=""${quotesFromPhaseIdValue ? '' : ' selected'}>Alle deals (geen fase-filter)</option>`,
+    ...quotePhaseRows.map((row) => {
+      const orderLabel = row.sortOrder !== null ? `#${row.sortOrder + 1}` : null;
+      const probLabel = row.prob !== null ? `${Math.round(row.prob * 100)}%` : null;
+      const suffixParts = [orderLabel, probLabel].filter(Boolean);
+      const suffix = suffixParts.length ? ` (${suffixParts.join(' · ')})` : '';
+      const label = `${row.name}${suffix}`;
+      const selected = row.id === quotesFromPhaseIdValue ? ' selected' : '';
+      return `<option value="${escapeHtml(row.id)}"${selected}>${escapeHtml(label)}</option>`;
+    })
+  ].join('');
+
   const sourceOptionsMarkup = (adminState.mapping.sourceOptions ?? [])
     .map((option) => `<option value="${escapeHtml(option)}"></option>`)
     .join('');
@@ -3288,128 +4418,257 @@ const renderAdminModal = () => {
   return `
     <div class="admin-modal${adminState.open ? ' open' : ''}">
       <div class="admin-overlay" data-admin-close></div>
-      <div class="admin-panel" role="dialog" aria-label="GHL Integratie">
+      <div class="admin-panel" role="dialog" aria-label="${escapeHtml(modalTitle)}">
         <div class="admin-header">
           <div>
-            <h3 class="admin-title">GHL Integratie</h3>
-            <p class="admin-subtitle">Sla Location ID + PIT veilig op in Supabase</p>
+            <h3 class="admin-title">${escapeHtml(modalTitle)}</h3>
+            <p class="admin-subtitle">${escapeHtml(modalSubtitle)}</p>
           </div>
-          <button type="button" class="admin-close" data-admin-close>Sluit</button>
+          <div class="admin-header-actions">
+            ${signOutButtonMarkup}
+            <button type="button" class="admin-close" data-admin-close>Sluit</button>
+          </div>
         </div>
         ${
-          loggedIn
-            ? `<div class="admin-meta">Ingelogd als ${userEmail}</div>
-               ${adminState.loading ? '<div class="admin-meta">Integratie wordt geladen...</div>' : ''}
-               <form class="admin-form" data-admin-form>
-                 <label class="admin-label">
-                   Location ID
-                   <input type="text" class="admin-input" value="${adminState.form.locationId}" placeholder="loc_..." data-admin-location ${adminBusy ? 'disabled' : ''} required />
-                 </label>
-                 <label class="admin-label">
-                   Private Integration Token (PIT)
-                   <input type="password" class="admin-input" value="${adminState.form.token}" placeholder="pit-..." data-admin-token ${adminBusy ? 'disabled' : ''} />
-                 </label>
-                 <label class="admin-checkbox">
-                   <input type="checkbox" ${adminState.form.active ? 'checked' : ''} data-admin-active ${adminBusy ? 'disabled' : ''} />
-                   Actief
-                 </label>
-                 ${
-                   adminState.message
-                     ? `<div class="admin-message ${adminState.status === 'error' ? 'error' : 'success'}">${adminState.message}</div>`
-                     : ''
-                 }
-                 <button type="submit" class="admin-submit" ${adminBusy ? 'disabled' : ''}>
-                   ${adminState.status === 'saving' ? 'Opslaan...' : 'Opslaan'}
-                 </button>
-                 <button type="button" class="admin-ghost" data-admin-signout>Uitloggen</button>
-               </form>
-               <div class="admin-section">
-                 <div class="admin-section-header">
-                   <div>
-                     <h4 class="admin-section-title">Kostattributie</h4>
-                     <p class="admin-section-subtitle">
-                       Koppel Meta campagnes of adsets en Google campagnes aan de juiste Source. Adset mapping overschrijft campagne mapping.
-                       Laat leeg om de NL default te gebruiken. Google zonder mapping krijgt het standaard label.
-                     </p>
+          canManageKpi
+            ? `<div class="admin-meta">${
+                loggedIn
+                  ? `Ingelogd als ${escapeHtml(userEmail)}`
+                  : 'Je hoeft niet in te loggen om KPI targets en abonnement links aan te passen.'
+              }</div>
+               ${
+                 adminModeEnabled && loggedIn && adminState.loading
+                   ? '<div class="admin-meta">Integratie wordt geladen...</div>'
+                   : ''
+               }
+               ${
+                 adminModeEnabled && loggedIn
+                   ? `<form class="admin-form" data-admin-form>
+                        <label class="admin-label">
+                          Location ID
+                          <input type="text" class="admin-input" value="${adminState.form.locationId}" placeholder="loc_..." data-admin-location ${adminBusy ? 'disabled' : ''} required />
+                        </label>
+                        <label class="admin-label">
+                          Private Integration Token (PIT)
+                          <input type="password" class="admin-input" value="${adminState.form.token}" placeholder="pit-..." data-admin-token ${adminBusy ? 'disabled' : ''} />
+                        </label>
+                        <label class="admin-checkbox">
+                          <input type="checkbox" ${adminState.form.active ? 'checked' : ''} data-admin-active ${adminBusy ? 'disabled' : ''} />
+                          Actief
+                        </label>
+                        ${
+                          adminState.message
+                            ? `<div class="admin-message ${adminState.status === 'error' ? 'error' : 'success'}">${adminState.message}</div>`
+                            : ''
+                        }
+                        <button type="submit" class="admin-submit" ${adminBusy ? 'disabled' : ''}>
+                          ${adminState.status === 'saving' ? 'Opslaan...' : 'Opslaan'}
+                        </button>
+                      </form>`
+                   : ''
+               }
+                <div class="admin-section">
+                  <div class="admin-section-header">
+                    <div>
+                      <h4 class="admin-section-title">Sales KPI</h4>
+                      <p class="admin-section-subtitle">
+                        Stel je default target in en override per maand. Leeg laten bij een maand = default.
+                      </p>
+                    </div>
+                    <div class="admin-mapping-toolbar">
+                      <button type="button" class="admin-submit" data-kpi-save ${kpiBusy ? 'disabled' : ''}>
+                        ${adminState.kpi.saving ? 'Opslaan...' : 'Opslaan'}
+                      </button>
+                    </div>
+                  </div>
+                  ${
+                    adminState.kpi.message
+                      ? `<div class="admin-message ${kpiStatusClass}">${adminState.kpi.message}</div>`
+                      : ''
+                  }
+                  ${adminState.kpi.loading ? '<div class="admin-meta">KPI wordt geladen...</div>' : ''}
+                   <div class="admin-form">
+                     <label class="admin-label">
+                       Default maandtarget (deals)
+                       <input type="number" class="admin-input" value="${escapeHtml(monthlyDealsTargetValue)}" min="1" step="1" data-kpi-monthly-deals-target ${kpiBusy ? 'disabled' : ''} />
+                     </label>
+                     <div class="admin-meta">Gebruikt in de \"Deals deze maand\" target card.</div>
+                     <label class="admin-label">
+                       Offertes tellen vanaf fase
+                       <select class="admin-input" data-kpi-quotes-from-phase ${kpiBusy ? 'disabled' : ''}>
+                         ${quotePhaseOptionsMarkup}
+                       </select>
+                     </label>
+                     <div class="admin-meta">
+                       Kies de Teamleader fase die overeenkomt met \"Offerte verzonden klant\". Leeg = alle deals tellen als offerte.
+                     </div>
+                     ${quotePhaseRows.length ? '' : '<div class="admin-meta">Geen Teamleader fases gevonden. Run eerst teamleader-sync.</div>'}
                    </div>
-                   <div class="admin-mapping-toolbar">
-                     <button type="button" class="admin-ghost" data-map-refresh ${mappingBusy ? 'disabled' : ''}>Vernieuw</button>
-                     <button type="button" class="admin-submit" data-map-save ${mappingBusy ? 'disabled' : ''}>
-                       ${adminState.mapping.saving ? 'Opslaan...' : 'Opslaan'}
-                     </button>
-                   </div>
-                 </div>
-                 ${
-                   adminState.mapping.message
-                     ? `<div class="admin-message ${mappingStatusClass}">${adminState.mapping.message}</div>`
-                     : ''
-                 }
-                 ${adminState.mapping.loading ? '<div class="admin-meta">Mapping wordt geladen...</div>' : ''}
-                 <div class="admin-mapping-block">
-                   <h5 class="admin-mapping-title">Meta campagnes</h5>
-                   <div class="admin-mapping-table-wrapper">
-                     <table class="admin-mapping-table">
-                       <thead>
-                         <tr>
-                           <th>Campagne</th>
-                           <th>Source label</th>
-                         </tr>
-                       </thead>
-                       <tbody>${campaignRowsMarkup}</tbody>
-                     </table>
-                   </div>
-                 </div>
-                 <div class="admin-mapping-block">
-                   <h5 class="admin-mapping-title">Meta adsets</h5>
-                   <div class="admin-mapping-table-wrapper">
-                     <table class="admin-mapping-table">
-                       <thead>
-                         <tr>
-                           <th>Campagne</th>
-                           <th>Adset</th>
-                           <th>Default</th>
-                           <th>Source label</th>
-                         </tr>
-                       </thead>
-                       <tbody>${adsetRowsMarkup}</tbody>
-                     </table>
-                   </div>
-                 </div>
-                 <div class="admin-mapping-block">
-                   <h5 class="admin-mapping-title">Google</h5>
-                   <div class="admin-mapping-table-wrapper">
-                     <table class="admin-mapping-table">
-                       <thead>
-                         <tr>
-                           <th>Platform</th>
-                           <th>Source label</th>
-                         </tr>
-                       </thead>
-                       <tbody>
-                         <tr>
-                           <td>Google (sheet)</td>
-                           <td>${renderMappingInput(googleRow, GOOGLE_SOURCE_LABEL)}</td>
-                         </tr>
-                       </tbody>
-                     </table>
-                   </div>
-                 </div>
-                 <div class="admin-mapping-block">
-                   <h5 class="admin-mapping-title">Google campagnes</h5>
-                   <div class="admin-mapping-table-wrapper">
-                     <table class="admin-mapping-table">
-                       <thead>
-                         <tr>
-                           <th>Campagne</th>
-                           <th>Source label</th>
-                         </tr>
-                       </thead>
-                       <tbody>${googleCampaignRowsMarkup}</tbody>
-                     </table>
-                   </div>
-                 </div>
-                 ${sourceOptionsList}
-               </div>`
+                  <div class="admin-mapping-block">
+                    <div class="admin-mapping-toolbar">
+                      <button type="button" class="admin-ghost" data-kpi-year-prev ${kpiBusy ? 'disabled' : ''}>Vorige jaar</button>
+                      <div class="admin-meta">Jaar: ${kpiYear}</div>
+                      <button type="button" class="admin-ghost" data-kpi-year-next ${kpiBusy ? 'disabled' : ''}>Volgende jaar</button>
+                    </div>
+                    <div class="admin-mapping-table-wrapper">
+                      <table class="admin-mapping-table">
+                        <thead>
+                          <tr>
+                            <th>Maand</th>
+                            <th>Deals target (override)</th>
+                          </tr>
+                        </thead>
+                        <tbody>${monthRowsMarkup}</tbody>
+                      </table>
+                    </div>
+                    <div class="admin-meta">Leeg = gebruikt default target (placeholder).</div>
+                  </div>
+                </div>
+                <div class="admin-section">
+                  <div class="admin-section-header">
+                    <div>
+                      <h4 class="admin-section-title">Stripe abonnement</h4>
+                      <p class="admin-section-subtitle">
+                        Toon per klant een beheerknop en optioneel een embedded payment link op het dashboard.
+                      </p>
+                    </div>
+                    <div class="admin-mapping-toolbar">
+                      <button type="button" class="admin-submit" data-billing-save ${billingBusy ? 'disabled' : ''}>
+                        ${adminState.billing.saving ? 'Opslaan...' : 'Opslaan'}
+                      </button>
+                    </div>
+                  </div>
+                  ${
+                    adminState.billing.message
+                      ? `<div class="admin-message ${billingStatusClass}">${adminState.billing.message}</div>`
+                      : ''
+                  }
+                  ${adminState.billing.loading ? '<div class="admin-meta">Abonnement instellingen worden geladen...</div>' : ''}
+                  <div class="admin-form">
+                    <label class="admin-label">
+                      Stripe Billing Portal URL (beheer abonnement)
+                      <input
+                        type="url"
+                        class="admin-input"
+                        value="${escapeHtml(billingPortalValue)}"
+                        placeholder="https://billing.stripe.com/p/login/..."
+                        data-billing-portal
+                        ${billingBusy ? 'disabled' : ''}
+                      />
+                    </label>
+                    <label class="admin-label">
+                      Stripe Payment Link URL (upgrade/nieuw plan)
+                      <input
+                        type="url"
+                        class="admin-input"
+                        value="${escapeHtml(billingCheckoutValue)}"
+                        placeholder="https://buy.stripe.com/..."
+                        data-billing-checkout
+                        ${billingBusy ? 'disabled' : ''}
+                      />
+                    </label>
+                    <label class="admin-checkbox">
+                      <input type="checkbox" ${billingCheckoutEmbedChecked ? 'checked' : ''} data-billing-embed ${
+                        billingBusy ? 'disabled' : ''
+                      } />
+                      Toon payment link ook als embed op het dashboard
+                    </label>
+                    <div class="admin-meta">
+                      Gebruik een HTTPS URL of een pad dat start met /. Met een relatief pad werkt dit automatisch op elk domein.
+                    </div>
+                  </div>
+                </div>
+                ${
+                  adminModeEnabled && loggedIn
+                    ? `<div class="admin-section">
+                        <div class="admin-section-header">
+                          <div>
+                            <h4 class="admin-section-title">Kostattributie</h4>
+                            <p class="admin-section-subtitle">
+                              Koppel Meta campagnes of adsets en Google campagnes aan de juiste Source. Adset mapping overschrijft campagne mapping.
+                              Laat leeg om de NL default te gebruiken. Google zonder mapping krijgt het standaard label.
+                            </p>
+                          </div>
+                          <div class="admin-mapping-toolbar">
+                            <button type="button" class="admin-ghost" data-map-refresh ${mappingBusy ? 'disabled' : ''}>Vernieuw</button>
+                            <button type="button" class="admin-submit" data-map-save ${mappingBusy ? 'disabled' : ''}>
+                              ${adminState.mapping.saving ? 'Opslaan...' : 'Opslaan'}
+                            </button>
+                          </div>
+                        </div>
+                        ${
+                          adminState.mapping.message
+                            ? `<div class="admin-message ${mappingStatusClass}">${adminState.mapping.message}</div>`
+                            : ''
+                        }
+                        ${adminState.mapping.loading ? '<div class="admin-meta">Mapping wordt geladen...</div>' : ''}
+                        <div class="admin-mapping-block">
+                          <h5 class="admin-mapping-title">Meta campagnes</h5>
+                          <div class="admin-mapping-table-wrapper">
+                            <table class="admin-mapping-table">
+                              <thead>
+                                <tr>
+                                  <th>Campagne</th>
+                                  <th>Source label</th>
+                                </tr>
+                              </thead>
+                              <tbody>${campaignRowsMarkup}</tbody>
+                            </table>
+                          </div>
+                        </div>
+                        <div class="admin-mapping-block">
+                          <h5 class="admin-mapping-title">Meta adsets</h5>
+                          <div class="admin-mapping-table-wrapper">
+                            <table class="admin-mapping-table">
+                              <thead>
+                                <tr>
+                                  <th>Campagne</th>
+                                  <th>Adset</th>
+                                  <th>Default</th>
+                                  <th>Source label</th>
+                                </tr>
+                              </thead>
+                              <tbody>${adsetRowsMarkup}</tbody>
+                            </table>
+                          </div>
+                        </div>
+                        <div class="admin-mapping-block">
+                          <h5 class="admin-mapping-title">Google</h5>
+                          <div class="admin-mapping-table-wrapper">
+                            <table class="admin-mapping-table">
+                              <thead>
+                                <tr>
+                                  <th>Platform</th>
+                                  <th>Source label</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                <tr>
+                                  <td>Google (sheet)</td>
+                                  <td>${renderMappingInput(googleRow, GOOGLE_SOURCE_LABEL)}</td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                        <div class="admin-mapping-block">
+                          <h5 class="admin-mapping-title">Google campagnes</h5>
+                          <div class="admin-mapping-table-wrapper">
+                            <table class="admin-mapping-table">
+                              <thead>
+                                <tr>
+                                  <th>Campagne</th>
+                                  <th>Source label</th>
+                                </tr>
+                              </thead>
+                              <tbody>${googleCampaignRowsMarkup}</tbody>
+                            </table>
+                          </div>
+                        </div>
+                        ${sourceOptionsList}
+                      </div>`
+                    : ''
+                }`
             : `<form class="admin-form" data-admin-login>
                  <label class="admin-label">
                    Email
@@ -4161,9 +5420,9 @@ const renderDrilldownModal = () => {
   if (!drilldownState.open) return '';
 
   const range = drilldownState.range;
-  const rangeLabel = range ? `${formatDisplayDate(range.start)} â†’ ${formatDisplayDate(range.end)}` : '';
+  const rangeLabel = range ? `${formatDisplayDate(range.start)} -> ${formatDisplayDate(range.end)}` : '';
   const sourceLabel = getDrilldownFilterLabel(drilldownState.kind, drilldownState.source);
-  const subtitle = [rangeLabel, sourceLabel].filter(Boolean).join(' Â· ');
+  const subtitle = [rangeLabel, sourceLabel].filter(Boolean).join(' | ');
   const showTeamleaderLink = String(drilldownState.kind || '').startsWith('sales_');
 
   let body = '';
@@ -4814,6 +6073,76 @@ const renderLostReasonsSection = (section, metrics) => {
   `;
 };
 
+const resolveBillingLinks = () => {
+  const portalUrl = resolveBillingUrl(configState.billingPortalUrl);
+  const checkoutUrl = resolveBillingUrl(configState.billingCheckoutUrl);
+  const checkoutEmbed = Boolean(configState.billingCheckoutEmbed && checkoutUrl);
+  return { portalUrl, checkoutUrl, checkoutEmbed };
+};
+
+const renderBillingPanel = () => {
+  const { portalUrl, checkoutUrl, checkoutEmbed } = resolveBillingLinks();
+  if (!portalUrl && !checkoutUrl) return '';
+
+  const portalAction = portalUrl
+    ? `<a
+         href="${escapeHtml(portalUrl)}"
+         target="_blank"
+         rel="noopener noreferrer"
+         class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-semibold h-10 px-4 border border-border bg-background hover:bg-accent hover:text-accent-foreground transition-colors"
+       >
+         Beheer abonnement
+       </a>`
+    : '';
+  const checkoutAction = checkoutUrl
+    ? `<a
+         href="${escapeHtml(checkoutUrl)}"
+         target="_blank"
+         rel="noopener noreferrer"
+         class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-semibold h-10 px-4 border border-border bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+       >
+         Betaallink openen
+       </a>`
+    : '';
+
+  return `
+    <section class="rounded-lg border bg-card text-card-foreground shadow-sm p-6 mb-6">
+      <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h2 class="text-lg font-bold text-foreground flex items-center gap-2">
+            ${icons.dollar('lucide lucide-dollar-sign w-5 h-5 text-primary')}
+            Abonnement
+          </h2>
+          <p class="text-sm text-muted-foreground mt-1">
+            Beheer hier je Stripe abonnement en planwijzigingen.
+          </p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          ${portalAction}
+          ${checkoutAction}
+        </div>
+      </div>
+      ${
+        checkoutEmbed
+          ? `<div class="mt-4">
+               <iframe
+                 src="${escapeHtml(checkoutUrl)}"
+                 title="Stripe betaallink"
+                 loading="lazy"
+                 referrerpolicy="strict-origin-when-cross-origin"
+                 sandbox="allow-forms allow-scripts allow-same-origin allow-popups allow-top-navigation-by-user-activation"
+                 class="w-full min-h-[760px] rounded-lg border border-border bg-background"
+               ></iframe>
+               <p class="text-xs text-muted-foreground mt-2">
+                 Als de embed niet laadt (iframe blokkering), gebruik de knop "Betaallink openen".
+               </p>
+             </div>`
+          : ''
+      }
+    </section>
+  `;
+};
+
 const renderDashboardSections = (layoutOverride, metrics) => {
   const sections = resolveLayoutSections(layoutOverride);
   return sections
@@ -4872,9 +6201,39 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
   const metrics = applyLiveOverrides(computeMetrics(range), range);
   const debugInfo = getOpportunityDebug(range);
   const layout = resolveLayoutSections(layoutOverride);
+  const requiredLive = getRequiredLiveData(layout);
   const branding = resolveBranding();
   const sidebarFooter = configState.dashboardTitle ? `${branding.title} Dashboard` : 'Dashboard Template';
   const activeRoute = routeId || 'lead';
+
+  const rangeKey = buildRangeKey(range);
+  const isDoneForKey = (state) =>
+    state?.rangeKey === rangeKey && (state?.status === 'ready' || state?.status === 'error');
+
+  const wantsHookPerformance =
+    requiredLive.hookPerformance && Boolean(configState.hookFieldId || configState.campaignFieldId);
+
+  const liveDone =
+    (!requiredLive.opportunities || isDoneForKey(liveState.opportunities)) &&
+    (!requiredLive.appointments || isDoneForKey(liveState.appointments)) &&
+    (!requiredLive.sourceBreakdown || isDoneForKey(liveState.sourceBreakdown)) &&
+    (!requiredLive.finance || isDoneForKey(liveState.finance)) &&
+    (!requiredLive.spendBySource || isDoneForKey(liveState.spendBySource)) &&
+    (!wantsHookPerformance || isDoneForKey(liveState.hookPerformance)) &&
+    (!requiredLive.lostReasons || isDoneForKey(liveState.lostReasons));
+
+  // Prevent a flash of placeholder/mock values: show a loader overlay until required live data is ready (or errored).
+  const showLoadingOverlay = Boolean(supabase) && configState.status !== 'error' && (!liveDone || configState.status !== 'ready');
+  const loadingOverlayMarkup = showLoadingOverlay
+    ? `
+      <div class="absolute inset-0 z-20 bg-background/95 backdrop-blur-sm flex items-start justify-center">
+        <div class="mt-16 sm:mt-24 flex flex-col items-center gap-3 px-6 py-4 rounded-2xl border border-border/60 bg-card/80 shadow-sm">
+          <div class="h-10 w-10 rounded-full border-4 border-muted-foreground/20 border-t-primary animate-spin"></div>
+          <p class="text-sm font-semibold text-muted-foreground">Data laden...</p>
+        </div>
+      </div>
+    `
+    : '';
 
   return `
     <div role="region" aria-label="Notifications (F8)" tabindex="-1" style="pointer-events: none;">
@@ -4939,8 +6298,8 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
               </div>
             </div>
             ${
-              adminModeEnabled
-                ? `<button class="admin-trigger" type="button" data-admin-open>Setup</button>`
+              settingsEnabled
+                ? `<button class="admin-trigger" type="button" data-admin-open>${settingsButtonLabel}</button>`
                 : ''
             }
             <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 hover:bg-accent" title="Herlaad pagina" data-action="refresh">
@@ -4978,11 +6337,15 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
                 }">${debugInfo.text}</div>`
               : ''
           }
-          ${renderDebugPanel(range)}
-          <div class="mt-6 space-y-8">
-            ${renderDashboardSections(layout, metrics)}
-          </div>
-        </main>
+           ${renderDebugPanel(range)}
+           ${renderBillingPanel()}
+           <div class="mt-6 relative">
+             ${loadingOverlayMarkup}
+            <div class="space-y-8${showLoadingOverlay ? ' opacity-0 pointer-events-none select-none' : ''}">
+              ${renderDashboardSections(layout, metrics)}
+            </div>
+           </div>
+         </main>
         <footer class="h-12 border-t border-border bg-card/50 flex items-center justify-center px-6">
           <p class="text-xs text-muted-foreground font-medium">(c) 2026 ${branding.title} - ${branding.headerSubtitle}</p>
         </footer>
@@ -4996,17 +6359,32 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
 const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
   const branding = resolveBranding();
   const sidebarFooter = configState.dashboardTitle ? `${branding.title} Dashboard` : 'Dashboard Template';
+  const salesKey = buildRangeKey(dateRange);
+  const showLoadingOverlay = Boolean(supabase) && (salesState.status !== 'ready' || salesState.rangeKey !== salesKey);
+  const initialDealCount = salesState?.data?.totals?.deals;
   const salesStatus = MOCK_ENABLED
     ? {
         label: 'Mock data',
         className: 'bg-amber-500/10 border-amber-500/20 text-amber-600',
         dotClass: 'bg-amber-500'
       }
-    : {
-        label: 'Nog geen data',
-        className: 'bg-muted/60 border-border text-muted-foreground',
-        dotClass: 'bg-muted-foreground/60'
-      };
+    : showLoadingOverlay
+      ? {
+          label: 'Data laden...',
+          className: 'bg-amber-500/10 border-amber-500/20 text-amber-600',
+          dotClass: 'bg-amber-500'
+        }
+      : initialDealCount > 0
+        ? {
+            label: 'Live data',
+            className: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-700',
+            dotClass: 'bg-emerald-500'
+          }
+        : {
+            label: 'Nog geen data',
+            className: 'bg-muted/60 border-border text-muted-foreground',
+            dotClass: 'bg-muted-foreground/60'
+          };
 
   return `
     <div role="region" aria-label="Notifications (F8)" tabindex="-1" style="pointer-events: none;">
@@ -5056,8 +6434,8 @@ const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
               <span class="text-xs font-medium" data-sales-status-label>${salesStatus.label}</span>
             </div>
             ${
-              adminModeEnabled
-                ? `<button class="admin-trigger" type="button" data-admin-open>Setup</button>`
+              settingsEnabled
+                ? `<button class="admin-trigger" type="button" data-admin-open>${settingsButtonLabel}</button>`
                 : ''
             }
             <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 hover:bg-secondary" title="Herlaad pagina" data-action="refresh">
@@ -5065,8 +6443,19 @@ const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
             </button>
           </div>
         </header>
-        <main class="flex-1 p-6 overflow-auto">
-          ${SALES_MAIN_MARKUP}
+        <main class="flex-1 p-6 overflow-auto relative">
+          <div class="absolute inset-0 z-20 bg-background/95 backdrop-blur-sm flex items-start justify-center${
+            showLoadingOverlay ? '' : ' hidden'
+          }" data-sales-loading-overlay>
+            <div class="mt-16 sm:mt-24 flex flex-col items-center gap-3 px-6 py-4 rounded-2xl border border-border/60 bg-card/80 shadow-sm" data-sales-loading-panel>
+              <div class="h-10 w-10 rounded-full border-4 border-muted-foreground/20 border-t-primary animate-spin" data-sales-loading-spinner></div>
+              <p class="text-sm font-semibold text-muted-foreground" data-sales-loading-message>Data laden...</p>
+            </div>
+          </div>
+          <div class="${showLoadingOverlay ? 'opacity-0 pointer-events-none select-none' : ''}" data-sales-loading-content>
+            ${renderBillingPanel()}
+            ${SALES_MAIN_MARKUP}
+          </div>
         </main>
         <footer class="h-12 border-t border-border bg-card/30 flex items-center justify-center px-6">
           <p class="text-xs text-muted-foreground font-medium">(c) 2026 ${branding.title} - ${branding.headerSubtitle}</p>
@@ -5145,8 +6534,8 @@ const buildCallCenterMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
               </div>
             </div>
             ${
-              adminModeEnabled
-                ? `<button class="admin-trigger" type="button" data-admin-open>Setup</button>`
+              settingsEnabled
+                ? `<button class="admin-trigger" type="button" data-admin-open>${settingsButtonLabel}</button>`
                 : ''
             }
             <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 hover:bg-accent" title="Herlaad pagina" data-action="refresh">
@@ -5161,6 +6550,7 @@ const buildCallCenterMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
               <p class="text-sm text-muted-foreground">Binnenkort beschikbaar. We vullen dit zodra de Teamleader data klaarstaat.</p>
             </div>
           </div>
+          ${renderBillingPanel()}
           <div class="rounded-lg border bg-card text-card-foreground shadow-sm p-6">
             <p class="text-sm text-muted-foreground">
               Hier komen de call center KPI's, agent performance en kwaliteitsscores. Zodra we de datafeed hebben, bouwen we dit verder uit.
@@ -5260,7 +6650,7 @@ const bindInteractions = () => {
     });
   });
 
-  if (adminModeEnabled) {
+  if (settingsEnabled) {
     document.querySelectorAll('[data-admin-open]').forEach((button) => {
       button.addEventListener('click', () => {
         adminState.open = true;
@@ -5269,10 +6659,17 @@ const bindInteractions = () => {
         adminState.auth.message = '';
         adminState.auth.status = 'idle';
         adminState.loading = false;
+        adminState.kpi.message = '';
+        adminState.billing.message = '';
         renderApp();
         if (authSession) {
-          loadAdminIntegration();
-          loadSpendMapping();
+          if (adminModeEnabled) {
+            loadAdminIntegration();
+            loadSpendMapping();
+          }
+          loadKpiSettings();
+        } else if (settingsModeEnabled && !adminModeEnabled) {
+          loadKpiSettings();
         }
       });
     });
@@ -5436,6 +6833,8 @@ const bindInteractions = () => {
         adminState.open = false;
         adminState.loading = false;
         resetMappingState();
+        resetKpiState();
+        resetBillingState();
         renderApp();
       });
     }
@@ -5451,6 +6850,95 @@ const bindInteractions = () => {
     if (mappingSave) {
       mappingSave.addEventListener('click', () => {
         saveSpendMapping();
+      });
+    }
+
+    const kpiMonthlyDealsTarget = document.querySelector('[data-kpi-monthly-deals-target]');
+    if (kpiMonthlyDealsTarget) {
+      kpiMonthlyDealsTarget.addEventListener('input', (event) => {
+        adminState.kpi.monthlyDealsTarget = event.target.value;
+        adminState.kpi.hasChanges = true;
+      });
+    }
+
+    const kpiQuotesFromPhase = document.querySelector('[data-kpi-quotes-from-phase]');
+    if (kpiQuotesFromPhase) {
+      kpiQuotesFromPhase.addEventListener('change', (event) => {
+        adminState.kpi.quotesFromPhaseId = event.target.value;
+        adminState.kpi.hasChanges = true;
+      });
+    }
+
+    const billingPortalInput = document.querySelector('[data-billing-portal]');
+    if (billingPortalInput) {
+      billingPortalInput.addEventListener('input', (event) => {
+        adminState.billing.portalUrl = event.target.value;
+        adminState.billing.hasChanges = true;
+      });
+    }
+
+    const billingCheckoutInput = document.querySelector('[data-billing-checkout]');
+    if (billingCheckoutInput) {
+      billingCheckoutInput.addEventListener('input', (event) => {
+        adminState.billing.checkoutUrl = event.target.value;
+        adminState.billing.hasChanges = true;
+      });
+    }
+
+    const billingEmbedInput = document.querySelector('[data-billing-embed]');
+    if (billingEmbedInput) {
+      billingEmbedInput.addEventListener('change', (event) => {
+        adminState.billing.checkoutEmbed = event.target.checked;
+        adminState.billing.hasChanges = true;
+      });
+    }
+
+    const kpiYearPrev = document.querySelector('[data-kpi-year-prev]');
+    if (kpiYearPrev) {
+      kpiYearPrev.addEventListener('click', () => {
+        const current = Number(adminState.kpi.year);
+        adminState.kpi.year = Number.isFinite(current) ? current - 1 : new Date().getFullYear() - 1;
+        renderApp();
+      });
+    }
+
+    const kpiYearNext = document.querySelector('[data-kpi-year-next]');
+    if (kpiYearNext) {
+      kpiYearNext.addEventListener('click', () => {
+        const current = Number(adminState.kpi.year);
+        adminState.kpi.year = Number.isFinite(current) ? current + 1 : new Date().getFullYear() + 1;
+        renderApp();
+      });
+    }
+
+    document.querySelectorAll('[data-kpi-month]').forEach((input) => {
+      input.addEventListener('input', (event) => {
+        const key = input.getAttribute('data-kpi-month');
+        if (!key) return;
+        const value = String(event.target.value ?? '').trim();
+        if (!adminState.kpi.monthlyDealsTargets || typeof adminState.kpi.monthlyDealsTargets !== 'object') {
+          adminState.kpi.monthlyDealsTargets = {};
+        }
+        if (!value) {
+          delete adminState.kpi.monthlyDealsTargets[key];
+        } else {
+          adminState.kpi.monthlyDealsTargets[key] = value;
+        }
+        adminState.kpi.hasChanges = true;
+      });
+    });
+
+    const kpiSave = document.querySelector('[data-kpi-save]');
+    if (kpiSave) {
+      kpiSave.addEventListener('click', () => {
+        saveKpiSettings();
+      });
+    }
+
+    const billingSave = document.querySelector('[data-billing-save]');
+    if (billingSave) {
+      billingSave.addEventListener('click', () => {
+        saveBillingSettings();
       });
     }
 

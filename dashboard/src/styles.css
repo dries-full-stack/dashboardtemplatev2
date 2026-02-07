@@ -574,6 +574,12 @@
   margin-bottom: 1rem;
 }
 
+.admin-header-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
 .admin-title {
   font-size: 1.1rem;
   font-weight: 700;

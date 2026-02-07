@@ -406,6 +406,12 @@ Naast `location_id` kun je in `dashboard_config` ook de dashboard content/metric
 - `dashboard_subtitle` (text)
 - `dashboard_logo_url` (text, relatief of absolute URL)
 - `dashboard_layout` (jsonb)
+- `sales_monthly_deals_target` (integer, default target voor Sales)
+- `sales_monthly_deals_targets` (jsonb, maandelijkse overrides)
+- `sales_quotes_from_phase_id` (text, Teamleader fase voor offerte-telling)
+- `billing_portal_url` (text, Stripe Billing Portal link)
+- `billing_checkout_url` (text, Stripe Payment Link / checkout URL)
+- `billing_checkout_embed` (boolean, toon checkout URL als embed in dashboard)
 
 `dashboard_layout` kan een array zijn of een object met `sections`. Elke section:
 

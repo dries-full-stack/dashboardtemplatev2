@@ -56,6 +56,7 @@ const env = {
   TEAMLEADER_CLIENT_SECRET: required('TEAMLEADER_CLIENT_SECRET'),
   TEAMLEADER_PAGE_SIZE: clamp(parseNumber('TEAMLEADER_PAGE_SIZE', 50), 1, 100),
   TEAMLEADER_UPSERT_BATCH_SIZE: clamp(parseNumber('TEAMLEADER_UPSERT_BATCH_SIZE', 200), 1, 500),
+  TEAMLEADER_DEAL_INFO_MAX_PER_RUN: clamp(parseNumber('TEAMLEADER_DEAL_INFO_MAX_PER_RUN', 25), 0, 500),
   LOOKBACK_MONTHS: parseNumber('TEAMLEADER_LOOKBACK_MONTHS', 12),
   SYNC_OVERLAP_MINUTES: parseNumber('SYNC_OVERLAP_MINUTES', 60),
   TOKEN_REFRESH_BUFFER_MINUTES: parseNumber('TOKEN_REFRESH_BUFFER_MINUTES', 5),
@@ -511,6 +512,7 @@ const syncDealPipelines = async (client: TeamleaderClient, locationId: string) =
 const syncDealPhases = async (client: TeamleaderClient, locationId: string) => {
   const syncedAt = new Date().toISOString();
   const rows: Record<string, unknown>[] = [];
+  let sortOrder = 0;
 
   await paginate<Record<string, unknown>>(client, '/dealPhases.list', {}, async (items) => {
     for (const item of items) {
@@ -520,15 +522,49 @@ const syncDealPhases = async (client: TeamleaderClient, locationId: string) => {
         id,
         location_id: locationId,
         name: item.name ?? null,
+        sort_order: sortOrder,
         probability: typeof item.probability === 'number' ? item.probability : null,
+        raw_data: item,
+        synced_at: syncedAt
+      });
+      sortOrder += 1;
+    }
+  });
+
+  try {
+    await upsertRows('teamleader_deal_phases', rows);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('sort_order') && message.includes('does not exist')) {
+      const fallbackRows = rows.map(({ sort_order: _ignored, ...rest }) => rest);
+      await upsertRows('teamleader_deal_phases', fallbackRows);
+    } else {
+      throw error;
+    }
+  }
+  await saveSyncState('teamleader_deal_phases', locationId, syncedAt);
+};
+
+const syncLostReasons = async (client: TeamleaderClient, locationId: string) => {
+  const syncedAt = new Date().toISOString();
+  const rows: Record<string, unknown>[] = [];
+
+  await paginate<Record<string, unknown>>(client, '/lostReasons.list', { filter: {} }, async (items) => {
+    for (const item of items) {
+      const id = item.id as string | undefined;
+      if (!id) continue;
+      rows.push({
+        id,
+        location_id: locationId,
+        name: item.name ?? null,
         raw_data: item,
         synced_at: syncedAt
       });
     }
   });
 
-  await upsertRows('teamleader_deal_phases', rows);
-  await saveSyncState('teamleader_deal_phases', locationId, syncedAt);
+  await upsertRows('teamleader_lost_reasons', rows);
+  await saveSyncState('teamleader_lost_reasons', locationId, syncedAt);
 };
 
 const syncDeals = async (client: TeamleaderClient, locationId: string, cutoff: Date) => {
@@ -592,6 +628,197 @@ const syncDeals = async (client: TeamleaderClient, locationId: string, cutoff: D
   await saveSyncState('teamleader_deals', locationId, syncedAt);
 
   return quotationIds;
+};
+
+const normalizeSearchText = (value: unknown) => (typeof value === 'string' ? value.trim().toLowerCase() : '');
+
+const scoreAppointmentPhaseName = (name: unknown) => {
+  const value = normalizeSearchText(name);
+  if (!value) return 0;
+  if (value.includes('afspraak') && (value.includes('ingepland') || value.includes('gepland') || value.includes('ingeboekt'))) {
+    return 100;
+  }
+  if (value.includes('afspraak') && value.includes('gemaakt')) return 90;
+  if (value.includes('afspraak')) return 60;
+  if (value.includes('appointment')) return 55;
+  if (value.includes('meeting')) return 45;
+  return 0;
+};
+
+const resolveAppointmentPhaseId = async (locationId: string) => {
+  const { data, error } = await supabase
+    .from('teamleader_deal_phases')
+    .select('id,name')
+    .eq('location_id', locationId);
+  if (error) throw error;
+
+  let bestId: string | null = null;
+  let bestScore = 0;
+  let bestNameLen = Number.POSITIVE_INFINITY;
+
+  for (const row of (data ?? []) as Record<string, unknown>[]) {
+    const id = typeof row.id === 'string' ? row.id : null;
+    if (!id) continue;
+    const name = row.name;
+    const score = scoreAppointmentPhaseName(name);
+    if (score <= 0) continue;
+    const nameLen = typeof name === 'string' ? name.length : 0;
+    if (score > bestScore || (score === bestScore && nameLen < bestNameLen)) {
+      bestId = id;
+      bestScore = score;
+      bestNameLen = nameLen;
+    }
+  }
+
+  return bestId;
+};
+
+const extractPhaseHistory = (dealInfo: Record<string, unknown> | null) => {
+  const raw = (dealInfo?.phase_history ?? dealInfo?.phaseHistory) as unknown;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((entry) => entry && typeof entry === 'object') as Record<string, unknown>[];
+};
+
+const computeHadAppointmentPhase = (phaseHistory: Record<string, unknown>[], appointmentPhaseId: string) => {
+  let hadAppointment = false;
+  let firstStartedAt: Date | null = null;
+
+  for (const entry of phaseHistory) {
+    const phase = entry.phase as Record<string, unknown> | undefined;
+    const phaseId = phase && typeof phase === 'object' && typeof phase.id === 'string' ? phase.id : null;
+    if (!phaseId || phaseId !== appointmentPhaseId) continue;
+
+    hadAppointment = true;
+    const startedAt = typeof entry.started_at === 'string' ? entry.started_at : null;
+    const startedDate = parseIso(startedAt);
+    if (startedDate && (!firstStartedAt || startedDate < firstStartedAt)) {
+      firstStartedAt = startedDate;
+    }
+  }
+
+  return {
+    hadAppointment,
+    firstStartedAt: firstStartedAt ? firstStartedAt.toISOString() : null
+  };
+};
+
+const shouldCheckAppointmentPhase = (deal: Record<string, unknown>) => {
+  if (deal.had_appointment_phase === true) return false;
+
+  const updatedAt = parseIso(deal.updated_at as string | null) ?? parseIso(deal.created_at as string | null);
+  const checkedAt = parseIso(deal.appointment_phase_last_checked_at as string | null);
+  if (!checkedAt) return true;
+  if (!updatedAt) return true;
+  return checkedAt < updatedAt;
+};
+
+const syncDealAppointmentPhaseMarkers = async (
+  client: TeamleaderClient,
+  locationId: string,
+  cutoff: Date,
+  maxDeals: number
+) => {
+  if (maxDeals <= 0) return 0;
+
+  const appointmentPhaseId = await resolveAppointmentPhaseId(locationId);
+  if (!appointmentPhaseId) {
+    console.warn(`[teamleader-sync] No appointment phase found for location ${locationId}.`);
+    return 0;
+  }
+
+  const bufferLimit = Math.min(500, Math.max(maxDeals * 10, maxDeals));
+  const buildDealsQuery = () =>
+    supabase
+      .from('teamleader_deals')
+      .select('id,created_at,updated_at,had_appointment_phase,appointment_phase_last_checked_at')
+      .eq('location_id', locationId)
+      .gte('created_at', cutoff.toISOString());
+
+  // Ensure we eventually backfill *all* deals: first process unchecked deals (last_checked_at is null),
+  // then fall back to scanning recently updated deals for incremental re-checks.
+  let { data, error } = await buildDealsQuery()
+    .is('appointment_phase_last_checked_at', null)
+    .order('updated_at', { ascending: false })
+    .limit(bufferLimit);
+
+  if (!error && (!data || data.length === 0)) {
+    ({ data, error } = await buildDealsQuery().order('updated_at', { ascending: false }).limit(bufferLimit));
+  }
+  if (error) {
+    const message = error.message ?? String(error);
+    if (message.includes('had_appointment_phase') && message.includes('does not exist')) {
+      console.warn('[teamleader-sync] teamleader_deals.had_appointment_phase ontbreekt (migratie nog niet gedeployed).');
+      return 0;
+    }
+    if (message.includes('appointment_phase_last_checked_at') && message.includes('does not exist')) {
+      console.warn('[teamleader-sync] teamleader_deals.appointment_phase_last_checked_at ontbreekt (migratie nog niet gedeployed).');
+      return 0;
+    }
+    throw error;
+  }
+
+  const candidates = ((data ?? []) as Record<string, unknown>[])
+    .filter((deal) => deal && typeof deal === 'object' && typeof deal.id === 'string')
+    .filter(shouldCheckAppointmentPhase)
+    .slice(0, maxDeals);
+
+  if (!candidates.length) return 0;
+
+  const syncedAt = new Date().toISOString();
+  const updates: Record<string, unknown>[] = [];
+
+  for (const deal of candidates) {
+    const dealId = String(deal.id);
+
+    try {
+      const response = await client.request<Record<string, unknown>>({
+        path: '/deals.info',
+        body: { id: dealId }
+      });
+      const info = (response?.data ?? null) as Record<string, unknown> | null;
+      const history = extractPhaseHistory(info);
+      const { hadAppointment, firstStartedAt } = computeHadAppointmentPhase(history, appointmentPhaseId);
+
+      updates.push({
+        id: dealId,
+        location_id: locationId,
+        had_appointment_phase: hadAppointment,
+        appointment_phase_first_started_at: firstStartedAt,
+        appointment_phase_last_checked_at: syncedAt
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[teamleader-sync] deals.info failed for deal ${dealId}:`, error);
+
+      // If a deal was deleted or is otherwise not found, stop blocking the dashboard on it.
+      // We mark it as checked with "no appointment phase" so it doesn't remain pending forever.
+      if (message.includes('Teamleader API 404')) {
+        updates.push({
+          id: dealId,
+          location_id: locationId,
+          had_appointment_phase: false,
+          appointment_phase_first_started_at: null,
+          appointment_phase_last_checked_at: syncedAt
+        });
+      }
+    }
+  }
+
+  try {
+    await upsertRows('teamleader_deals', updates);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('had_appointment_phase') && message.includes('does not exist')) {
+      console.warn('[teamleader-sync] Kan afspraken-velden niet updaten; migratie nog niet gedeployed.');
+      return 0;
+    }
+    if (message.includes('appointment_phase_last_checked_at') && message.includes('does not exist')) {
+      console.warn('[teamleader-sync] Kan afspraken-velden niet updaten; migratie nog niet gedeployed.');
+      return 0;
+    }
+    throw error;
+  }
+  return updates.length;
 };
 
 const syncQuotations = async (
@@ -750,6 +977,7 @@ const parseRequestConfig = async (req: Request) => {
     'companies',
     'deal_pipelines',
     'deal_phases',
+    'lost_reasons',
     'deals'
   ];
 
@@ -764,11 +992,18 @@ const parseRequestConfig = async (req: Request) => {
   const lookbackParam = url.searchParams.get('lookback_months') ?? body.lookback_months;
   const lookbackMonths = lookbackParam ? Number(lookbackParam) : env.LOOKBACK_MONTHS;
 
+  const dealInfoParam = url.searchParams.get('deal_info_max') ?? body.deal_info_max;
+  const dealInfoMaxRaw = dealInfoParam !== undefined && dealInfoParam !== null && dealInfoParam !== ''
+    ? Number(dealInfoParam)
+    : env.TEAMLEADER_DEAL_INFO_MAX_PER_RUN;
+  const dealInfoMaxPerRun = Number.isFinite(dealInfoMaxRaw) ? clamp(dealInfoMaxRaw, 0, 500) : env.TEAMLEADER_DEAL_INFO_MAX_PER_RUN;
+
   const locationId = url.searchParams.get('location_id') ?? body.location_id ?? null;
 
   return {
     entities,
     lookbackMonths: Number.isFinite(lookbackMonths) && lookbackMonths > 0 ? lookbackMonths : env.LOOKBACK_MONTHS,
+    dealInfoMaxPerRun,
     locationId: locationId ? String(locationId) : null
   };
 };
@@ -803,9 +1038,12 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { entities, lookbackMonths, locationId } = await parseRequestConfig(req);
+    const { entities, lookbackMonths, dealInfoMaxPerRun, locationId } = await parseRequestConfig(req);
     if (entities.has('quotations')) {
       entities.add('deals');
+    }
+    if (entities.has('deals')) {
+      entities.add('lost_reasons');
     }
 
     const integrations = await loadIntegrations(locationId);
@@ -852,10 +1090,25 @@ Deno.serve(async (req) => {
         results.deal_phases = (results.deal_phases ?? 0) + 1;
       }
 
+      if (entities.has('lost_reasons')) {
+        await syncLostReasons(client, integration.location_id);
+        results.lost_reasons = (results.lost_reasons ?? 0) + 1;
+      }
+
       let quotationIds = new Set<string>();
       if (entities.has('deals')) {
         quotationIds = await syncDeals(client, integration.location_id, cutoff);
         results.deals = (results.deals ?? 0) + 1;
+
+        const checkedDeals = await syncDealAppointmentPhaseMarkers(
+          client,
+          integration.location_id,
+          cutoff,
+          dealInfoMaxPerRun
+        );
+        if (checkedDeals > 0) {
+          results.deal_appointment_checks = (results.deal_appointment_checks ?? 0) + checkedDeals;
+        }
       }
 
       if (entities.has('quotations')) {
