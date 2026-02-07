@@ -458,6 +458,71 @@ Als `dashboard_layout` leeg of `null` is, gebruikt de frontend de default layout
 Als er meerdere actieve records zijn, wordt de meest recent bijgewerkte gebruikt.
 Als `GHL_LOCATION_ID` en `GHL_PRIVATE_INTEGRATION_TOKEN` leeg zijn in `.env`, wordt automatisch deze tabel gebruikt.
 
+### Stripe abonnement tracking (automatisch)
+
+Er is een extra migration + edge function voorzien om abonnementstatus per klant automatisch bij te houden:
+
+- tabel `billing_customers` (huidige status per klant)
+- tabel `billing_webhook_events` (ruwe webhook events, idempotent op `event_id`)
+- functie `stripe-webhook` (`supabase/functions/stripe-webhook`)
+
+#### Vereiste function secrets
+
+- `STRIPE_WEBHOOK_SECRET` (uit Stripe webhook endpoint)
+- `SUPABASE_SECRET_KEY` of `SUPABASE_SERVICE_ROLE_KEY` (server-side writes)
+
+Optioneel:
+
+- `STRIPE_WEBHOOK_TOLERANCE_SECONDS` (default `300`)
+- `STRIPE_WEBHOOK_ALLOW_UNSIGNED` (default `false`, alleen voor lokale testing)
+
+#### Deploy
+
+```bash
+supabase functions deploy stripe-webhook --project-ref YOUR_PROJECT_REF
+```
+
+#### Stripe webhook endpoint
+
+Gebruik als webhook URL:
+
+`https://YOUR_PROJECT_REF.supabase.co/functions/v1/stripe-webhook`
+
+Aan te zetten events:
+
+- `checkout.session.completed`
+- `checkout.session.async_payment_succeeded`
+- `checkout.session.async_payment_failed`
+- `customer.subscription.created`
+- `customer.subscription.updated`
+- `customer.subscription.deleted`
+- `invoice.paid`
+- `invoice.payment_failed`
+
+#### Klant koppeling
+
+De checkout pagina zet automatisch `client-reference-id` op basis van `?client=<slug>`.
+Zo kunnen events rechtstreeks aan `billing_customers.slug` gelinkt worden.
+
+Voorbeeld link:
+
+`https://profitpulse.be/billing-checkout.html?client=immo-beguin`
+
+#### Snel statusoverzicht
+
+```sql
+select
+  slug,
+  company,
+  subscription_status,
+  current_period_end,
+  cancel_at_period_end,
+  last_invoice_status,
+  updated_at
+from public.billing_customers
+order by updated_at desc;
+```
+
 ## Hoe de sync werkt
 
 - **Contacts**: gebruikt `GET /contacts/` (deprecated, maar stabiel voor bulk sync). Paginatie via `startAfter` en `startAfterId`.
