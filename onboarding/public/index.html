@@ -91,6 +91,39 @@
 
           <div class="divider"></div>
 
+          <h3>Stripe billing</h3>
+          <p class="muted">
+            Plak hier je Stripe links voor dit klantdashboard. Deze worden automatisch in config gezet.
+          </p>
+          <div class="grid">
+            <label>
+              Stripe Payment Link URL
+              <span class="hint">Voorbeeld: <code>https://buy.stripe.com/...</code></span>
+              <input name="stripePaymentLink" placeholder="https://buy.stripe.com/..." />
+            </label>
+            <label>
+              Stripe Billing Portal URL
+              <span class="hint">Voorbeeld: <code>https://billing.stripe.com/...</code></span>
+              <input name="stripeBillingPortalUrl" placeholder="https://billing.stripe.com/..." />
+            </label>
+            <label>
+              Stripe Buy Button ID (optioneel)
+              <span class="hint">Voorbeeld: <code>buy_btn_...</code></span>
+              <input name="stripeBuyButtonId" placeholder="buy_btn_..." />
+            </label>
+            <label>
+              Stripe publishable key (optioneel)
+              <span class="hint">Voorbeeld: <code>pk_live_...</code></span>
+              <input name="stripePublishableKey" type="password" placeholder="pk_live_..." />
+            </label>
+            <label class="checkbox">
+              <input type="checkbox" name="stripeCheckoutEmbed" />
+              Toon checkout-link als embed op het dashboard
+            </label>
+          </div>
+
+          <div class="divider"></div>
+
           <h3>Teamleader</h3>
           <label class="checkbox">
             <input type="checkbox" id="enableTeamleader" name="enableTeamleader" />

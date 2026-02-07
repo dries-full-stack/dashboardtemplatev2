@@ -85,6 +85,65 @@ const sanitizeString = (value) => {
   return value.trim();
 };
 
+const normalizeSlug = (value) =>
+  sanitizeString(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+
+const isHttpsUrl = (value) => /^https:\/\/\S+$/i.test(value);
+
+const updateBillingClientsProfile = async (payload) => {
+  const slug = normalizeSlug(payload.slug);
+  if (!slug) return { ok: false, skipped: true, reason: 'missing_slug' };
+
+  const shouldUpdate =
+    Boolean(payload.stripePaymentLink) ||
+    Boolean(payload.stripeBuyButtonId) ||
+    Boolean(payload.stripePublishableKey) ||
+    Boolean(payload.dashboardTitle) ||
+    Boolean(payload.stripeBillingPortalUrl);
+
+  if (!shouldUpdate) {
+    return { ok: true, skipped: true, reason: 'no_stripe_fields' };
+  }
+
+  const configPath = join(repoRoot, 'dashboard', 'public', 'billing-clients.json');
+  let config = { defaults: {}, profiles: {} };
+
+  if (await fileExists(configPath)) {
+    const raw = await readFile(configPath, 'utf8');
+    const parsed = raw ? JSON.parse(raw) : {};
+    if (parsed && typeof parsed === 'object') {
+      config = parsed;
+    }
+  }
+
+  if (!config.defaults || typeof config.defaults !== 'object' || Array.isArray(config.defaults)) {
+    config.defaults = {};
+  }
+  if (!config.profiles || typeof config.profiles !== 'object' || Array.isArray(config.profiles)) {
+    config.profiles = {};
+  }
+
+  const existingProfile =
+    config.profiles[slug] && typeof config.profiles[slug] === 'object' && !Array.isArray(config.profiles[slug])
+      ? config.profiles[slug]
+      : {};
+  const profile = { ...existingProfile };
+
+  if (payload.dashboardTitle) profile.company = payload.dashboardTitle;
+  if (payload.stripePaymentLink) profile.payment_link = payload.stripePaymentLink;
+  if (payload.stripeBuyButtonId) profile.buy_button_id = payload.stripeBuyButtonId;
+  if (payload.stripePublishableKey) profile.pk = payload.stripePublishableKey;
+  if (payload.stripeBillingPortalUrl) profile.billing_portal_url = payload.stripeBillingPortalUrl;
+
+  config.profiles[slug] = profile;
+  await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  return { ok: true, skipped: false, path: configPath, slug };
+};
+
 const applyEnvDefaults = (payload) => {
   const assignIfMissing = (key, envKey) => {
     if (!payload[key] && process.env[envKey]) {
@@ -184,28 +243,6 @@ const startDashboardDevServer = async () => {
 
   return { ok: true, status: 'started' };
 };
-    if (dashboardProcess && !dashboardProcess.killed) {
-      resolve({ ok: true, status: 'already-running' });
-      return;
-    }
-
-    const child = spawn('npm', ['run', 'dev', '--', '--host'], { cwd: dashboardDir, shell: true });
-    dashboardProcess = child;
-    dashboardOutput = '';
-
-    child.stdout.on('data', (chunk) => {
-      dashboardOutput += chunk.toString();
-    });
-    child.stderr.on('data', (chunk) => {
-      dashboardOutput += chunk.toString();
-    });
-    child.on('close', (code) => {
-      dashboardProcess = null;
-      dashboardOutput += `\n[dashboard] exited with ${code ?? 'unknown'}`;
-    });
-
-    resolve({ ok: true, status: 'started' });
-  });
 
 const buildSupabaseRestHeaders = (serviceRoleKey) => {
   const headers = {
@@ -326,6 +363,8 @@ const buildArgs = (payload) => {
   addString('-DashboardSubtitle', payload.dashboardSubtitle);
   addString('-LogoUrl', payload.logoUrl);
   addString('-DashboardTabs', payload.dashboardTabs);
+  addString('-BillingPortalUrl', payload.stripeBillingPortalUrl);
+  addString('-BillingCheckoutUrl', payload.stripePaymentLink);
   addString('-AccessToken', payload.accessToken);
   addString('-GhlPrivateIntegrationToken', payload.ghlPrivateIntegrationToken);
   addString('-DbPassword', payload.dbPassword);
@@ -365,6 +404,7 @@ const buildArgs = (payload) => {
 
   addSwitch('-NoLayout', payload.noLayout);
   addSwitch('-ApplyConfig', payload.applyConfig);
+  addSwitch('-BillingCheckoutEmbed', payload.stripeCheckoutEmbed);
   addSwitch('-CreateBranch', payload.createBranch);
   addSwitch('-PushBranch', payload.pushBranch);
   addSwitch('-LinkProject', payload.linkProject);
@@ -413,6 +453,18 @@ const validatePayload = (payload) => {
   }
   if ((payload.applyConfig || payload.ghlPrivateIntegrationToken) && !hasServerKey) {
     errors.push('Secret key (sb_secret_) of legacy service_role JWT (eyJ) is vereist voor Apply config/GHL opslag.');
+  }
+  if (payload.stripePaymentLink && !isHttpsUrl(payload.stripePaymentLink)) {
+    errors.push('Stripe payment link moet starten met https://');
+  }
+  if (payload.stripeBillingPortalUrl && !isHttpsUrl(payload.stripeBillingPortalUrl)) {
+    errors.push('Stripe billing portal URL moet starten met https://');
+  }
+  if (payload.stripeBuyButtonId && !payload.stripePublishableKey) {
+    errors.push('Stripe publishable key is vereist wanneer je een buy button ID opgeeft.');
+  }
+  if (payload.stripePublishableKey && !payload.stripeBuyButtonId && !payload.stripePaymentLink) {
+    errors.push('Stripe publishable key ingevuld zonder buy button of payment link.');
   }
   const wantsTeamleader = Boolean(payload.teamleaderEnabled);
   if (wantsTeamleader) {
@@ -487,6 +539,11 @@ const server = createServer(async (req, res) => {
         autoFetchKeys: Boolean(data.autoFetchKeys),
         accessToken: sanitizeString(data.accessToken),
         ghlPrivateIntegrationToken: sanitizeString(data.ghlPrivateIntegrationToken),
+        stripePaymentLink: sanitizeString(data.stripePaymentLink),
+        stripeBillingPortalUrl: sanitizeString(data.stripeBillingPortalUrl),
+        stripeBuyButtonId: sanitizeString(data.stripeBuyButtonId),
+        stripePublishableKey: sanitizeString(data.stripePublishableKey),
+        stripeCheckoutEmbed: Boolean(data.stripeCheckoutEmbed),
         dbPassword: sanitizeString(data.dbPassword),
         serviceRoleKey: sanitizeString(data.serviceRoleKey),
         publishableKey: sanitizeString(data.publishableKey),
@@ -603,6 +660,7 @@ const server = createServer(async (req, res) => {
       child.on('close', async (code) => {
         isRunning = false;
         let dashboardEnv = null;
+        let billingProfile = null;
         if (code === 0 && payload.writeDashboardEnv) {
           try {
             dashboardEnv = await writeDashboardEnvFile(payload);
@@ -613,12 +671,23 @@ const server = createServer(async (req, res) => {
             };
           }
         }
+        if (code === 0) {
+          try {
+            billingProfile = await updateBillingClientsProfile(payload);
+          } catch (error) {
+            billingProfile = {
+              ok: false,
+              error: error instanceof Error ? error.message : 'billing-clients.json updaten faalde.'
+            };
+          }
+        }
         sendJson(res, 200, {
           ok: code === 0,
           exitCode: code,
           stdout,
           stderr,
-          dashboardEnv
+          dashboardEnv,
+          billingProfile
         });
       });
     } catch (error) {

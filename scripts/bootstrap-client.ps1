@@ -7,6 +7,9 @@ param(
   [string]$DashboardSubtitle,
   [string]$LogoUrl,
   [string]$DashboardTabs,
+  [string]$BillingPortalUrl,
+  [string]$BillingCheckoutUrl,
+  [switch]$BillingCheckoutEmbed,
   [string]$GhlPrivateIntegrationToken,
   [string]$AccessToken,
   [string]$DbPassword,
@@ -395,7 +398,10 @@ insert into public.dashboard_config (
   dashboard_title,
   dashboard_subtitle,
   dashboard_logo_url,
-  dashboard_layout
+  dashboard_layout,
+  billing_portal_url,
+  billing_checkout_url,
+  billing_checkout_embed
 )
 values (
   1,
@@ -403,7 +409,10 @@ values (
   $(To-SqlString $DashboardTitle),
   $(To-SqlString $DashboardSubtitle),
   $(To-SqlString $LogoUrl),
-  $layoutSql
+  $layoutSql,
+  $(To-SqlString $BillingPortalUrl),
+  $(To-SqlString $BillingCheckoutUrl),
+  $(if ($BillingCheckoutEmbed) { 'true' } else { 'false' })
 )
 on conflict (id) do update set
   location_id = excluded.location_id,
@@ -411,6 +420,9 @@ on conflict (id) do update set
   dashboard_subtitle = excluded.dashboard_subtitle,
   dashboard_logo_url = excluded.dashboard_logo_url,
   dashboard_layout = excluded.dashboard_layout,
+  billing_portal_url = excluded.billing_portal_url,
+  billing_checkout_url = excluded.billing_checkout_url,
+  billing_checkout_embed = excluded.billing_checkout_embed,
   updated_at = now();
 "@
 
@@ -853,6 +865,15 @@ if ($shouldApplyConfig) {
     }
     if ($layoutJson) {
       $payload.dashboard_layout = $layoutJson | ConvertFrom-Json
+    }
+    if (-not [string]::IsNullOrWhiteSpace($BillingPortalUrl)) {
+      $payload.billing_portal_url = $BillingPortalUrl
+    }
+    if (-not [string]::IsNullOrWhiteSpace($BillingCheckoutUrl)) {
+      $payload.billing_checkout_url = $BillingCheckoutUrl
+    }
+    if ($BillingCheckoutEmbed) {
+      $payload.billing_checkout_embed = $true
     }
 
     $apiUrl = "$SupabaseUrl/rest/v1/dashboard_config?on_conflict=id"
