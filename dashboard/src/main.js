@@ -2581,6 +2581,8 @@ const fetchHookPerformanceComputed = async (range, activeLocationId) => {
   if (!hookFieldId && !campaignFieldId) return [];
 
   const belivertMode = isBelivertSourceBreakdownMode();
+  const metaOnly = belivertMode;
+  const metaBucket = 'Facebook Ads';
   const defaultSource = getDefaultDrilldownSource(belivertMode);
   const startIso = toUtcStart(range.start);
   const endIso = toUtcEndExclusive(range.end);
@@ -2603,21 +2605,6 @@ const fetchHookPerformanceComputed = async (range, activeLocationId) => {
       .lt('start_time', endIso)
   );
 
-  const contactIds = new Set();
-  opportunities.forEach((row) => {
-    const contactId = toTrimmedText(row?.contact_id);
-    if (contactId) contactIds.add(contactId);
-  });
-  appointments.forEach((row) => {
-    const contactId = toTrimmedText(row?.contact_id);
-    if (contactId) contactIds.add(contactId);
-  });
-
-  const { byId: contactsById, byEmail: contactsByEmail } = await fetchContactsCustomFieldsLookup(
-    activeLocationId,
-    Array.from(contactIds)
-  );
-
   const appointmentContactIds = Array.from(
     new Set(appointments.map((row) => toTrimmedText(row?.contact_id)).filter(Boolean))
   );
@@ -2636,22 +2623,64 @@ const fetchHookPerformanceComputed = async (range, activeLocationId) => {
     );
   }
 
-  const sourceByContactId = new Map();
-  const sourceByEmail = new Map();
+  const rawSourceByContactId = new Map();
+  const rawSourceByEmail = new Map();
   opportunitiesForAppointments.forEach((row) => {
-    const source = normalizeDrilldownSource(row?.source_guess, belivertMode);
-    if (!source) return;
+    const rawSource = normalizeSourceValue(row?.source_guess);
+    if (!rawSource) return;
 
     const contactId = toTrimmedText(row?.contact_id);
-    if (contactId && !sourceByContactId.has(contactId)) {
-      sourceByContactId.set(contactId, source);
+    if (contactId && !rawSourceByContactId.has(contactId)) {
+      rawSourceByContactId.set(contactId, rawSource);
     }
 
     const emailNorm = normalizeEmailValue(row?.contact_email);
-    if (emailNorm && !sourceByEmail.has(emailNorm)) {
-      sourceByEmail.set(emailNorm, source);
+    if (emailNorm && !rawSourceByEmail.has(emailNorm)) {
+      rawSourceByEmail.set(emailNorm, rawSource);
     }
   });
+
+  const toBucketSource = (rawSource) => {
+    if (!rawSource) return defaultSource;
+    return belivertMode ? mapBelivertSourceLabel(rawSource) : rawSource;
+  };
+
+  const metaOpportunities = [];
+  const metaAppointments = [];
+  const contactIds = new Set();
+
+  opportunities.forEach((row) => {
+    const rawSource = normalizeSourceValue(row?.source_guess);
+    const bucketSource = toBucketSource(rawSource);
+    if (metaOnly && bucketSource !== metaBucket) return;
+
+    metaOpportunities.push({ row, rawSource, bucketSource });
+
+    const contactId = toTrimmedText(row?.contact_id);
+    if (contactId) contactIds.add(contactId);
+  });
+
+  appointments.forEach((row) => {
+    if (!isAppointmentConfirmedStatus(row?.appointment_status, row?.appointment_status_raw)) return;
+
+    const contactId = toTrimmedText(row?.contact_id);
+    const emailNorm = normalizeEmailValue(row?.contact_email);
+    const rawSource =
+      normalizeSourceValue(row?.source) ||
+      (contactId ? rawSourceByContactId.get(contactId) : null) ||
+      (emailNorm ? rawSourceByEmail.get(emailNorm) : null);
+    const bucketSource = toBucketSource(rawSource);
+    if (metaOnly && bucketSource !== metaBucket) return;
+
+    metaAppointments.push({ row, rawSource, bucketSource });
+
+    if (contactId) contactIds.add(contactId);
+  });
+
+  const { byId: contactsById, byEmail: contactsByEmail } = await fetchContactsCustomFieldsLookup(
+    activeLocationId,
+    Array.from(contactIds)
+  );
 
   const aggregated = new Map();
   const ensureEntry = (hook, campaign, source) => {
@@ -2661,42 +2690,37 @@ const fetchHookPerformanceComputed = async (range, activeLocationId) => {
     return current;
   };
 
-  opportunities.forEach((row) => {
+  metaOpportunities.forEach(({ row, rawSource, bucketSource }) => {
     const contactId = toTrimmedText(row?.contact_id);
     const emailNorm = normalizeEmailValue(row?.contact_email);
-    const contact = (contactId ? contactsById.get(contactId) : null) || (emailNorm ? contactsByEmail.get(emailNorm) : null);
-    const source = normalizeDrilldownSource(row?.source_guess, belivertMode) || defaultSource;
+    const contact =
+      (contactId ? contactsById.get(contactId) : null) || (emailNorm ? contactsByEmail.get(emailNorm) : null);
+    const fallbackSource = rawSource || bucketSource || defaultSource;
     const { hook, campaign } = resolveHookFields({
       customFields: row?.custom_fields,
       contactCustomFields: contact?.custom_fields,
       hookFieldId,
       campaignFieldId,
-      source
+      source: fallbackSource
     });
-    const entry = ensureEntry(hook, campaign, source);
+    const entry = ensureEntry(hook, campaign, bucketSource);
     entry.leads += 1;
   });
 
-  appointments.forEach((row) => {
-    if (!isAppointmentConfirmedStatus(row?.appointment_status, row?.appointment_status_raw)) return;
-
+  metaAppointments.forEach(({ row, rawSource, bucketSource }) => {
     const contactId = toTrimmedText(row?.contact_id);
     const emailNorm = normalizeEmailValue(row?.contact_email);
-    const contact = (contactId ? contactsById.get(contactId) : null) || (emailNorm ? contactsByEmail.get(emailNorm) : null);
-    const source =
-      normalizeDrilldownSource(row?.source, belivertMode) ||
-      (contactId ? sourceByContactId.get(contactId) : null) ||
-      (emailNorm ? sourceByEmail.get(emailNorm) : null) ||
-      defaultSource;
-
+    const contact =
+      (contactId ? contactsById.get(contactId) : null) || (emailNorm ? contactsByEmail.get(emailNorm) : null);
+    const fallbackSource = rawSource || bucketSource || defaultSource;
     const { hook, campaign } = resolveHookFields({
       customFields: row?.custom_fields,
       contactCustomFields: contact?.custom_fields,
       hookFieldId,
       campaignFieldId,
-      source
+      source: fallbackSource
     });
-    const entry = ensureEntry(hook, campaign, source);
+    const entry = ensureEntry(hook, campaign, bucketSource);
     entry.appointments += 1;
   });
 
@@ -3269,11 +3293,17 @@ const fetchHookOpportunityDrilldownRecordsComputed = async ({
   if (!hookFieldId && !campaignFieldId) return [];
 
   const belivertMode = isBelivertSourceBreakdownMode();
+  const metaOnly = belivertMode;
+  const metaBucket = 'Facebook Ads';
   const wantedHook = hookLabel ? String(hookLabel) : null;
   const effectiveLimit = clampLimit(limit, 200);
   const defaultSource = getDefaultDrilldownSource(belivertMode);
   const pageSize = 1000;
   const maxScan = 15000;
+  const toBucketSource = (rawSource) => {
+    if (!rawSource) return defaultSource;
+    return belivertMode ? mapBelivertSourceLabel(rawSource) : rawSource;
+  };
 
   const rows = [];
   const contactsById = new Map();
@@ -3327,16 +3357,19 @@ const fetchHookOpportunityDrilldownRecordsComputed = async ({
     await hydrateContacts(batchContactIds);
 
     for (const row of batch) {
-      const recordSource = normalizeDrilldownSource(row?.source_guess, belivertMode) || defaultSource;
+      const rawSource = normalizeSourceValue(row?.source_guess);
+      const recordSource = toBucketSource(rawSource);
+      if (metaOnly && recordSource !== metaBucket) continue;
       const contactId = toTrimmedText(row?.contact_id);
       const emailNorm = normalizeEmailValue(row?.contact_email);
       const contact = (contactId ? contactsById.get(contactId) : null) || (emailNorm ? contactsByEmail.get(emailNorm) : null);
+      const fallbackSource = rawSource || recordSource || defaultSource;
       const { hook, campaign } = resolveHookFields({
         customFields: row?.custom_fields,
         contactCustomFields: contact?.custom_fields,
         hookFieldId,
         campaignFieldId,
-        source: recordSource
+        source: fallbackSource
       });
 
       if (
@@ -3381,17 +3414,23 @@ const fetchHookAppointmentDrilldownRecordsComputed = async ({
   if (!hookFieldId && !campaignFieldId) return [];
 
   const belivertMode = isBelivertSourceBreakdownMode();
+  const metaOnly = belivertMode;
+  const metaBucket = 'Facebook Ads';
   const wantedHook = hookLabel ? String(hookLabel) : null;
   const effectiveLimit = clampLimit(limit, 200);
   const defaultSource = getDefaultDrilldownSource(belivertMode);
   const pageSize = 1000;
   const maxScan = 20000;
+  const toBucketSource = (rawSource) => {
+    if (!rawSource) return defaultSource;
+    return belivertMode ? mapBelivertSourceLabel(rawSource) : rawSource;
+  };
 
   const rows = [];
   const contactsById = new Map();
   const contactsByEmail = new Map();
-  const sourceByContactId = new Map();
-  const sourceByEmail = new Map();
+  const rawSourceByContactId = new Map();
+  const rawSourceByEmail = new Map();
 
   const hydrateContacts = async (contactIds) => {
     const unique = Array.from(new Set(contactIds.filter(Boolean))).filter((id) => !contactsById.has(id));
@@ -3420,7 +3459,7 @@ const fetchHookAppointmentDrilldownRecordsComputed = async ({
   };
 
   const hydrateSourceMaps = async (contactIds) => {
-    const unique = Array.from(new Set(contactIds.filter(Boolean))).filter((id) => !sourceByContactId.has(id));
+    const unique = Array.from(new Set(contactIds.filter(Boolean))).filter((id) => !rawSourceByContactId.has(id));
     if (!unique.length) return;
     const chunks = chunkValues(unique, 100);
     for (const chunk of chunks) {
@@ -3436,17 +3475,17 @@ const fetchHookAppointmentDrilldownRecordsComputed = async ({
       );
       if (error) throw error;
       (data ?? []).forEach((row) => {
-        const mapped = normalizeDrilldownSource(row?.source_guess, belivertMode);
-        if (!mapped) return;
+        const rawSource = normalizeSourceValue(row?.source_guess);
+        if (!rawSource) return;
 
         const contactId = toTrimmedText(row?.contact_id);
-        if (contactId && !sourceByContactId.has(contactId)) {
-          sourceByContactId.set(contactId, mapped);
+        if (contactId && !rawSourceByContactId.has(contactId)) {
+          rawSourceByContactId.set(contactId, rawSource);
         }
 
         const emailNorm = normalizeEmailValue(row?.contact_email);
-        if (emailNorm && !sourceByEmail.has(emailNorm)) {
-          sourceByEmail.set(emailNorm, mapped);
+        if (emailNorm && !rawSourceByEmail.has(emailNorm)) {
+          rawSourceByEmail.set(emailNorm, rawSource);
         }
       });
     }
@@ -3481,18 +3520,21 @@ const fetchHookAppointmentDrilldownRecordsComputed = async ({
       const emailNorm = normalizeEmailValue(row?.contact_email);
       const contact = (contactId ? contactsById.get(contactId) : null) || (emailNorm ? contactsByEmail.get(emailNorm) : null);
 
-      const recordSource =
-        normalizeDrilldownSource(row?.source, belivertMode) ||
-        (contactId ? sourceByContactId.get(contactId) : null) ||
-        (emailNorm ? sourceByEmail.get(emailNorm) : null) ||
-        defaultSource;
+      const rawSource =
+        normalizeSourceValue(row?.source) ||
+        (contactId ? rawSourceByContactId.get(contactId) : null) ||
+        (emailNorm ? rawSourceByEmail.get(emailNorm) : null);
+
+      const recordSource = toBucketSource(rawSource);
+      if (metaOnly && recordSource !== metaBucket) continue;
+      const fallbackSource = rawSource || recordSource || defaultSource;
 
       const { hook, campaign } = resolveHookFields({
         customFields: row?.custom_fields,
         contactCustomFields: contact?.custom_fields,
         hookFieldId,
         campaignFieldId,
-        source: recordSource
+        source: fallbackSource
       });
 
       if (
