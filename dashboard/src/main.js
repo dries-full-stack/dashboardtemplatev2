@@ -615,6 +615,7 @@ const adminState = {
     loading: false,
     saving: false,
     entries: [],
+    labelOptions: [],
     hasChanges: false
   },
   sources: {
@@ -677,6 +678,7 @@ const resetLostReasonsState = () => {
     loading: false,
     saving: false,
     entries: [],
+    labelOptions: [],
     hasChanges: false
   };
 };
@@ -1586,6 +1588,34 @@ const loadLostReasonMappings = async (range = dateRange) => {
       overrideRows = overrides || [];
     }
 
+    // Suggest labels based on Teamleader lost reasons (if synced), plus existing overrides.
+    // This keeps mapping fast even when GHL only returns lostReasonId values.
+    let labelOptions = [];
+    try {
+      const { data: teamleaderReasons, error: teamleaderError } = await supabase
+        .from('teamleader_lost_reasons')
+        .select('name')
+        .eq('location_id', locationId);
+      if (teamleaderError) {
+        const msg = teamleaderError.message ?? String(teamleaderError);
+        if (!msg.includes('does not exist')) {
+          console.warn('Unable to load Teamleader lost reasons for label suggestions', teamleaderError);
+        }
+      } else {
+        labelOptions = [
+          ...labelOptions,
+          ...(teamleaderReasons || []).map((row) => toTrimmedText(row?.name)).filter(Boolean)
+        ];
+      }
+    } catch (error) {
+      console.warn('Unable to load Teamleader lost reasons for label suggestions', error);
+    }
+
+    labelOptions = [
+      ...labelOptions,
+      ...overrideRows.map((row) => toTrimmedText(row?.reason_name)).filter(Boolean)
+    ];
+
     const occurrencesById = new Map();
     (candidateRows || []).forEach((row) => {
       const id = toTrimmedText(row?.reason_id);
@@ -1615,7 +1645,11 @@ const loadLostReasonMappings = async (range = dateRange) => {
       return String(a.id ?? '').localeCompare(String(b.id ?? ''));
     });
 
+    // Keep options stable and deduplicated.
+    labelOptions = Array.from(new Set(labelOptions)).sort((a, b) => a.localeCompare(b, 'nl', { sensitivity: 'base' }));
+
     adminState.lostReasons.entries = entries;
+    adminState.lostReasons.labelOptions = labelOptions;
     adminState.lostReasons.status = 'ready';
     adminState.lostReasons.message = '';
     adminState.lostReasons.hasChanges = false;
@@ -5939,6 +5973,13 @@ const renderAdminModal = () => {
   ].join('');
 
   const lostReasonEntries = Array.isArray(adminState.lostReasons.entries) ? adminState.lostReasons.entries : [];
+  const lostReasonLabelOptions = Array.isArray(adminState.lostReasons.labelOptions) ? adminState.lostReasons.labelOptions : [];
+  const lostReasonLabelOptionsMarkup = lostReasonLabelOptions
+    .map((option) => `<option value="${escapeHtml(option)}"></option>`)
+    .join('');
+  const lostReasonLabelOptionsList = lostReasonLabelOptionsMarkup
+    ? `<datalist id="lost-reason-label-options">${lostReasonLabelOptionsMarkup}</datalist>`
+    : '';
   const lostReasonRowsMarkup = lostReasonEntries.length
     ? lostReasonEntries
         .map((entry) => {
@@ -5955,6 +5996,7 @@ const renderAdminModal = () => {
                   class="admin-input admin-mapping-input"
                   value="${name}"
                   placeholder="Label (bv. Te duur)"
+                  list="lost-reason-label-options"
                   data-lost-reason-id="${escapeHtml(id || '')}"
                   ${lostBusy ? 'disabled' : ''}
                 />
@@ -6188,6 +6230,7 @@ const renderAdminModal = () => {
                       </table>
                     </div>
                     <div class="admin-meta">Tip: vul enkel labels in voor IDs die je effectief gebruikt. Leeg laten = blijft onbekend.</div>
+                    ${lostReasonLabelOptionsList}
                   </div>
                 </div>
                 ${
