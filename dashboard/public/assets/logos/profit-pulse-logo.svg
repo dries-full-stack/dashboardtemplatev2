@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="220" height="56" viewBox="0 0 220 56" role="img" aria-labelledby="title desc">
+  <title id="title">Profit Pulse</title>
+  <desc id="desc">Profit Pulse wordmark logo.</desc>
+  <rect width="220" height="56" fill="none" />
+  <g transform="translate(4 6)">
+    <rect x="0" y="0" width="44" height="44" rx="12" fill="#173864" />
+    <circle cx="22" cy="22" r="13" fill="#2ec4a6" />
+    <path d="M22 14v16M14 22h16" stroke="#ffffff" stroke-width="3" stroke-linecap="round" />
+  </g>
+  <g fill="#173864" font-family="Inter, Arial, sans-serif">
+    <text x="58" y="24" font-size="20" font-weight="700">Profit</text>
+    <text x="58" y="43" font-size="20" font-weight="700">Pulse</text>
+  </g>
+</svg>

@@ -184,28 +184,6 @@ const startDashboardDevServer = async () => {
 
   return { ok: true, status: 'started' };
 };
-    if (dashboardProcess && !dashboardProcess.killed) {
-      resolve({ ok: true, status: 'already-running' });
-      return;
-    }
-
-    const child = spawn('npm', ['run', 'dev', '--', '--host'], { cwd: dashboardDir, shell: true });
-    dashboardProcess = child;
-    dashboardOutput = '';
-
-    child.stdout.on('data', (chunk) => {
-      dashboardOutput += chunk.toString();
-    });
-    child.stderr.on('data', (chunk) => {
-      dashboardOutput += chunk.toString();
-    });
-    child.on('close', (code) => {
-      dashboardProcess = null;
-      dashboardOutput += `\n[dashboard] exited with ${code ?? 'unknown'}`;
-    });
-
-    resolve({ ok: true, status: 'started' });
-  });
 
 const buildSupabaseRestHeaders = (serviceRoleKey) => {
   const headers = {
@@ -216,6 +194,57 @@ const buildSupabaseRestHeaders = (serviceRoleKey) => {
     headers.Authorization = `Bearer ${serviceRoleKey}`;
   }
   return headers;
+};
+
+const normalizeSourceText = (value) => {
+  if (typeof value !== 'string') return '';
+  return value.trim();
+};
+
+const SOURCE_BUCKET_ORDER = ['Solvari', 'Bobex', 'Trustlocal', 'Facebook Ads', 'Google Ads', 'Organic'];
+
+const suggestSourceBucket = (rawValue) => {
+  const text = normalizeSourceText(rawValue);
+  const lower = text.toLowerCase();
+  if (!lower || lower === 'onbekend' || lower === 'unknown' || lower === 'n/a') return 'Organic';
+
+  if (lower.includes('solvari')) return 'Solvari';
+  if (lower.includes('bobex')) return 'Bobex';
+  if (lower.includes('trustlocal') || lower.includes('trust local')) return 'Trustlocal';
+
+  if (
+    lower.includes('facebook') ||
+    lower.includes('instagram') ||
+    lower.includes('meta') ||
+    lower.includes('fbclid') ||
+    lower.includes('meta - calculator') ||
+    lower.includes('meta ads - calculator')
+  ) {
+    return 'Facebook Ads';
+  }
+
+  if (
+    lower.includes('google') ||
+    lower.includes('adwords') ||
+    lower.includes('gclid') ||
+    lower.includes('cpc') ||
+    lower.includes('google - woning prijsberekening')
+  ) {
+    return 'Google Ads';
+  }
+
+  if (
+    lower.includes('organic') ||
+    lower.includes('seo') ||
+    lower.includes('direct') ||
+    lower.includes('referral') ||
+    lower.includes('(none)') ||
+    lower.includes('website')
+  ) {
+    return 'Organic';
+  }
+
+  return 'Organic';
 };
 
 const resolveOnboardingContext = (data = {}) => {
@@ -453,6 +482,122 @@ const server = createServer(async (req, res) => {
   if (!req.url) {
     res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Bad request');
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/api/source-suggestions') {
+    try {
+      const rawBody = await readBody(req);
+      const data = JSON.parse(rawBody || '{}');
+      const context = resolveOnboardingContext(data);
+
+      if (!context.supabaseUrl || !context.locationId) {
+        sendJson(res, 400, { ok: false, error: 'Supabase URL en location ID zijn vereist.' });
+        return;
+      }
+
+      let serviceRoleKey = context.serviceRoleKey;
+      if (!serviceRoleKey) {
+        const accessToken =
+          sanitizeString(data.accessToken) ||
+          process.env.SUPABASE_ACCESS_TOKEN ||
+          '';
+        if (context.projectRef && accessToken) {
+          try {
+            const keys = await fetchSupabaseKeys(context.projectRef, accessToken);
+            const picked = pickSupabaseKeys(keys);
+            serviceRoleKey = picked.serviceRoleKey || '';
+          } catch (error) {
+            serviceRoleKey = '';
+          }
+        }
+      }
+
+      if (!serviceRoleKey) {
+        sendJson(res, 400, { ok: false, error: 'Service role key ontbreekt (vul server key in of zet access token).' });
+        return;
+      }
+
+      const url = new URL(`${context.supabaseUrl}/rest/v1/opportunities_view`);
+      url.searchParams.set('select', 'source_guess,created_at');
+      url.searchParams.set('location_id', `eq.${context.locationId}`);
+      url.searchParams.set('order', 'created_at.desc.nullslast');
+      url.searchParams.set('limit', '5000');
+
+      const response = await fetch(url.toString(), {
+        headers: buildSupabaseRestHeaders(serviceRoleKey)
+      });
+      const text = await response.text();
+      let rows = null;
+      try {
+        rows = JSON.parse(text);
+      } catch {
+        rows = null;
+      }
+
+      if (!response.ok) {
+        const message =
+          (rows && (rows.message || rows.error || rows.details)) ||
+          text ||
+          `Supabase request faalde (${response.status}).`;
+        sendJson(res, response.status, {
+          ok: false,
+          error:
+            String(message).toLowerCase().includes('opportunities_view') ||
+            String(message).toLowerCase().includes('relation')
+              ? 'opportunities_view ontbreekt. Run eerst base schema + een GHL sync.'
+              : `Supabase error: ${message}`
+        });
+        return;
+      }
+
+      const list = Array.isArray(rows) ? rows : [];
+      const counts = new Map();
+      list.forEach((row) => {
+        const raw = normalizeSourceText(row?.source_guess) || 'Onbekend';
+        counts.set(raw, (counts.get(raw) || 0) + 1);
+      });
+
+      const sourceRowsAll = Array.from(counts.entries())
+        .map(([raw, count]) => ({
+          raw,
+          count,
+          suggested: suggestSourceBucket(raw)
+        }))
+        .sort((a, b) => {
+          const diff = (b.count ?? 0) - (a.count ?? 0);
+          if (diff) return diff;
+          return String(a.raw ?? '').localeCompare(String(b.raw ?? ''));
+        });
+
+      const sources = sourceRowsAll.slice(0, 40);
+
+      const bucketCounts = new Map();
+      sourceRowsAll.forEach((row) => {
+        const bucket = row.suggested || 'Organic';
+        bucketCounts.set(bucket, (bucketCounts.get(bucket) || 0) + (Number(row.count) || 0));
+      });
+
+      const buckets = Array.from(bucketCounts.entries())
+        .map(([bucket, count]) => ({ bucket, count }))
+        .sort((a, b) => {
+          const aIdx = SOURCE_BUCKET_ORDER.indexOf(a.bucket);
+          const bIdx = SOURCE_BUCKET_ORDER.indexOf(b.bucket);
+          if (aIdx !== -1 || bIdx !== -1) {
+            return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
+          }
+          return String(a.bucket ?? '').localeCompare(String(b.bucket ?? ''));
+        });
+
+      sendJson(res, 200, {
+        ok: true,
+        sampledRows: list.length,
+        sources,
+        buckets
+      });
+    } catch (error) {
+      sendJson(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Onbekende fout' });
+    }
     return;
   }
 

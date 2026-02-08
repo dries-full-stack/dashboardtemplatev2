@@ -406,6 +406,7 @@ Naast `location_id` kun je in `dashboard_config` ook de dashboard content/metric
 - `dashboard_subtitle` (text)
 - `dashboard_logo_url` (text, relatief of absolute URL)
 - `dashboard_layout` (jsonb)
+- `dashboard_layout.theme` (optioneel, bv. `belivert`)
 - `sales_monthly_deals_target` (integer, default target voor Sales)
 - `sales_monthly_deals_targets` (jsonb, maandelijkse overrides)
 - `sales_quotes_from_phase_id` (text, Teamleader fase voor offerte-telling)
@@ -454,6 +455,16 @@ where id = 1;
 ```
 
 Als `dashboard_layout` leeg of `null` is, gebruikt de frontend de default layout.
+
+Optioneel kan je branding ook via dashboard env vars meegeven (handig per Netlify site):
+
+- `VITE_DASHBOARD_TITLE`
+- `VITE_DASHBOARD_SUBTITLE`
+- `VITE_DASHBOARD_LOGO_URL`
+- `VITE_DASHBOARD_THEME`
+- `VITE_META_TITLE`
+- `VITE_META_DESCRIPTION`
+- `VITE_META_IMAGE`
 
 Als er meerdere actieve records zijn, wordt de meest recent bijgewerkte gebruikt.
 Als `GHL_LOCATION_ID` en `GHL_PRIVATE_INTEGRATION_TOKEN` leeg zijn in `.env`, wordt automatisch deze tabel gebruikt.

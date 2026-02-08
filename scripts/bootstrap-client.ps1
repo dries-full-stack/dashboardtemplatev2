@@ -91,6 +91,14 @@ function To-SqlString($value) {
   return "'$escaped'"
 }
 
+function Resolve-BrandTheme($slug, $title, $logoUrl) {
+  $candidate = "$slug $title $logoUrl".ToLower()
+  if ($candidate -match 'belivert|belivet') {
+    return 'belivert'
+  }
+  return ''
+}
+
 function Get-GitRemoteRepo() {
   $remote = & git remote get-url origin 2>$null
   if (-not $remote) { return '' }
@@ -339,6 +347,8 @@ $repoRoot = Join-Path $PSScriptRoot '..'
 $clientDir = Join-Path $repoRoot "clients\\$Slug"
 New-Item -ItemType Directory -Force -Path $clientDir | Out-Null
 
+$themeKey = Resolve-BrandTheme -slug $Slug -title $DashboardTitle -logoUrl $LogoUrl
+
 $layoutJson = $null
 if (-not $NoLayout) {
   $selectedTabs = @()
@@ -372,6 +382,9 @@ if (-not $NoLayout) {
       [ordered]@{ kind = 'hook_performance'; title = 'Ad Hook Performance' },
       [ordered]@{ kind = 'lost_reasons'; title = 'Verliesredenen' }
     )
+  }
+  if (-not [string]::IsNullOrWhiteSpace($themeKey)) {
+    $layoutObject.theme = $themeKey
   }
 
   $layoutJson = $layoutObject | ConvertTo-Json -Depth 8
@@ -421,11 +434,16 @@ if ([string]::IsNullOrWhiteSpace($publishableValue)) {
   $publishableValue = 'YOUR_SUPABASE_PUBLISHABLE_KEY'
 }
 
-$dashboardEnv = @"
-VITE_SUPABASE_URL=$SupabaseUrl
-VITE_SUPABASE_PUBLISHABLE_KEY=$publishableValue
-VITE_GHL_LOCATION_ID=$LocationId
-"@
+$dashboardEnvLines = @(
+  "VITE_SUPABASE_URL=$SupabaseUrl",
+  "VITE_SUPABASE_PUBLISHABLE_KEY=$publishableValue",
+  "VITE_GHL_LOCATION_ID=$LocationId",
+  "VITE_DASHBOARD_TITLE=$DashboardTitle",
+  "VITE_DASHBOARD_SUBTITLE=$DashboardSubtitle",
+  "VITE_DASHBOARD_LOGO_URL=$LogoUrl",
+  "VITE_DASHBOARD_THEME=$themeKey"
+)
+$dashboardEnv = ($dashboardEnvLines -join "`n") + "`n"
 Set-Content -Path (Join-Path $clientDir 'env.dashboard.example') -Value $dashboardEnv -Encoding utf8
 
 $syncEnv = @"

@@ -122,6 +122,11 @@ const DEFAULT_BRANDING = {
   logoAlt: 'Company logo'
 };
 
+const DEFAULT_SIDEBAR_BRANDING = {
+  logoUrl: '/assets/logos/profit-pulse/logo.png',
+  logoAlt: 'Profit Pulse'
+};
+
 const DEFAULT_LAYOUT = [
   {
     id: 'funnel',
@@ -157,6 +162,12 @@ const DEFAULT_LAYOUT = [
   }
 ];
 
+const readEnvString = (value) => {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : '';
+};
+
 const MOCK_ENABLED = import.meta.env.VITE_ENABLE_MOCK_DATA === 'true';
 const SALES_RANGE_MONTHS = 6;
 const SALES_TARGET_MONTHLY_DEALS = 25;
@@ -165,8 +176,23 @@ const SALES_MAIN_MARKUP = salesMainMarkup.trim();
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const ghlLocationId = import.meta.env.VITE_GHL_LOCATION_ID;
+const ghlAppBaseUrl = (readEnvString(import.meta.env.VITE_GHL_APP_BASE_URL) || 'https://app.gohighlevel.com')
+  .replace(/\/+$/, '')
+  .replace(/\/v2$/, '');
+const envDashboardTitle = readEnvString(import.meta.env.VITE_DASHBOARD_TITLE);
+const envDashboardSubtitle = readEnvString(import.meta.env.VITE_DASHBOARD_SUBTITLE);
+const envDashboardLogoUrl = readEnvString(import.meta.env.VITE_DASHBOARD_LOGO_URL);
+const envDashboardTheme = readEnvString(import.meta.env.VITE_DASHBOARD_THEME);
+const envSidebarLogoUrl = readEnvString(import.meta.env.VITE_SIDEBAR_LOGO_URL);
+const envSidebarLogoAlt = readEnvString(import.meta.env.VITE_SIDEBAR_LOGO_ALT);
+const envMetaTitle = readEnvString(import.meta.env.VITE_META_TITLE || import.meta.env.VITE_DASHBOARD_META_TITLE);
+const envMetaDescription = readEnvString(
+  import.meta.env.VITE_META_DESCRIPTION || import.meta.env.VITE_DASHBOARD_META_DESCRIPTION
+);
+const envMetaImage = readEnvString(import.meta.env.VITE_META_IMAGE || import.meta.env.VITE_DASHBOARD_META_IMAGE);
 const adminModeEnabled = import.meta.env.VITE_ADMIN_MODE === 'true';
-const settingsModeEnabled = import.meta.env.VITE_SETTINGS_MODE === 'true';
+const settingsModeValue = readEnvString(import.meta.env.VITE_SETTINGS_MODE).toLowerCase();
+const settingsModeEnabled = settingsModeValue ? settingsModeValue === 'true' : true;
 const settingsEnabled = settingsModeEnabled || adminModeEnabled;
 const settingsButtonLabel = adminModeEnabled ? 'Setup' : 'Instellingen';
 const teamleaderDealUrlTemplate =
@@ -209,6 +235,14 @@ const buildTeamleaderDealUrl = (dealId, rawData) => {
   return `${teamleaderDealUrlTemplate.replace(/\/$/, '')}/${encodedId}`;
 };
 
+const buildGhlContactUrl = (locationId, contactId) => {
+  const loc = toTrimmedText(locationId);
+  const id = toTrimmedText(contactId);
+  if (!loc || !id) return '';
+  const base = (ghlAppBaseUrl || 'https://app.gohighlevel.com').replace(/\/+$/, '');
+  return `${base}/v2/location/${encodeURIComponent(loc)}/contacts/detail/${encodeURIComponent(id)}`;
+};
+
 const getDefaultRange = () => {
   const today = new Date();
   const end = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
@@ -220,6 +254,7 @@ const getDefaultRange = () => {
 const DEFAULT_RANGE = getDefaultRange();
 
 const SOURCE_ORDER = ['META', 'Google Ads', 'Makelaar vergelijker', 'Immoweb'];
+const BELIVERT_SOURCE_ORDER = ['Solvari', 'Bobex', 'Trustlocal', 'Facebook Ads', 'Google Ads', 'Organic'];
 const HOOK_ORDER = ['Bereken mijn woningwaarde', 'Gratis schatting', '5 verkooptips', 'Lokale makelaar vs grote groep?'];
 
 const LOST_REASON_RATIOS = [
@@ -1624,13 +1659,15 @@ const classifyMetaAdset = (value) => {
 };
 const applySourceSpendToSourceRows = (rows, spendBySource) => {
   if (!Array.isArray(rows)) return rows;
+  const belivertMode = isBelivertSourceBreakdownMode();
 
   return rows.map((row) => {
     const spend = Number(spendBySource?.[row.source] ?? 0);
-    const confirmed = Number(row.rawConfirmedAppointments ?? row.rawAppointments ?? 0);
-    if (spend <= 0 || confirmed <= 0) return { ...row, cost: '--' };
-    const costPerAppointment = spend / confirmed;
-    return { ...row, cost: formatOptionalCurrency(costPerAppointment, 2) };
+    const denominator = belivertMode
+      ? Number(row.rawDeals ?? 0)
+      : Number(row.rawConfirmedAppointments ?? row.rawAppointments ?? 0);
+    if (spend <= 0 || denominator <= 0) return { ...row, cost: '--' };
+    return { ...row, cost: formatOptionalCurrency(spend / denominator, 2) };
   });
 };
 const MAPPING_PLATFORMS = {
@@ -1639,6 +1676,38 @@ const MAPPING_PLATFORMS = {
 };
 const normalizeMappingPlatform = (value) => String(value ?? '').trim().toLowerCase();
 const normalizeSourceLabel = (value) => String(value ?? '').trim();
+const isBelivertSourceBreakdownMode = () => resolveBrandTheme() === 'belivert';
+const mapBelivertSourceLabel = (value) => {
+  const source = normalizeSourceLabel(value).toLowerCase();
+  if (!source || source === 'onbekend' || source === 'unknown') return 'Organic';
+
+  if (source.includes('solvari')) return 'Solvari';
+  if (source.includes('bobex')) return 'Bobex';
+  if (source.includes('trustlocal') || source.includes('trust local')) return 'Trustlocal';
+
+  if (
+    source.includes('facebook') ||
+    source.includes('instagram') ||
+    source.includes('meta') ||
+    source.includes('fbclid') ||
+    source.includes('meta - calculator') ||
+    source.includes('meta ads - calculator')
+  ) {
+    return 'Facebook Ads';
+  }
+
+  if (
+    source.includes('google') ||
+    source.includes('adwords') ||
+    source.includes('gclid') ||
+    source.includes('google - woning prijsberekening')
+  ) {
+    return 'Google Ads';
+  }
+
+  return 'Organic';
+};
+const getSourceBreakdownOrder = () => (isBelivertSourceBreakdownMode() ? BELIVERT_SOURCE_ORDER : SOURCE_ORDER);
 const buildMappingKey = (platform, campaignId, adsetId) => {
   const normalized = normalizeMappingPlatform(platform);
   if (normalized === MAPPING_PLATFORMS.google) {
@@ -1661,6 +1730,9 @@ const buildSourceOptions = (rows) => {
   (rows ?? []).forEach((row) => {
     if (row?.source) options.add(row.source);
   });
+  if (isBelivertSourceBreakdownMode()) {
+    BELIVERT_SOURCE_ORDER.forEach((source) => options.add(source));
+  }
   options.add(META_SOURCE_BY_LANG.nl);
   options.add(META_SOURCE_BY_LANG.fr);
   options.add(GOOGLE_SOURCE_LABEL);
@@ -1954,6 +2026,14 @@ const extractLostReasonRaw = (opportunityRaw, lostReasonFieldId, contactRaw) => 
 const fetchSourceBreakdownComputed = async (range, activeLocationId) => {
   const startIso = toUtcStart(range.start);
   const endIso = toUtcEndExclusive(range.end);
+  const belivertMode = isBelivertSourceBreakdownMode();
+  const defaultSource = belivertMode ? 'Organic' : 'Onbekend';
+  const normalizeSourceOptional = (value) => {
+    const normalized = normalizeSourceValue(value);
+    if (!normalized) return null;
+    if (!belivertMode) return normalized;
+    return mapBelivertSourceLabel(normalized);
+  };
 
   const opportunities = await fetchAllRows(() =>
     supabase
@@ -1970,7 +2050,7 @@ const fetchSourceBreakdownComputed = async (range, activeLocationId) => {
   const dealsBySource = new Map();
 
   opportunities.forEach((row) => {
-    const source = normalizeSourceValue(row?.source_guess) || 'Onbekend';
+    const source = normalizeSourceOptional(row?.source_guess) || defaultSource;
     const prevLeads = leadsBySource.get(source) || 0;
     leadsBySource.set(source, prevLeads + 1);
 
@@ -2014,7 +2094,7 @@ const fetchSourceBreakdownComputed = async (range, activeLocationId) => {
   const sourceByContactId = new Map();
   const sourceByEmail = new Map();
   opportunitiesForAppointments.forEach((row) => {
-    const source = normalizeSourceValue(row?.source_guess);
+    const source = normalizeSourceOptional(row?.source_guess);
     if (!source) return;
 
     const contactId = toTrimmedText(row?.contact_id);
@@ -2033,11 +2113,11 @@ const fetchSourceBreakdownComputed = async (range, activeLocationId) => {
     const contactId = toTrimmedText(row?.contact_id);
     const emailNorm = normalizeEmailValue(row?.contact_email);
 
-    let source =
-      normalizeSourceValue(row?.source) ||
+    const source =
+      normalizeSourceOptional(row?.source) ||
       (contactId ? sourceByContactId.get(contactId) : null) ||
       (emailNorm ? sourceByEmail.get(emailNorm) : null) ||
-      'Onbekend';
+      defaultSource;
 
     const existing = apptAgg.get(source) || { appointments: 0, confirmed: 0, withoutLead: 0 };
     existing.appointments += 1;
@@ -2068,6 +2148,18 @@ const fetchSourceBreakdownComputed = async (range, activeLocationId) => {
       deals: dealsBySource.get(source) || 0
     };
   });
+
+  if (belivertMode) {
+    const rowsBySource = new Map(rows.map((row) => [row.source, row]));
+    return BELIVERT_SOURCE_ORDER.map((source) => ({
+      source,
+      leads: rowsBySource.get(source)?.leads || 0,
+      appointments: rowsBySource.get(source)?.appointments || 0,
+      appointments_confirmed: rowsBySource.get(source)?.appointments_confirmed || 0,
+      appointments_without_lead_in_range: rowsBySource.get(source)?.appointments_without_lead_in_range || 0,
+      deals: rowsBySource.get(source)?.deals || 0
+    }));
+  }
 
   rows.sort((a, b) => {
     const leadDiff = (b.leads ?? 0) - (a.leads ?? 0);
@@ -2236,6 +2328,7 @@ const fetchSpendBySource = async (range) => {
   if (!activeLocationId) {
     throw new Error('Location ID ontbreekt. Voeg deze toe via de setup (dashboard_config).');
   }
+  const belivertMode = isBelivertSourceBreakdownMode();
 
   const startDate = range.start;
   const endDate = toDateEndExclusive(range.end);
@@ -2281,7 +2374,7 @@ const fetchSpendBySource = async (range) => {
   });
 
   const addSpend = (label, amount) => {
-    const key = normalizeSourceLabel(label);
+    const key = belivertMode ? mapBelivertSourceLabel(label) : normalizeSourceLabel(label);
     if (!key) return;
     totals[key] = (totals[key] ?? 0) + amount;
   };
@@ -2350,7 +2443,291 @@ const fetchSpendBySource = async (range) => {
     });
   }
 
+  if (belivertMode) {
+    const { data: externalRows, error: externalError } = await withTimeout(
+      supabase
+        .from('marketing_spend_daily')
+        .select('source, spend')
+        .eq('location_id', activeLocationId)
+        .gte('date', startDate)
+        .lt('date', endDate),
+      12000,
+      'Supabase query timeout (marketing spend external).'
+    );
+    if (externalError) throw externalError;
+
+    (externalRows ?? []).forEach((row) => {
+      const bucket = mapBelivertSourceLabel(row?.source);
+      if (bucket === 'Facebook Ads' || bucket === 'Google Ads') return;
+      addSpend(row?.source, Number(row?.spend ?? 0));
+    });
+
+    BELIVERT_SOURCE_ORDER.forEach((source) => {
+      if (!Object.prototype.hasOwnProperty.call(totals, source)) totals[source] = 0;
+    });
+  }
+
   return totals;
+};
+
+const clampLimit = (value, fallback = 200) => {
+  const raw = Number(value ?? fallback);
+  if (!Number.isFinite(raw)) return Math.min(Math.max(fallback, 1), 500);
+  return Math.min(Math.max(Math.floor(raw), 1), 500);
+};
+
+const getDefaultDrilldownSource = (belivertMode = isBelivertSourceBreakdownMode()) =>
+  belivertMode ? 'Organic' : 'Onbekend';
+
+const normalizeDrilldownSource = (value, belivertMode = isBelivertSourceBreakdownMode()) => {
+  const normalized = normalizeSourceValue(value);
+  if (!normalized) return null;
+  return belivertMode ? mapBelivertSourceLabel(normalized) : normalized;
+};
+
+const fetchOpportunityDrilldownRecordsComputed = async ({
+  activeLocationId,
+  startIso,
+  endIso,
+  kind,
+  source,
+  limit
+}) => {
+  const belivertMode = isBelivertSourceBreakdownMode();
+  const wantedSource = source ? String(source) : null;
+  const effectiveLimit = clampLimit(limit, 200);
+  const pageSize = 1000;
+  const maxScan = 15000;
+
+  const rows = [];
+  let from = 0;
+
+  while (rows.length < effectiveLimit && from < maxScan) {
+    const { data, error } = await withTimeout(
+      supabase
+        .from('opportunities_view')
+        .select('id,created_at,contact_id,contact_name,contact_email,source_guess,status')
+        .eq('location_id', activeLocationId)
+        .gte('created_at', startIso)
+        .lt('created_at', endIso)
+        .order('created_at', { ascending: false })
+        .range(from, from + pageSize - 1),
+      12000,
+      'Supabase query timeout (opportunities drilldown).'
+    );
+    if (error) throw error;
+    const batch = Array.isArray(data) ? data : [];
+    if (!batch.length) break;
+
+    for (const row of batch) {
+      if (kind === 'deals' && !isWonOrClosedStatus(row?.status)) continue;
+
+      const recordSource = normalizeDrilldownSource(row?.source_guess, belivertMode) || getDefaultDrilldownSource(belivertMode);
+      if (wantedSource && recordSource !== wantedSource) continue;
+
+      rows.push({
+        record_id: row?.id ?? '',
+        record_type: kind === 'deals' ? 'deal' : 'lead',
+        occurred_at: row?.created_at ?? null,
+        contact_id: row?.contact_id ?? null,
+        contact_name: row?.contact_name ?? null,
+        contact_email: row?.contact_email ?? null,
+        source: recordSource,
+        status: row?.status ?? null
+      });
+
+      if (rows.length >= effectiveLimit) break;
+    }
+
+    if (batch.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+};
+
+const fetchAppointmentDrilldownRecordsComputed = async ({
+  activeLocationId,
+  startIso,
+  endIso,
+  kind,
+  source,
+  limit
+}) => {
+  const belivertMode = isBelivertSourceBreakdownMode();
+  const wantedSource = source ? String(source) : null;
+  const effectiveLimit = clampLimit(limit, 200);
+  const pageSize = 1000;
+  const maxScan = 20000;
+
+  const rows = [];
+  const sourceByContactId = new Map();
+  const sourceByEmail = new Map();
+  const leadContactIds = new Set();
+  const leadEmails = new Set();
+  let leadInRangeLoaded = false;
+
+  const statusMatches = (row, patterns) => {
+    const combined = `${toTrimmedText(row?.appointment_status) ?? ''} ${toTrimmedText(row?.appointment_status_raw) ?? ''}`.toLowerCase();
+    return patterns.some((pattern) => combined.includes(pattern));
+  };
+
+  const shouldIncludeStatus = (row) => {
+    if (kind === 'appointments_cancelled') return statusMatches(row, APPOINTMENT_STATUS_FILTERS.cancelled);
+    if (kind === 'appointments_confirmed') return statusMatches(row, APPOINTMENT_STATUS_FILTERS.confirmed);
+    if (kind === 'appointments_no_show') return statusMatches(row, APPOINTMENT_STATUS_FILTERS.noShow);
+    return true;
+  };
+
+  // For "zonder lead", we need to know which contacts had an opportunity in the range.
+  const ensureLeadInRangeSets = async (contactIds) => {
+    if (leadInRangeLoaded) return;
+    if (!Array.isArray(contactIds) || contactIds.length === 0) {
+      leadInRangeLoaded = true;
+      return;
+    }
+
+    const unique = Array.from(new Set(contactIds.filter(Boolean)));
+    const chunks = chunkValues(unique, 100);
+    for (const chunk of chunks) {
+      const { data, error } = await withTimeout(
+        supabase
+          .from('opportunities_view')
+          .select('contact_id,contact_email,created_at')
+          .eq('location_id', activeLocationId)
+          .gte('created_at', startIso)
+          .lt('created_at', endIso)
+          .in('contact_id', chunk),
+        12000,
+        'Supabase query timeout (lead-in-range lookup).'
+      );
+      if (error) throw error;
+      (data ?? []).forEach((row) => {
+        const contactId = toTrimmedText(row?.contact_id);
+        if (contactId) leadContactIds.add(contactId);
+        const emailNorm = normalizeEmailValue(row?.contact_email);
+        if (emailNorm) leadEmails.add(emailNorm);
+      });
+    }
+
+    leadInRangeLoaded = true;
+  };
+
+  const hydrateSourceMaps = async (contactIds) => {
+    const unique = Array.from(new Set(contactIds.filter(Boolean))).filter((id) => !sourceByContactId.has(id));
+    if (!unique.length) return;
+
+    const chunks = chunkValues(unique, 100);
+    for (const chunk of chunks) {
+      const { data, error } = await withTimeout(
+        supabase
+          .from('opportunities_view')
+          .select('contact_id,contact_email,source_guess,created_at')
+          .eq('location_id', activeLocationId)
+          .in('contact_id', chunk)
+          .order('created_at', { ascending: false }),
+        12000,
+        'Supabase query timeout (appointment source lookup).'
+      );
+      if (error) throw error;
+      (data ?? []).forEach((row) => {
+        const mapped = normalizeDrilldownSource(row?.source_guess, belivertMode);
+        if (!mapped) return;
+
+        const contactId = toTrimmedText(row?.contact_id);
+        if (contactId && !sourceByContactId.has(contactId)) {
+          sourceByContactId.set(contactId, mapped);
+        }
+
+        const emailNorm = normalizeEmailValue(row?.contact_email);
+        if (emailNorm && !sourceByEmail.has(emailNorm)) {
+          sourceByEmail.set(emailNorm, mapped);
+        }
+      });
+    }
+  };
+
+  let from = 0;
+  while (rows.length < effectiveLimit && from < maxScan) {
+    const { data, error } = await withTimeout(
+      supabase
+        .from('appointments_view')
+        .select('id,start_time,contact_id,contact_name,contact_email,source,appointment_status,appointment_status_raw')
+        .eq('location_id', activeLocationId)
+        .gte('start_time', startIso)
+        .lt('start_time', endIso)
+        .order('start_time', { ascending: false })
+        .range(from, from + pageSize - 1),
+      12000,
+      'Supabase query timeout (appointments drilldown).'
+    );
+    if (error) throw error;
+    const batch = Array.isArray(data) ? data : [];
+    if (!batch.length) break;
+
+    const contactIds = batch.map((row) => toTrimmedText(row?.contact_id)).filter(Boolean);
+    await hydrateSourceMaps(contactIds);
+    if (kind === 'appointments_without_lead_in_range') {
+      await ensureLeadInRangeSets(contactIds);
+    }
+
+    for (const row of batch) {
+      if (!shouldIncludeStatus(row)) continue;
+
+      const contactId = toTrimmedText(row?.contact_id);
+      const emailNorm = normalizeEmailValue(row?.contact_email);
+
+      const derivedSource =
+        normalizeDrilldownSource(row?.source, belivertMode) ||
+        (contactId ? sourceByContactId.get(contactId) : null) ||
+        (emailNorm ? sourceByEmail.get(emailNorm) : null) ||
+        getDefaultDrilldownSource(belivertMode);
+
+      if (wantedSource && derivedSource !== wantedSource) continue;
+
+      if (kind === 'appointments_without_lead_in_range') {
+        const leadInRange = (contactId && leadContactIds.has(contactId)) || (emailNorm && leadEmails.has(emailNorm));
+        if (leadInRange) continue;
+      }
+
+      rows.push({
+        record_id: row?.id ?? '',
+        record_type: 'appointment',
+        occurred_at: row?.start_time ?? null,
+        contact_id: row?.contact_id ?? null,
+        contact_name: row?.contact_name ?? null,
+        contact_email: row?.contact_email ?? null,
+        source: derivedSource,
+        status: row?.appointment_status ?? row?.appointment_status_raw ?? null
+      });
+
+      if (rows.length >= effectiveLimit) break;
+    }
+
+    if (batch.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+};
+
+const fetchSourceRecordsComputed = async ({
+  activeLocationId,
+  startIso,
+  endIso,
+  kind,
+  source,
+  limit
+}) => {
+  if (kind === 'leads' || kind === 'deals') {
+    return fetchOpportunityDrilldownRecordsComputed({ activeLocationId, startIso, endIso, kind, source, limit });
+  }
+
+  if (String(kind || '').startsWith('appointments')) {
+    return fetchAppointmentDrilldownRecordsComputed({ activeLocationId, startIso, endIso, kind, source, limit });
+  }
+
+  return [];
 };
 
 const fetchDrilldownRecords = async ({ kind, source, range }) => {
@@ -2399,21 +2776,14 @@ const fetchDrilldownRecords = async ({ kind, source, range }) => {
     return data ?? [];
   }
 
-  const { data, error } = await withTimeout(
-    supabase.rpc('get_source_records', {
-      p_location_id: activeLocationId,
-      p_start: startIso,
-      p_end: endIso,
-      p_kind: kind,
-      p_source: source || null,
-      p_limit: 200
-    }),
-    12000,
-    'Supabase query timeout (records).'
-  );
-
-  if (error) throw error;
-  return data ?? [];
+  return fetchSourceRecordsComputed({
+    activeLocationId,
+    startIso,
+    endIso,
+    kind,
+    source: source || null,
+    limit: 200
+  });
 };
 
 const normalizeEmail = (value) => {
@@ -3399,46 +3769,56 @@ const buildTrendMarkup = (monthly) => {
     return '<div class="text-sm text-muted-foreground">Geen trenddata beschikbaar.</div>';
   }
 
-  const totalQuotes = monthly.reduce((sum, entry) => sum + (Number(entry?.quotes) || 0), 0);
-  const totalWon = monthly.reduce((sum, entry) => sum + (Number(entry?.won) || 0), 0);
+  const normalized = monthly.map((entry, index) => ({
+    key: typeof entry?.key === 'string' ? entry.key : String(index),
+    label: typeof entry?.label === 'string' && entry.label.trim() ? entry.label.trim() : `M${index + 1}`,
+    quotes: Math.max(0, Number(entry?.quotes) || 0),
+    won: Math.max(0, Number(entry?.won) || 0)
+  }));
+
+  const totalQuotes = normalized.reduce((sum, entry) => sum + entry.quotes, 0);
+  const totalWon = normalized.reduce((sum, entry) => sum + entry.won, 0);
   if (totalQuotes === 0 && totalWon === 0) {
-    return `
-      <div class="h-[180px] w-full flex items-center justify-center text-sm text-muted-foreground">
-        Nog geen offertes of deals in deze periode.
-      </div>
-      <div class="mt-3 flex items-center justify-end gap-4 text-xs text-muted-foreground">
-        <span class="inline-flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-primary/80"></span>Offertes</span>
-        <span class="inline-flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-emerald-500/70"></span>Deals</span>
-      </div>
-    `;
+    return '<div class="h-[200px] w-full flex items-center justify-center text-sm text-muted-foreground">Nog geen offertes of deals in deze periode.</div>';
   }
 
-  const maxValue = Math.max(
-    1,
-    ...monthly.map((entry) => Math.max(entry.quotes || 0, entry.won || 0))
-  );
-  const bars = monthly
+  const maxValue = Math.max(1, ...normalized.map((entry) => Math.max(entry.quotes, entry.won)));
+  const axisMax = Math.max(15, Math.ceil(maxValue / 15) * 15);
+  const axisTicks = [axisMax, Math.round(axisMax * 0.75), Math.round(axisMax * 0.5), Math.round(axisMax * 0.25), 0];
+
+  const bars = normalized
     .map((entry) => {
-      const quotes = Number(entry?.quotes) || 0;
-      const won = Number(entry?.won) || 0;
-      const quotesHeight = Math.round((quotes / maxValue) * 100);
-      const wonHeight = Math.round((won / maxValue) * 100);
+      const quotesHeight = entry.quotes > 0 ? Math.max(4, Math.round((entry.quotes / axisMax) * 100)) : 0;
+      const wonHeight = entry.won > 0 ? Math.max(4, Math.round((entry.won / axisMax) * 100)) : 0;
       return `
-        <div class="flex flex-col items-center gap-2 flex-1 h-full">
-          <div class="w-full flex items-end gap-1 flex-1">
-            <div class="flex-1 rounded-t-md bg-primary/80" style="height:${quotesHeight}%"></div>
-            <div class="flex-1 rounded-t-md bg-emerald-500/70" style="height:${wonHeight}%"></div>
+        <div class="sales-trend-column" data-sales-trend-key="${escapeHtml(entry.key)}">
+          <div class="sales-trend-column-bars">
+            <span class="sales-trend-column-bar sales-trend-column-bar-quotes" style="height:${quotesHeight}%"></span>
+            <span class="sales-trend-column-bar sales-trend-column-bar-won" style="height:${wonHeight}%"></span>
           </div>
-          <span class="text-xs text-muted-foreground">${entry.label}</span>
+          <span class="sales-trend-column-label">${escapeHtml(entry.label)}</span>
         </div>
       `;
     })
     .join('');
+
+  const axisLabels = axisTicks.map((tick) => `<span class="sales-trend-yaxis-label">${formatNumber(tick)}</span>`).join('');
+  const gridLines = axisTicks
+    .slice(0, -1)
+    .map(
+      (_, index) => `
+        <span class="sales-trend-grid-line" style="bottom:${index * 25}%"></span>
+      `
+    )
+    .join('');
+
   return `
-    <div class="flex gap-4 h-[180px] w-full">${bars}</div>
-    <div class="mt-3 flex items-center justify-end gap-4 text-xs text-muted-foreground">
-      <span class="inline-flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-primary/80"></span>Offertes</span>
-      <span class="inline-flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-emerald-500/70"></span>Deals</span>
+    <div class="sales-trend">
+      <div class="sales-trend-yaxis">${axisLabels}</div>
+      <div class="sales-trend-plot">
+        <div class="sales-trend-grid">${gridLines}</div>
+        <div class="sales-trend-columns">${bars}</div>
+      </div>
     </div>
   `;
 };
@@ -4822,19 +5202,38 @@ const computeMetrics = (range) => {
     { label: 'Lead -> Afspraak', value: formatPercent(conversionRate, 1), icon: icons.target('lucide lucide-target w-4 h-4 text-primary'), className: '' }
   ];
 
-  const sourceRows = SOURCE_ORDER.map((source) => {
-    const sourceEntries = filtered.filter((entry) => entry.source === source);
-    const sourceTotals = sourceEntries.reduce(
-      (acc, entry) => {
-        const confirmed = Math.max(entry.appointments - entry.cancelled - entry.noShow - entry.rescheduled, 0);
-        acc.leads += entry.leads;
-        acc.appointments += entry.appointments;
-        acc.confirmed += confirmed;
-        acc.cost += entry.leads * entry.costPerLead;
-        return acc;
-      },
-      { leads: 0, appointments: 0, confirmed: 0, cost: 0 }
-    );
+  const belivertSourceMode = isBelivertSourceBreakdownMode();
+  const sourceTotalsByLabel = new Map();
+  filtered.forEach((entry) => {
+    const source =
+      (belivertSourceMode ? mapBelivertSourceLabel(entry.source) : normalizeSourceLabel(entry.source)) ||
+      (belivertSourceMode ? 'Organic' : 'Onbekend');
+    const current = sourceTotalsByLabel.get(source) || {
+      leads: 0,
+      appointments: 0,
+      confirmed: 0,
+      deals: 0,
+      cost: 0
+    };
+    const confirmed = Math.max(entry.appointments - entry.cancelled - entry.noShow - entry.rescheduled, 0);
+    current.leads += entry.leads;
+    current.appointments += entry.appointments;
+    current.confirmed += confirmed;
+    current.deals += entry.deals;
+    current.cost += entry.leads * entry.costPerLead;
+    sourceTotalsByLabel.set(source, current);
+  });
+
+  const orderedSources = Array.from(new Set([...getSourceBreakdownOrder(), ...Array.from(sourceTotalsByLabel.keys())]));
+  const sourceRows = orderedSources.map((source) => {
+    const sourceTotals = sourceTotalsByLabel.get(source) || {
+      leads: 0,
+      appointments: 0,
+      confirmed: 0,
+      deals: 0,
+      cost: 0
+    };
+    const costDenominator = belivertSourceMode ? sourceTotals.deals : sourceTotals.confirmed;
 
     return {
       source,
@@ -4842,12 +5241,15 @@ const computeMetrics = (range) => {
       appointments: formatNumber(sourceTotals.appointments),
       confirmed: formatNumber(sourceTotals.confirmed),
       noLeadInRange: formatNumber(0),
+      deals: formatNumber(sourceTotals.deals),
       plan: formatPercent(safeDivide(sourceTotals.appointments, sourceTotals.leads), 1),
-      cost: formatCurrency(safeDivide(sourceTotals.cost, sourceTotals.confirmed), 2),
+      dealRate: formatPercent(safeDivide(sourceTotals.deals, sourceTotals.appointments), 1),
+      cost: costDenominator > 0 ? formatCurrency(sourceTotals.cost / costDenominator, 2) : '--',
       rawLeads: sourceTotals.leads,
       rawAppointments: sourceTotals.appointments,
       rawConfirmedAppointments: sourceTotals.confirmed,
-      rawNoLeadInRange: 0
+      rawNoLeadInRange: 0,
+      rawDeals: sourceTotals.deals
     };
   });
 
@@ -5237,24 +5639,29 @@ const applyLiveOverrides = (metrics, range) => {
   }
 
   if (liveState.sourceBreakdown.status === 'ready' && Array.isArray(liveState.sourceBreakdown.rows)) {
+    const belivertMode = isBelivertSourceBreakdownMode();
     let liveRows = liveState.sourceBreakdown.rows.map((row) => {
       const leads = Number(row.leads ?? 0);
       const appointments = Number(row.appointments ?? 0);
       const confirmed = Number(row.appointments_confirmed ?? row.confirmed_appointments ?? 0);
       const noLeadInRange = Number(row.appointments_without_lead_in_range ?? 0);
+      const deals = Number(row.deals ?? 0);
 
       return {
-        source: row.source ?? 'Onbekend',
+        source: row.source ?? (belivertMode ? 'Organic' : 'Onbekend'),
         leads: formatNumber(leads),
         appointments: formatNumber(appointments),
         confirmed: formatNumber(confirmed),
         noLeadInRange: formatNumber(noLeadInRange),
+        deals: formatNumber(deals),
         plan: formatPercent(safeDivide(appointments, leads), 1),
+        dealRate: formatPercent(safeDivide(deals, appointments), 1),
         cost: '--',
         rawLeads: leads,
         rawAppointments: appointments,
         rawConfirmedAppointments: confirmed,
-        rawNoLeadInRange: noLeadInRange
+        rawNoLeadInRange: noLeadInRange,
+        rawDeals: deals
       };
     });
 
@@ -5375,7 +5782,7 @@ const renderKpiCards = (cards) =>
     })
     .join('');
 
-const renderSourceRows = (rows, isLive) =>
+const renderSourceRows = (rows, isLive, belivertMode = false) =>
   rows
     .map((row) => {
       const sourceText = row.source ? escapeHtml(row.source) : 'Onbekend';
@@ -5411,6 +5818,25 @@ const renderSourceRows = (rows, isLive) =>
         enabled: isLive && Number(row.rawNoLeadInRange) > 0,
         className: 'drilldown-cell'
       });
+      if (belivertMode) {
+        const dealsValue = renderDrilldownValue({
+          value: row.deals,
+          kind: 'deals',
+          source: row.source,
+          label: 'Deals',
+          enabled: isLive && Number(row.rawDeals) > 0,
+          className: 'drilldown-cell'
+        });
+        return `<tr class="border-b transition-colors data-[state=selected]:bg-muted hover:bg-muted/50">
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 font-medium">${sourceText}</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${leadsValue}</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${appointmentsValue}</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${row.plan}</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${dealsValue}</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${row.dealRate}</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${row.cost}</td>
+        </tr>`;
+      }
 
       return `<tr class="border-b transition-colors data-[state=selected]:bg-muted hover:bg-muted/50">
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 font-medium">${sourceText}</td>
@@ -5428,7 +5854,14 @@ const renderDrilldownRows = (rows, options = {}) =>
   rows
     .map((row) => {
       const occurred = formatDateTime(row.occurred_at);
-      const contactName = row.contact_name ? escapeHtml(row.contact_name) : '--';
+      const contactId = toTrimmedText(row?.contact_id);
+      const ghlUrl = buildGhlContactUrl(configState.locationId || ghlLocationId, contactId);
+      const contactName = row.contact_name ? escapeHtml(row.contact_name) : '';
+      const contactCell = ghlUrl
+        ? `<a class="text-primary hover:underline" href="${escapeHtml(ghlUrl)}" target="_blank" rel="noreferrer">${
+            contactName || 'Open contact'
+          }</a>`
+        : contactName || '--';
       const contactEmail = row.contact_email ? escapeHtml(row.contact_email) : '--';
       const source = row.source ? escapeHtml(row.source) : 'Onbekend';
       const status = row.status ? escapeHtml(row.status) : '--';
@@ -5447,7 +5880,7 @@ const renderDrilldownRows = (rows, options = {}) =>
       return `<tr class="border-b last:border-0">
           <td class="px-3 py-2 text-xs font-semibold uppercase text-muted-foreground">${type}</td>
           <td class="px-3 py-2 text-sm text-foreground">${occurred}</td>
-          <td class="px-3 py-2 text-sm text-foreground">${contactName}</td>
+          <td class="px-3 py-2 text-sm text-foreground">${contactCell}</td>
           <td class="px-3 py-2 text-sm text-muted-foreground">${contactEmail}</td>
           <td class="px-3 py-2 text-sm text-foreground">${source}</td>
           <td class="px-3 py-2 text-sm text-muted-foreground">${status}</td>
@@ -5909,16 +6342,32 @@ const resolveDashboardTabs = (layoutOverride) => {
 };
 
 const resolveBranding = () => {
-  const title = configState.dashboardTitle || DEFAULT_BRANDING.title;
-  const headerSubtitle = configState.dashboardSubtitle || DEFAULT_BRANDING.headerSubtitle;
-  const pageSubtitle = configState.dashboardSubtitle || DEFAULT_BRANDING.pageSubtitle;
-  const logoUrl = configState.dashboardLogoUrl || DEFAULT_BRANDING.logoUrl;
+  const title = configState.dashboardTitle || envDashboardTitle || DEFAULT_BRANDING.title;
+  const headerSubtitle = configState.dashboardSubtitle || envDashboardSubtitle || DEFAULT_BRANDING.headerSubtitle;
+  const pageSubtitle = configState.dashboardSubtitle || envDashboardSubtitle || DEFAULT_BRANDING.pageSubtitle;
+  const logoUrl = configState.dashboardLogoUrl || envDashboardLogoUrl || DEFAULT_BRANDING.logoUrl;
   const logoAlt = title ? `${title} logo` : DEFAULT_BRANDING.logoAlt;
 
   return {
     title: escapeHtml(title),
     headerSubtitle: escapeHtml(headerSubtitle),
     pageSubtitle: escapeHtml(pageSubtitle),
+    logoUrl: escapeHtml(logoUrl),
+    logoAlt: escapeHtml(logoAlt),
+    raw: {
+      title,
+      headerSubtitle,
+      pageSubtitle,
+      logoUrl,
+      logoAlt
+    }
+  };
+};
+
+const resolveSidebarBranding = () => {
+  const logoUrl = envSidebarLogoUrl || DEFAULT_SIDEBAR_BRANDING.logoUrl;
+  const logoAlt = envSidebarLogoAlt || DEFAULT_SIDEBAR_BRANDING.logoAlt;
+  return {
     logoUrl: escapeHtml(logoUrl),
     logoAlt: escapeHtml(logoAlt)
   };
@@ -5934,9 +6383,43 @@ const normalizeThemeKey = (value) => {
     .replace(/^-|-$/g, '');
 };
 
+const getLayoutThemeHint = () => {
+  const layout = configState.dashboardLayout;
+  if (!layout || typeof layout !== 'object' || Array.isArray(layout)) return '';
+
+  const direct = layout.theme || layout.brand || layout.brand_theme || layout.brandTheme;
+  if (typeof direct === 'string' && direct.trim()) return direct.trim();
+
+  const branding = layout.branding;
+  if (!branding || typeof branding !== 'object') return '';
+  const nested = branding.theme || branding.key || branding.slug;
+  return typeof nested === 'string' && nested.trim() ? nested.trim() : '';
+};
+
 const resolveBrandTheme = () => {
-  const title = normalizeThemeKey(configState.dashboardTitle || DEFAULT_BRANDING.title);
-  return title.includes('belivert') ? 'belivert' : '';
+  const explicitTheme = normalizeThemeKey(envDashboardTheme || getLayoutThemeHint());
+  if (explicitTheme === 'belivert' || explicitTheme === 'belivet') {
+    return 'belivert';
+  }
+
+  const candidate = [
+    explicitTheme,
+    normalizeThemeKey(configState.dashboardTitle || ''),
+    normalizeThemeKey(configState.dashboardSubtitle || ''),
+    normalizeThemeKey(configState.dashboardLogoUrl || ''),
+    normalizeThemeKey(envDashboardTitle),
+    normalizeThemeKey(envDashboardSubtitle),
+    normalizeThemeKey(envDashboardLogoUrl),
+    normalizeThemeKey(DEFAULT_BRANDING.title)
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  if (candidate.includes('belivert') || candidate.includes('belivet')) {
+    return 'belivert';
+  }
+
+  return '';
 };
 
 const applyBrandTheme = () => {
@@ -5948,6 +6431,44 @@ const applyBrandTheme = () => {
   } else {
     rootNode.removeAttribute('data-brand-theme');
   }
+};
+
+const absolutizeUrl = (value) => {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith('//')) return `${window.location.protocol}${trimmed}`;
+  if (trimmed.startsWith('/')) return `${window.location.origin}${trimmed}`;
+  return `${window.location.origin}/${trimmed.replace(/^\.?\//, '')}`;
+};
+
+const setMetaTag = (attr, key, content) => {
+  if (!content || !document?.head) return;
+  let node = document.head.querySelector(`meta[${attr}="${key}"]`);
+  if (!node) {
+    node = document.createElement('meta');
+    node.setAttribute(attr, key);
+    document.head.appendChild(node);
+  }
+  node.setAttribute('content', content);
+};
+
+const applyDocumentBranding = (branding) => {
+  if (!branding) return;
+  const title = envMetaTitle || `${branding.title} Dashboard`;
+  const description =
+    envMetaDescription ||
+    branding.pageSubtitle ||
+    branding.headerSubtitle ||
+    DEFAULT_BRANDING.pageSubtitle;
+  const image = absolutizeUrl(envMetaImage || branding.logoUrl || '');
+
+  document.title = title;
+  setMetaTag('name', 'description', description);
+  setMetaTag('property', 'og:title', title);
+  setMetaTag('property', 'og:description', description);
+  if (image) setMetaTag('property', 'og:image', image);
 };
 
 const resolveSectionText = (value, fallback) => {
@@ -6026,10 +6547,13 @@ const renderFinanceSection = (section, metrics) => {
 };
 
 const renderSourceBreakdownSection = (section, metrics) => {
+  const belivertMode = isBelivertSourceBreakdownMode();
   const title = escapeHtml(resolveSectionText(section?.title, 'Source Breakdown'));
   const description = resolveSectionText(
     section?.description,
-    'Prestaties per leadgenerator - Leads = opportunities in periode - extra kolom = afspraken zonder lead in periode'
+    belivertMode
+      ? 'Prestaties per leadgenerator'
+      : 'Prestaties per leadgenerator - Leads = opportunities in periode - extra kolom = afspraken zonder lead in periode'
   );
   const descriptionMarkup = description ? `<p class="text-sm text-gray-500 mb-4">${escapeHtml(description)}</p>` : '';
 
@@ -6049,14 +6573,25 @@ const renderSourceBreakdownSection = (section, metrics) => {
                 <th class="h-12 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0">Bron</th>
                 <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Leads</th>
                 <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Appointments</th>
+                ${
+                  belivertMode
+                    ? `
+                <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Inplan %</th>
+                <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Deals</th>
+                <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">% naar Deals</th>
+                <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Cost per Deal</th>
+                `
+                    : `
                 <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Confirmed</th>
                 <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Afspraken zonder lead in periode</th>
                 <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Inplan %</th>
                 <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Cost per Afspraak</th>
+                `
+                }
               </tr>
             </thead>
             <tbody class="[&_tr:last-child]:border-0">
-              ${renderSourceRows(metrics.sourceRows, metrics.sourceRowsLive)}
+              ${renderSourceRows(metrics.sourceRows, metrics.sourceRowsLive, belivertMode)}
             </tbody>
           </table>
         </div>
@@ -6198,6 +6733,7 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
   const layout = resolveLayoutSections(layoutOverride);
   const requiredLive = getRequiredLiveData(layout);
   const branding = resolveBranding();
+  const sidebarBranding = resolveSidebarBranding();
   const sidebarFooter = configState.dashboardTitle ? `${branding.title} Dashboard` : 'Dashboard Template';
   const activeRoute = routeId || 'lead';
 
@@ -6241,7 +6777,7 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
         <div class="h-14 flex items-center justify-between px-4 border-b border-sidebar-border">
           <div class="flex items-center gap-3">
             <div class="flex items-center rounded-lg bg-white/90 px-3 py-1.5 shadow-sm ring-1 ring-black/5">
-              <img src="${branding.logoUrl}" alt="${branding.logoAlt}" class="h-9 w-auto object-contain" />
+              <img src="${sidebarBranding.logoUrl}" alt="${sidebarBranding.logoAlt}" class="h-9 w-auto object-contain" />
             </div>
           </div>
           <button class="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground hidden lg:flex" data-sidebar-toggle>
@@ -6261,7 +6797,7 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
         </div>
       </aside>
       <div class="flex-1 flex flex-col min-w-0">
-        <header class="h-16 border-b border-border bg-card shadow-sm flex items-center justify-between px-6 sticky top-0 z-40">
+        <header class="h-14 border-b border-border bg-card/50 backdrop-blur-sm flex items-center justify-between px-6 sticky top-0 z-40">
           <div class="flex items-center gap-4">
             <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 lg:hidden hover:bg-accent" aria-label="Sluit menu" data-sidebar-toggle>
               ${icons.menu('lucide lucide-menu h-5 w-5')}
@@ -6352,6 +6888,7 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
 
 const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
   const branding = resolveBranding();
+  const sidebarBranding = resolveSidebarBranding();
   const sidebarFooter = configState.dashboardTitle ? `${branding.title} Dashboard` : 'Dashboard Template';
   const salesKey = buildRangeKey(dateRange);
   const showLoadingOverlay = Boolean(supabase) && (salesState.status !== 'ready' || salesState.rangeKey !== salesKey);
@@ -6390,7 +6927,7 @@ const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
       <aside class="fixed lg:sticky lg:top-0 z-50 h-screen bg-sidebar border-r border-sidebar-border transition-all duration-300 flex flex-col overflow-hidden w-64 translate-x-0 sidebar-panel">
         <div class="h-14 flex items-center justify-between px-4 border-b border-sidebar-border">
           <div class="flex items-center gap-3">
-            <img src="${branding.logoUrl}" alt="${branding.logoAlt}" class="h-8 w-auto" />
+            <img src="${sidebarBranding.logoUrl}" alt="${sidebarBranding.logoAlt}" class="h-8 w-auto" />
           </div>
           <button class="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground hidden lg:flex" data-sidebar-toggle>
             ${icons.chevronLeft('lucide lucide-chevron-left w-4 h-4 transition-transform')}
@@ -6409,7 +6946,7 @@ const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
         </div>
       </aside>
       <div class="flex-1 flex flex-col min-w-0">
-        <header class="h-16 border-b border-border bg-gradient-to-r from-card via-card to-card/80 backdrop-blur-sm flex items-center justify-between px-6 sticky top-0 z-40">
+        <header class="h-14 border-b border-border bg-card/50 backdrop-blur-sm flex items-center justify-between px-6 sticky top-0 z-40">
           <div class="flex items-center gap-4">
             <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 lg:hidden hover:bg-secondary" aria-label="Sluit menu" data-sidebar-toggle>
               ${icons.menu('lucide lucide-menu h-5 w-5')}
@@ -6462,6 +6999,7 @@ const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
 
 const buildCallCenterMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
   const branding = resolveBranding();
+  const sidebarBranding = resolveSidebarBranding();
   const sidebarFooter = configState.dashboardTitle ? `${branding.title} Dashboard` : 'Dashboard Template';
 
   return `
@@ -6475,7 +7013,7 @@ const buildCallCenterMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
         <div class="h-14 flex items-center justify-between px-4 border-b border-sidebar-border">
           <div class="flex items-center gap-3">
             <div class="flex items-center rounded-lg bg-white/90 px-3 py-1.5 shadow-sm ring-1 ring-black/5">
-              <img src="${branding.logoUrl}" alt="${branding.logoAlt}" class="h-9 w-auto object-contain" />
+              <img src="${sidebarBranding.logoUrl}" alt="${sidebarBranding.logoAlt}" class="h-9 w-auto object-contain" />
             </div>
           </div>
           <button class="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground hidden lg:flex" data-sidebar-toggle>
@@ -6495,7 +7033,7 @@ const buildCallCenterMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
         </div>
       </aside>
       <div class="flex-1 flex flex-col min-w-0">
-        <header class="h-16 border-b border-border bg-card shadow-sm flex items-center justify-between px-6 sticky top-0 z-40">
+        <header class="h-14 border-b border-border bg-card/50 backdrop-blur-sm flex items-center justify-between px-6 sticky top-0 z-40">
           <div class="flex items-center gap-4">
             <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 lg:hidden hover:bg-accent" aria-label="Sluit menu" data-sidebar-toggle>
               ${icons.menu('lucide lucide-menu h-5 w-5')}
@@ -6562,6 +7100,8 @@ const buildCallCenterMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
 const renderApp = () => {
   if (!root) return;
   applyBrandTheme();
+  const branding = resolveBranding();
+  applyDocumentBranding(branding.raw);
   const dashboardTabs = resolveDashboardTabs();
   const routeId = getRouteId(dashboardTabs);
   if (routeId === 'sales') {

@@ -49,5 +49,6 @@
                          "kind":  "lost_reasons",
                          "title":  "Verliesredenen"
                      }
-                 ]
+                 ],
+    "theme":  "belivert"
 }

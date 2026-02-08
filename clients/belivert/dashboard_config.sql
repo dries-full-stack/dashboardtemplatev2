@@ -66,9 +66,10 @@ values (
                          "kind":  "lost_reasons",
                          "title":  "Verliesredenen"
                      }
-                 ]
+                 ],
+    "theme":  "belivert"
 }
-$
+$$
 )
 on conflict (id) do update set
   location_id = excluded.location_id,

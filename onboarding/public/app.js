@@ -48,6 +48,9 @@ const syncNowBtn = document.getElementById('syncNow');
 const syncStatusNode = document.getElementById('syncStatus');
 const dashboardStatusNode = document.getElementById('dashboardStatus');
 const teamleaderAutoSyncInput = form?.querySelector('[name="teamleaderAutoSync"]');
+const sourceSuggestRefreshBtn = document.getElementById('sourceSuggestRefresh');
+const sourceSuggestStatusNode = document.getElementById('sourceSuggestStatus');
+const sourceSuggestContentNode = document.getElementById('sourceSuggestContent');
 
 const BASIC_STORAGE_KEY = 'onboard-basic';
 const BASIC_FIELDS = ['slug', 'supabaseUrl', 'locationId', 'dashboardTitle', 'dashboardSubtitle', 'logoUrl'];
@@ -586,6 +589,145 @@ const setDashboardStatus = (text, tone = 'muted') => {
   if (tone === 'error') dashboardStatusNode.classList.add('error');
 };
 
+const escapeHtml = (value) =>
+  String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+const setSourceSuggestStatus = (text, tone = 'muted') => {
+  if (!sourceSuggestStatusNode) return;
+  sourceSuggestStatusNode.textContent = text;
+  sourceSuggestStatusNode.classList.remove('ok', 'warn', 'error');
+  if (tone === 'ok') sourceSuggestStatusNode.classList.add('ok');
+  if (tone === 'warn') sourceSuggestStatusNode.classList.add('warn');
+  if (tone === 'error') sourceSuggestStatusNode.classList.add('error');
+};
+
+let sourceSuggestState = { status: 'idle', key: '', inFlight: false };
+
+const renderSourceSuggestions = (result) => {
+  if (!sourceSuggestContentNode) return;
+  if (!result?.ok) {
+    sourceSuggestContentNode.innerHTML = '';
+    return;
+  }
+
+  const sampled = Number(result?.sampledRows ?? 0);
+  const sources = Array.isArray(result?.sources) ? result.sources : [];
+  const buckets = Array.isArray(result?.buckets) ? result.buckets : [];
+
+  if (!sources.length) {
+    sourceSuggestContentNode.innerHTML = `
+      <p class="muted">
+        Geen bronnen gevonden. Run eerst een GHL sync en klik opnieuw op "Vernieuw voorstel".
+      </p>
+    `;
+    return;
+  }
+
+  const pills = buckets
+    .map(
+      (bucket) =>
+        `<span class="pill"><span>${escapeHtml(bucket.bucket)}</span><strong>${escapeHtml(bucket.count)}</strong></span>`
+    )
+    .join('');
+
+  const rows = sources
+    .map(
+      (row) => `
+      <tr>
+        <td>${escapeHtml(row.raw)}</td>
+        <td>${escapeHtml(row.suggested)}</td>
+        <td>${escapeHtml(row.count)}</td>
+      </tr>
+    `
+    )
+    .join('');
+
+  sourceSuggestContentNode.innerHTML = `
+    <div class="pill-row">${pills}</div>
+    <p class="muted">Sample: ${escapeHtml(sampled)} opportunities (meest recente).</p>
+    <table class="normalization-table">
+      <thead>
+        <tr>
+          <th>Ruwe bron</th>
+          <th>Voorstel</th>
+          <th>Leads</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+};
+
+const loadSourceSuggestions = async (options = {}) => {
+  if (!sourceSuggestRefreshBtn || !sourceSuggestContentNode) return;
+  if (!form) return;
+
+  const projectRef = extractProjectRef(supabaseUrlInput?.value || '');
+  const locationId = getFieldValue('locationId');
+  const serviceRoleKey = getFieldValue('serviceRoleKey');
+  const accessToken = getFieldValue('accessToken');
+  const hasAccessToken = Boolean(accessToken) || Boolean(envHints?.supabaseAccessToken);
+  const key = `${projectRef}|${locationId}`;
+
+  if (!projectRef || !locationId) {
+    setSourceSuggestStatus('Vul eerst Supabase URL en location ID in.', 'warn');
+    sourceSuggestContentNode.innerHTML = '';
+    return;
+  }
+
+  if (!serviceRoleKey && !hasAccessToken) {
+    setSourceSuggestStatus('Vul "Server key" of "Supabase access token" in om bronnen te kunnen ophalen.', 'warn');
+    sourceSuggestContentNode.innerHTML = '';
+    return;
+  }
+
+  if (!options.force && sourceSuggestState.status === 'ready' && sourceSuggestState.key === key) {
+    return;
+  }
+  if (sourceSuggestState.inFlight && sourceSuggestState.key === key) return;
+
+  sourceSuggestState = { status: 'loading', key, inFlight: true };
+  sourceSuggestRefreshBtn.disabled = true;
+  setSourceSuggestStatus('Voorstel laden...', 'muted');
+
+  try {
+    const response = await fetch('/api/source-suggestions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        projectRef,
+        supabaseUrl: supabaseUrlInput?.value || '',
+        locationId,
+        serviceRoleKey,
+        accessToken
+      })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result?.ok) {
+      const errorMessage = result?.error || 'Voorstel ophalen faalde.';
+      setSourceSuggestStatus(errorMessage, 'warn');
+      sourceSuggestContentNode.innerHTML = '';
+      sourceSuggestState = { status: 'error', key, inFlight: false };
+      return;
+    }
+
+    setSourceSuggestStatus('Voorstel klaar.', 'ok');
+    sourceSuggestState = { status: 'ready', key, inFlight: false };
+    renderSourceSuggestions(result);
+  } catch (error) {
+    setSourceSuggestStatus(error instanceof Error ? error.message : 'Voorstel ophalen faalde.', 'error');
+    sourceSuggestContentNode.innerHTML = '';
+    sourceSuggestState = { status: 'error', key, inFlight: false };
+  } finally {
+    sourceSuggestRefreshBtn.disabled = false;
+  }
+};
+
 const interpretNetlifyStatus = (result) => {
   const combined = `${result?.stdout || ''}\n${result?.stderr || ''}`.toLowerCase();
   if (combined.includes('not logged in') || combined.includes('logged out')) {
@@ -760,6 +902,7 @@ const loadEnvHints = async () => {
     };
     if (currentStep === TOTAL_STEPS) {
       buildSummary();
+      loadSourceSuggestions({ force: true });
     }
   } catch {
     // ignore
@@ -781,6 +924,7 @@ const setStep = (step) => {
   setHidden(submitStepBtn, currentStep !== TOTAL_STEPS);
   if (currentStep === TOTAL_STEPS) {
     buildSummary();
+    loadSourceSuggestions();
   }
   setStatus('', 'muted');
 };
@@ -957,6 +1101,10 @@ netlifyCheckBtn?.addEventListener('click', async () => {
   } finally {
     netlifyCheckBtn.disabled = false;
   }
+});
+
+sourceSuggestRefreshBtn?.addEventListener('click', async () => {
+  await loadSourceSuggestions({ force: true });
 });
 
 BASIC_FIELDS.forEach((field) => {
