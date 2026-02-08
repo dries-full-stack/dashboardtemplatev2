@@ -604,8 +604,17 @@ const adminState = {
     year: new Date().getFullYear(),
     monthlyDealsTarget: '',
     monthlyDealsTargets: {},
+    lostReasonFieldId: '',
     quotesFromPhaseId: '',
     quotesPhaseOptions: [],
+    hasChanges: false
+  },
+  lostReasons: {
+    status: 'idle',
+    message: '',
+    loading: false,
+    saving: false,
+    entries: [],
     hasChanges: false
   },
   sources: {
@@ -654,8 +663,20 @@ const resetKpiState = () => {
     year: new Date().getFullYear(),
     monthlyDealsTarget: '',
     monthlyDealsTargets: {},
+    lostReasonFieldId: '',
     quotesFromPhaseId: '',
     quotesPhaseOptions: [],
+    hasChanges: false
+  };
+};
+
+const resetLostReasonsState = () => {
+  adminState.lostReasons = {
+    status: 'idle',
+    message: '',
+    loading: false,
+    saving: false,
+    entries: [],
     hasChanges: false
   };
 };
@@ -715,6 +736,7 @@ const initAuth = async () => {
       adminState.auth.message = '';
       resetMappingState();
       resetKpiState();
+      resetLostReasonsState();
       resetSourceNormalizationState();
       resetBillingState();
     } else if (adminState.open) {
@@ -1256,6 +1278,16 @@ const loadKpiSettings = async () => {
           : '';
     adminState.kpi.quotesFromPhaseId = normalizedQuotesFromPhase || '';
 
+    const rawLostReasonFieldId = data?.lost_reason_field_id;
+    const fallbackLostReasonFieldId = configState.lostReasonFieldId;
+    const normalizedLostReasonFieldId =
+      typeof rawLostReasonFieldId === 'string'
+        ? rawLostReasonFieldId.trim()
+        : typeof fallbackLostReasonFieldId === 'string'
+          ? fallbackLostReasonFieldId.trim()
+          : '';
+    adminState.kpi.lostReasonFieldId = normalizedLostReasonFieldId || '';
+
     const rawPortalUrl = normalizeBillingUrl(data?.billing_portal_url);
     const fallbackPortalUrl = normalizeBillingUrl(configState.billingPortalUrl);
     const rawCheckoutUrl = normalizeBillingUrl(data?.billing_checkout_url);
@@ -1341,6 +1373,9 @@ const loadKpiSettings = async () => {
     if (typeof adminState.kpi.quotesFromPhaseId !== 'string') {
       adminState.kpi.quotesFromPhaseId = configState.salesQuotesFromPhaseId || '';
     }
+    if (typeof adminState.kpi.lostReasonFieldId !== 'string') {
+      adminState.kpi.lostReasonFieldId = configState.lostReasonFieldId || '';
+    }
     if (!Array.isArray(adminState.kpi.quotesPhaseOptions)) {
       adminState.kpi.quotesPhaseOptions = [];
     }
@@ -1410,6 +1445,9 @@ const saveKpiSettings = async () => {
   const quotesFromPhaseIdRaw = String(adminState.kpi.quotesFromPhaseId ?? '').trim();
   const quotesFromPhaseId = quotesFromPhaseIdRaw || null;
 
+  const lostReasonFieldIdRaw = String(adminState.kpi.lostReasonFieldId ?? '').trim();
+  const lostReasonFieldId = lostReasonFieldIdRaw || null;
+
   const locationId = (configState.locationId || ghlLocationId || adminState.form.locationId || '').trim();
   if (adminModeEnabled && !locationId) {
     adminState.kpi.status = 'error';
@@ -1432,6 +1470,7 @@ const saveKpiSettings = async () => {
           sales_monthly_deals_target: target,
           sales_monthly_deals_targets: monthOverrides,
           sales_quotes_from_phase_id: quotesFromPhaseId,
+          lost_reason_field_id: lostReasonFieldId,
           updated_at: now
         })
         .eq('id', 1)
@@ -1451,6 +1490,7 @@ const saveKpiSettings = async () => {
             sales_monthly_deals_target: target,
             sales_monthly_deals_targets: monthOverrides,
             sales_quotes_from_phase_id: quotesFromPhaseId,
+            lost_reason_field_id: lostReasonFieldId,
             updated_at: now
           },
           { onConflict: 'id' }
@@ -1467,10 +1507,20 @@ const saveKpiSettings = async () => {
       Object.entries(monthOverrides).map(([key, value]) => [key, String(value)])
     );
     adminState.kpi.quotesFromPhaseId = quotesFromPhaseIdRaw;
+    adminState.kpi.lostReasonFieldId = lostReasonFieldIdRaw;
 
     configState.salesMonthlyDealsTarget = target;
     configState.salesMonthlyDealsTargets = monthOverrides;
     configState.salesQuotesFromPhaseId = quotesFromPhaseId;
+    configState.lostReasonFieldId = lostReasonFieldId;
+    liveState.lostReasons = {
+      status: 'idle',
+      rows: null,
+      rangeKey: '',
+      errorMessage: '',
+      inFlight: false
+    };
+    ensureLostReasons(dateRange);
 
     // Refresh Sales metrics if the Sales dashboard is open.
     const routeId = getRouteId(resolveDashboardTabs());
@@ -1487,6 +1537,156 @@ const saveKpiSettings = async () => {
     adminState.kpi.message = error instanceof Error ? error.message : 'Onbekende fout';
   } finally {
     adminState.kpi.saving = false;
+    renderApp();
+  }
+};
+
+const loadLostReasonMappings = async (range = dateRange) => {
+  if (!supabase || !settingsEnabled) return;
+  if (adminState.lostReasons.loading) return;
+
+  const locationId = (configState.locationId || ghlLocationId || adminState.form.locationId || '').trim();
+  if (!locationId) {
+    adminState.lostReasons.status = 'error';
+    adminState.lostReasons.message = 'Location ID ontbreekt. Sla eerst de integratie op.';
+    renderApp();
+    return;
+  }
+
+  adminState.lostReasons.loading = true;
+  adminState.lostReasons.status = 'loading';
+  adminState.lostReasons.message = '';
+  renderApp();
+
+  try {
+    const startIso = toUtcStart(range.start);
+    const endIso = toUtcEndExclusive(range.end);
+
+    const { data: candidateRows, error: candidateError } = await withTimeout(
+      supabase.rpc('get_lost_reason_id_candidates', {
+        p_location_id: locationId,
+        p_start: startIso,
+        p_end: endIso
+      }),
+      12000,
+      'Supabase query timeout (lost reason candidates).'
+    );
+    if (candidateError) throw candidateError;
+
+    let overrideRows = [];
+    const { data: overrides, error: overridesError } = await supabase
+      .from('lost_reason_overrides')
+      .select('reason_id,reason_name')
+      .eq('location_id', locationId);
+
+    if (overridesError) {
+      const message = overridesError.message ?? String(overridesError);
+      if (!message.includes('does not exist')) throw overridesError;
+    } else {
+      overrideRows = overrides || [];
+    }
+
+    const occurrencesById = new Map();
+    (candidateRows || []).forEach((row) => {
+      const id = toTrimmedText(row?.reason_id);
+      const occurrences = Number(row?.occurrences ?? 0);
+      if (!id) return;
+      occurrencesById.set(id, Number.isFinite(occurrences) ? occurrences : 0);
+    });
+
+    const nameById = new Map();
+    overrideRows.forEach((row) => {
+      const id = toTrimmedText(row?.reason_id);
+      const name = toTrimmedText(row?.reason_name);
+      if (!id) return;
+      if (name) nameById.set(id, name);
+    });
+
+    const ids = new Set([...occurrencesById.keys(), ...nameById.keys()]);
+    const entries = Array.from(ids).map((id) => ({
+      id,
+      occurrences: occurrencesById.get(id) || 0,
+      name: nameById.get(id) || ''
+    }));
+
+    entries.sort((a, b) => {
+      const diff = (b.occurrences ?? 0) - (a.occurrences ?? 0);
+      if (diff) return diff;
+      return String(a.id ?? '').localeCompare(String(b.id ?? ''));
+    });
+
+    adminState.lostReasons.entries = entries;
+    adminState.lostReasons.status = 'ready';
+    adminState.lostReasons.message = '';
+    adminState.lostReasons.hasChanges = false;
+  } catch (error) {
+    adminState.lostReasons.status = 'error';
+    adminState.lostReasons.message = error instanceof Error ? error.message : 'Onbekende fout';
+  } finally {
+    adminState.lostReasons.loading = false;
+    renderApp();
+  }
+};
+
+const saveLostReasonMappings = async () => {
+  if (!supabase || !settingsEnabled) return;
+  if (adminState.lostReasons.saving) return;
+
+  const locationId = (configState.locationId || ghlLocationId || adminState.form.locationId || '').trim();
+  if (!locationId) {
+    adminState.lostReasons.status = 'error';
+    adminState.lostReasons.message = 'Location ID ontbreekt. Sla eerst de integratie op.';
+    renderApp();
+    return;
+  }
+
+  const entries = Array.isArray(adminState.lostReasons.entries) ? adminState.lostReasons.entries : [];
+  const now = new Date().toISOString();
+  const upserts = entries
+    .map((entry) => ({
+      id: toTrimmedText(entry?.id),
+      name: toTrimmedText(entry?.name)
+    }))
+    .filter((entry) => entry.id && entry.name)
+    .map((entry) => ({
+      location_id: locationId,
+      reason_id: entry.id,
+      reason_name: entry.name,
+      updated_at: now
+    }));
+
+  if (!upserts.length) {
+    adminState.lostReasons.status = 'success';
+    adminState.lostReasons.message = 'Geen mappings om op te slaan.';
+    adminState.lostReasons.hasChanges = false;
+    renderApp();
+    return;
+  }
+
+  adminState.lostReasons.saving = true;
+  adminState.lostReasons.status = 'saving';
+  adminState.lostReasons.message = '';
+  renderApp();
+
+  try {
+    const { error } = await withTimeout(
+      supabase.from('lost_reason_overrides').upsert(upserts, { onConflict: 'location_id,reason_id' }),
+      12000,
+      'Supabase query timeout (lost reason overrides).'
+    );
+    if (error) throw error;
+
+    adminState.lostReasons.status = 'success';
+    adminState.lostReasons.message = 'Mappings opgeslagen.';
+    adminState.lostReasons.hasChanges = false;
+
+    await loadLostReasonMappings(dateRange);
+    ensureLostReasons(dateRange);
+  } catch (error) {
+    adminState.lostReasons.status = 'error';
+    adminState.lostReasons.message = error instanceof Error ? error.message : 'Onbekende fout';
+  } finally {
+    adminState.lostReasons.saving = false;
     renderApp();
   }
 };
@@ -2755,6 +2955,20 @@ const fetchLostReasonsComputed = async (range, activeLocationId) => {
       .map((row) => [toTrimmedText(row?.reason_id), toTrimmedText(row?.reason_name)])
       .filter(([id, name]) => id && name)
   );
+
+  const { data: overrideRows, error: overrideError } = await supabase
+    .from('lost_reason_overrides')
+    .select('reason_id,reason_name')
+    .eq('location_id', activeLocationId);
+  if (overrideError) {
+    const message = overrideError.message ?? String(overrideError);
+    if (!message.includes('does not exist')) throw overrideError;
+  } else {
+    (overrideRows || [])
+      .map((row) => [toTrimmedText(row?.reason_id), toTrimmedText(row?.reason_name)])
+      .filter(([id, name]) => id && name)
+      .forEach(([id, name]) => lookupById.set(id, name));
+  }
 
   const opportunities = await fetchAllRows(
     () =>
@@ -5596,6 +5810,8 @@ const renderAdminModal = () => {
   const kpiStatusClass = adminState.kpi.status === 'error' ? 'error' : 'success';
   const sourcesBusy = adminState.sources.loading || adminState.sources.saving;
   const sourcesStatusClass = adminState.sources.status === 'error' ? 'error' : 'success';
+  const lostBusy = adminState.lostReasons.loading || adminState.lostReasons.saving;
+  const lostStatusClass = adminState.lostReasons.status === 'error' ? 'error' : 'success';
   const sourcesRules = Array.isArray(adminState.sources.rules) ? adminState.sources.rules : [];
   const sourcesRulesRowsMarkup = sourcesRules.length
     ? sourcesRules
@@ -5677,6 +5893,9 @@ const renderAdminModal = () => {
   const quotesFromPhaseIdValue = String(
     adminState.kpi.quotesFromPhaseId ?? configState.salesQuotesFromPhaseId ?? ''
   ).trim();
+  const lostReasonFieldIdValue = String(
+    adminState.kpi.lostReasonFieldId ?? configState.lostReasonFieldId ?? ''
+  ).trim();
   const normalizeProbability = (value) => {
     const raw = typeof value === 'number' ? value : Number(value);
     if (!Number.isFinite(raw)) return null;
@@ -5718,6 +5937,33 @@ const renderAdminModal = () => {
       return `<option value="${escapeHtml(row.id)}"${selected}>${escapeHtml(label)}</option>`;
     })
   ].join('');
+
+  const lostReasonEntries = Array.isArray(adminState.lostReasons.entries) ? adminState.lostReasons.entries : [];
+  const lostReasonRowsMarkup = lostReasonEntries.length
+    ? lostReasonEntries
+        .map((entry) => {
+          const id = toTrimmedText(entry?.id);
+          const occurrences = formatNumber(entry?.occurrences ?? 0);
+          const name = escapeHtml(entry?.name ?? '');
+          return `
+            <tr>
+              <td class="admin-mapping-muted">${escapeHtml(id || '--')}</td>
+              <td class="admin-mapping-muted">${occurrences}</td>
+              <td>
+                <input
+                  type="text"
+                  class="admin-input admin-mapping-input"
+                  value="${name}"
+                  placeholder="Label (bv. Te duur)"
+                  data-lost-reason-id="${escapeHtml(id || '')}"
+                  ${lostBusy ? 'disabled' : ''}
+                />
+              </td>
+            </tr>
+          `;
+        })
+        .join('')
+    : '<tr><td colspan="3" class="admin-mapping-empty">Geen lost reasons gevonden in deze periode.</td></tr>';
 
   const sourceOptionsMarkup = (adminState.mapping.sourceOptions ?? [])
     .map((option) => `<option value="${escapeHtml(option)}"></option>`)
@@ -5868,12 +6114,26 @@ const renderAdminModal = () => {
                          ${quotePhaseOptionsMarkup}
                        </select>
                      </label>
-                     <div class="admin-meta">
-                       Kies de Teamleader fase die overeenkomt met \"Offerte verzonden klant\". Leeg = alle deals tellen als offerte.
-                     </div>
-                     ${quotePhaseRows.length ? '' : '<div class="admin-meta">Geen Teamleader fases gevonden. Run eerst teamleader-sync.</div>'}
-                   </div>
-                  <div class="admin-mapping-block">
+                      <div class="admin-meta">
+                        Kies de Teamleader fase die overeenkomt met \"Offerte verzonden klant\". Leeg = alle deals tellen als offerte.
+                      </div>
+                      ${quotePhaseRows.length ? '' : '<div class="admin-meta">Geen Teamleader fases gevonden. Run eerst teamleader-sync.</div>'}
+                      <label class="admin-label">
+                        Verliesreden custom field id (optioneel)
+                        <input
+                          type="text"
+                          class="admin-input"
+                          value="${escapeHtml(lostReasonFieldIdValue)}"
+                          placeholder="Custom field id"
+                          data-kpi-lost-reason-field
+                          ${kpiBusy ? 'disabled' : ''}
+                        />
+                      </label>
+                      <div class="admin-meta">
+                        Optioneel: als je in GHL een Opportunity custom field gebruikt voor verliesredenen, plak hier de field id. Zo krijg je labels in plaats van IDs.
+                      </div>
+                    </div>
+                   <div class="admin-mapping-block">
                     <div class="admin-mapping-toolbar">
                       <button type="button" class="admin-ghost" data-kpi-year-prev ${kpiBusy ? 'disabled' : ''}>Vorige jaar</button>
                       <div class="admin-meta">Jaar: ${kpiYear}</div>
@@ -5891,6 +6151,43 @@ const renderAdminModal = () => {
                       </table>
                     </div>
                     <div class="admin-meta">Leeg = gebruikt default target (placeholder).</div>
+                  </div>
+                </div>
+                <div class="admin-section">
+                  <div class="admin-section-header">
+                    <div>
+                      <h4 class="admin-section-title">Verliesredenen</h4>
+                      <p class="admin-section-subtitle">
+                        GHL geeft voor lost reasons enkel IDs. Map die IDs naar labels zodat het dashboard leesbaar wordt.
+                      </p>
+                    </div>
+                    <div class="admin-mapping-toolbar">
+                      <button type="button" class="admin-ghost" data-lost-reasons-refresh ${lostBusy ? 'disabled' : ''}>Vernieuw IDs</button>
+                      <button type="button" class="admin-submit" data-lost-reasons-save ${lostBusy ? 'disabled' : ''}>
+                        ${adminState.lostReasons.saving ? 'Opslaan...' : 'Opslaan'}
+                      </button>
+                    </div>
+                  </div>
+                  ${
+                    adminState.lostReasons.message
+                      ? `<div class="admin-message ${lostStatusClass}">${escapeHtml(adminState.lostReasons.message)}</div>`
+                      : ''
+                  }
+                  ${adminState.lostReasons.loading ? '<div class="admin-meta">Lost reasons worden geladen...</div>' : ''}
+                  <div class="admin-mapping-block">
+                    <div class="admin-mapping-table-wrapper">
+                      <table class="admin-mapping-table">
+                        <thead>
+                          <tr>
+                            <th>LostReasonId</th>
+                            <th>Aantal</th>
+                            <th>Label</th>
+                          </tr>
+                        </thead>
+                        <tbody>${lostReasonRowsMarkup}</tbody>
+                      </table>
+                    </div>
+                    <div class="admin-meta">Tip: vul enkel labels in voor IDs die je effectief gebruikt. Leeg laten = blijft onbekend.</div>
                   </div>
                 </div>
                 ${
@@ -6902,6 +7199,13 @@ const renderDrilldownModal = () => {
   `;
 };
 
+const formatLostReasonDisplayLabel = (value) => {
+  const raw = toTrimmedText(value);
+  if (!raw) return 'Onbekend';
+  if (/^[0-9a-f]{24}$/i.test(raw)) return `Onbekend (${raw.slice(0, 6)}...)`;
+  return raw;
+};
+
 const renderLostReasons = (reasons, isLive) =>
   reasons
     .map((reason) => {
@@ -6914,11 +7218,12 @@ const renderLostReasons = (reasons, isLive) =>
         className: 'text-sm font-medium text-foreground w-16 text-right inline-block',
         fallbackTag: 'span'
       });
+      const displayLabel = formatLostReasonDisplayLabel(reason.label);
 
       return `<div class="flex items-center justify-between p-3 bg-secondary/30 rounded-lg">
           <div class="flex items-center gap-3">
             <div class="w-3 h-3 rounded-full" style="background-color: ${reason.color};"></div>
-            <span class="text-sm text-foreground">${reason.label}</span>
+            <span class="text-sm text-foreground">${escapeHtml(displayLabel)}</span>
             ${
               reason.highlight
                 ? '<div class="inline-flex items-center rounded-full border px-2.5 py-0.5 font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-destructive text-destructive-foreground hover:bg-destructive/80 text-xs">Top reden</div>'
@@ -6964,6 +7269,7 @@ const renderLostReasonsChart = (reasons) => {
     .map((reason, index) => {
       const percent = safeDivide(reason.count, total) * 100;
       const isDefault = index === defaultIndex;
+      const displayLabel = formatLostReasonDisplayLabel(reason.label);
       return `
         <button
           type="button"
@@ -6974,10 +7280,10 @@ const renderLostReasonsChart = (reasons) => {
           data-percent="${percent.toFixed(3)}"
           data-color="${escapeHtml(reason.color)}"
           aria-pressed="${isDefault ? 'true' : 'false'}"
-          title="${escapeHtml(reason.label)} - ${formatNumber(percent, 1)}%"
+          title="${escapeHtml(displayLabel)} - ${formatNumber(percent, 1)}%"
         >
           <span class="lost-reason-dot" style="background-color: ${reason.color};"></span>
-          <span class="lost-reason-name" data-lost-label>${escapeHtml(reason.label)}</span>
+          <span class="lost-reason-name" data-lost-label>${escapeHtml(displayLabel)}</span>
           <span class="lost-reason-meta">${formatNumber(percent, 1)}%</span>
         </button>
       `;
@@ -6990,7 +7296,7 @@ const renderLostReasonsChart = (reasons) => {
         <div class="lost-reason-center">
           <p class="lost-reason-kicker">Verloren leads</p>
           <p class="lost-reason-total" data-lost-total>${formatNumber(total)}</p>
-          <p class="lost-reason-active" data-lost-active>${escapeHtml(defaultReason?.label ?? 'Onbekend')}</p>
+          <p class="lost-reason-active" data-lost-active>${escapeHtml(formatLostReasonDisplayLabel(defaultReason?.label ?? 'Onbekend'))}</p>
           <p class="lost-reason-percent" data-lost-percent>${formatNumber(defaultPercent, 1)}%</p>
         </div>
       </div>
@@ -7009,11 +7315,15 @@ const getLostReasonTip = (reasons) => {
   const labelRaw = topReason?.label ? String(topReason.label) : '';
   const label = labelRaw ? escapeHtml(labelRaw) : 'Onbekend';
   const normalized = labelRaw.trim().toLowerCase();
+  const looksLikeObjectId = /^[0-9a-f]{24}$/i.test(labelRaw.trim());
   if (!topReason || !Number.isFinite(topReason.count) || topReason.count <= 0) {
     return 'Vul een verliesreden in op je lead om betere inzichten te krijgen.';
   }
   if (!labelRaw || normalized === 'geen data' || normalized === 'onbekend') {
     return 'Vul een verliesreden in op je lead om betere inzichten te krijgen.';
+  }
+  if (looksLikeObjectId) {
+    return 'Er zijn verloren leads met een GHL lostReasonId zonder label. Map deze ID naar een label via Instellingen > Verliesredenen.';
   }
   return `"${label}" is je grootste blocker. Overweeg een gratis waardebepaling of exclusieve verkooptips te delen.`;
 };
@@ -8208,6 +8518,7 @@ const bindInteractions = () => {
         adminState.auth.status = 'idle';
         adminState.loading = false;
         adminState.kpi.message = '';
+        adminState.lostReasons.message = '';
         adminState.sources.message = '';
         renderApp();
         if (authSession) {
@@ -8216,9 +8527,11 @@ const bindInteractions = () => {
             loadSpendMapping();
           }
           loadKpiSettings();
+          loadLostReasonMappings(dateRange);
           loadSourceNormalizationSettings();
         } else if (settingsModeEnabled && !adminModeEnabled) {
           loadKpiSettings();
+          loadLostReasonMappings(dateRange);
           loadSourceNormalizationSettings();
         }
       });
@@ -8384,6 +8697,7 @@ const bindInteractions = () => {
         adminState.loading = false;
         resetMappingState();
         resetKpiState();
+        resetLostReasonsState();
         resetSourceNormalizationState();
         resetBillingState();
         renderApp();
@@ -8416,6 +8730,14 @@ const bindInteractions = () => {
     if (kpiQuotesFromPhase) {
       kpiQuotesFromPhase.addEventListener('change', (event) => {
         adminState.kpi.quotesFromPhaseId = event.target.value;
+        adminState.kpi.hasChanges = true;
+      });
+    }
+
+    const kpiLostReasonField = document.querySelector('[data-kpi-lost-reason-field]');
+    if (kpiLostReasonField) {
+      kpiLostReasonField.addEventListener('input', (event) => {
+        adminState.kpi.lostReasonFieldId = event.target.value;
         adminState.kpi.hasChanges = true;
       });
     }
@@ -8461,6 +8783,36 @@ const bindInteractions = () => {
         saveKpiSettings();
       });
     }
+
+    const lostReasonsRefresh = document.querySelector('[data-lost-reasons-refresh]');
+    if (lostReasonsRefresh) {
+      lostReasonsRefresh.addEventListener('click', () => {
+        loadLostReasonMappings(dateRange);
+      });
+    }
+
+    const lostReasonsSave = document.querySelector('[data-lost-reasons-save]');
+    if (lostReasonsSave) {
+      lostReasonsSave.addEventListener('click', () => {
+        saveLostReasonMappings();
+      });
+    }
+
+    document.querySelectorAll('[data-lost-reason-id]').forEach((input) => {
+      input.addEventListener('input', (event) => {
+        const id = toTrimmedText(input.getAttribute('data-lost-reason-id'));
+        if (!id) return;
+        const value = String(event.target.value ?? '');
+        if (!Array.isArray(adminState.lostReasons.entries)) adminState.lostReasons.entries = [];
+        const idx = adminState.lostReasons.entries.findIndex((entry) => toTrimmedText(entry?.id) === id);
+        if (idx < 0) return;
+        adminState.lostReasons.entries[idx] = {
+          ...adminState.lostReasons.entries[idx],
+          name: value
+        };
+        adminState.lostReasons.hasChanges = true;
+      });
+    });
 
     document.querySelectorAll('[data-map-key]').forEach((input) => {
       input.addEventListener('input', (event) => {
