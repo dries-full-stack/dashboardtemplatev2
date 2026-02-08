@@ -40,7 +40,7 @@ supabase functions deploy teamleader-sync --project-ref YOUR_PROJECT_REF
 
 - `dashboard_config.sql` (per klant layout/branding + location_id)
 - `dashboard_layout.json` (optioneel, makkelijk te editen)
-- `env.dashboard.example` (Netlify/Vite vars)
+- `env.dashboard.example` (Netlify/Vite vars + branding/webpreview)
 - `env.sync.example` (sync vars)
 
 ## Volledig geautomatiseerd (optioneel)

@@ -81,7 +81,7 @@ powershell -ExecutionPolicy Bypass -File scripts/bootstrap-client.ps1
 De script maakt o.a.:
 - `clients/<slug>/dashboard_config.sql`
 - `clients/<slug>/dashboard_layout.json`
-- `clients/<slug>/env.dashboard.example`
+- `clients/<slug>/env.dashboard.example` (incl. branding + webpreview meta vars)
 - `clients/<slug>/env.sync.example`
 
 ## Local onboarding app (voor maximale automatisering)
@@ -103,6 +103,7 @@ De app roept intern `scripts/bootstrap-client.ps1` aan en kan optioneel:
 Tip: met een Supabase access token kan de onboarding automatisch de publishable + service role key ophalen.
 
 **Logo’s (makkelijkst):** gebruik een publieke URL (bijv. Supabase Storage of een CDN) en zet die in `dashboard_logo_url`.
+De onboarding vult daarmee ook de preview vars (`VITE_PREVIEW_*`) zodat `title`, Open Graph en Twitter preview per klant mee veranderen.
 
 ### Netlify env sync (optioneel)
 

@@ -85,6 +85,75 @@ const sanitizeString = (value) => {
   return value.trim();
 };
 
+const sanitizeEnvValue = (value) => sanitizeString(value).replace(/\r?\n/g, ' ');
+
+const normalizePublicSiteUrl = (value) => {
+  const trimmed = sanitizeString(value);
+  if (!trimmed) return '';
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed.replace(/\/+$/, '');
+  }
+  if (/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(trimmed)) {
+    return `https://${trimmed}`.replace(/\/+$/, '');
+  }
+  return '';
+};
+
+const resolveAbsolutePublicUrl = (value, siteUrl) => {
+  const trimmed = sanitizeString(value);
+  if (!trimmed) return '';
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (!trimmed.startsWith('/')) return '';
+  if (!siteUrl) return '';
+  try {
+    return new URL(trimmed, `${siteUrl}/`).toString();
+  } catch {
+    return '';
+  }
+};
+
+const buildBrandingEnv = (payload) => {
+  const brandTitle = sanitizeString(payload.dashboardTitle) || 'Your Company';
+  const brandSubtitle = sanitizeString(payload.dashboardSubtitle) || 'Performance Dashboard';
+  const brandPageSubtitle = sanitizeString(payload.dashboardSubtitle) || 'Performance Dashboard - Leads, afspraken & ROI';
+  const brandLogoUrl = sanitizeString(payload.logoUrl) || '/assets/logos/placeholder-logo.svg';
+  const explicitTheme = normalizeSlug(payload.brandTheme);
+  const slugTheme = normalizeSlug(payload.slug);
+  const titleTheme = normalizeSlug(payload.dashboardTitle);
+  const inferredTheme =
+    titleTheme.includes('belivert') || slugTheme.includes('belivert')
+      ? 'belivert'
+      : '';
+  const brandTheme = explicitTheme === 'belivert' ? explicitTheme : inferredTheme;
+  const siteUrlFallback = sanitizeString(payload.netlifySiteName)
+    ? `https://${sanitizeString(payload.netlifySiteName)}.netlify.app`
+    : '';
+  const siteUrl = normalizePublicSiteUrl(payload.netlifyCustomDomain || payload.siteUrl || siteUrlFallback);
+  const previewTitle = brandTitle ? `${brandTitle} Dashboard` : 'GHL Dashboard Template';
+  const previewDescription = brandPageSubtitle || 'Performance dashboard template - Leads, afspraken & ROI';
+  const previewAuthor = brandTitle || 'Your Company';
+  const imageFromLogo = resolveAbsolutePublicUrl(brandLogoUrl, siteUrl);
+  const logoIsAbsolute = /^https?:\/\//i.test(brandLogoUrl);
+  const logoIsRootRelative = brandLogoUrl.startsWith('/');
+  const previewImageUrl =
+    imageFromLogo ||
+    (logoIsAbsolute ? brandLogoUrl : logoIsRootRelative ? brandLogoUrl : '') ||
+    '/favicon-512.png';
+
+  return {
+    brandTitle,
+    brandSubtitle,
+    brandPageSubtitle,
+    brandLogoUrl,
+    brandTheme,
+    previewTitle,
+    previewDescription,
+    previewAuthor,
+    previewImageUrl,
+    siteUrl
+  };
+};
+
 const normalizeSlug = (value) =>
   sanitizeString(value)
     .toLowerCase()
@@ -176,6 +245,7 @@ const writeDashboardEnvFile = async (payload) => {
     (payload.projectRef ? `https://${payload.projectRef}.supabase.co` : '');
   const publishableKey = payload.publishableKey || '';
   const locationId = payload.locationId || '';
+  const brandingEnv = buildBrandingEnv(payload);
 
   if (!supabaseUrl || !locationId) {
     return { ok: false, error: 'Supabase URL en location ID zijn vereist.' };
@@ -188,7 +258,17 @@ const writeDashboardEnvFile = async (payload) => {
     `VITE_SUPABASE_URL=${supabaseUrl}`,
     `VITE_SUPABASE_PUBLISHABLE_KEY=${publishableKey}`,
     `VITE_GHL_LOCATION_ID=${locationId}`,
-    'VITE_ENABLE_MOCK_DATA=false'
+    'VITE_ENABLE_MOCK_DATA=false',
+    `VITE_BRAND_TITLE=${sanitizeEnvValue(brandingEnv.brandTitle)}`,
+    `VITE_BRAND_SUBTITLE=${sanitizeEnvValue(brandingEnv.brandSubtitle)}`,
+    `VITE_BRAND_PAGE_SUBTITLE=${sanitizeEnvValue(brandingEnv.brandPageSubtitle)}`,
+    `VITE_BRAND_LOGO_URL=${sanitizeEnvValue(brandingEnv.brandLogoUrl)}`,
+    `VITE_BRAND_THEME=${sanitizeEnvValue(brandingEnv.brandTheme)}`,
+    `VITE_PREVIEW_TITLE=${sanitizeEnvValue(brandingEnv.previewTitle)}`,
+    `VITE_PREVIEW_DESCRIPTION=${sanitizeEnvValue(brandingEnv.previewDescription)}`,
+    `VITE_PREVIEW_AUTHOR=${sanitizeEnvValue(brandingEnv.previewAuthor)}`,
+    `VITE_PREVIEW_IMAGE_URL=${sanitizeEnvValue(brandingEnv.previewImageUrl)}`,
+    `VITE_SITE_URL=${sanitizeEnvValue(brandingEnv.siteUrl)}`
   ];
 
   const envPath = join(repoRoot, 'dashboard', '.env');
@@ -535,6 +615,7 @@ const server = createServer(async (req, res) => {
         dashboardTitle: sanitizeString(data.dashboardTitle),
         dashboardSubtitle: sanitizeString(data.dashboardSubtitle),
         logoUrl: sanitizeString(data.logoUrl),
+        brandTheme: sanitizeString(data.brandTheme),
         dashboardTabs: sanitizeString(data.dashboardTabs),
         autoFetchKeys: Boolean(data.autoFetchKeys),
         accessToken: sanitizeString(data.accessToken),

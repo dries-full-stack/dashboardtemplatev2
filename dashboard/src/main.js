@@ -34,6 +34,11 @@ const icons = {
       '<path d="M8 2v4"></path><path d="M16 2v4"></path><rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M3 10h18"></path>',
       className
     ),
+  fileText: (className) =>
+    icon(
+      '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path><path d="M10 9H8"></path><path d="M16 13H8"></path><path d="M16 17H8"></path>',
+      className
+    ),
   users: (className) =>
     icon(
       '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path>',
@@ -109,11 +114,24 @@ const getRouteId = (availableTabs = ALL_DASHBOARD_TABS) => {
   return availableTabs[0].id || 'lead';
 };
 
+const BRAND_DEFAULT_TITLE = (import.meta.env.VITE_BRAND_TITLE || '').trim() || 'Your Company';
+const BRAND_DEFAULT_SUBTITLE = (import.meta.env.VITE_BRAND_SUBTITLE || '').trim() || 'Performance Dashboard';
+const BRAND_DEFAULT_PAGE_SUBTITLE =
+  (import.meta.env.VITE_BRAND_PAGE_SUBTITLE || '').trim() || 'Performance Dashboard - Leads, Afspraken & ROI';
+const BRAND_DEFAULT_LOGO = (import.meta.env.VITE_BRAND_LOGO_URL || '').trim() || '/assets/logos/placeholder-logo.svg';
+const BRAND_DEFAULT_THEME = (import.meta.env.VITE_BRAND_THEME || '').trim();
+const PREVIEW_DEFAULT_TITLE = (import.meta.env.VITE_PREVIEW_TITLE || '').trim() || 'GHL Dashboard Template';
+const PREVIEW_DEFAULT_DESCRIPTION =
+  (import.meta.env.VITE_PREVIEW_DESCRIPTION || '').trim() || 'Performance dashboard template - Leads, afspraken & ROI';
+const PREVIEW_DEFAULT_AUTHOR = (import.meta.env.VITE_PREVIEW_AUTHOR || '').trim() || BRAND_DEFAULT_TITLE;
+const PREVIEW_DEFAULT_IMAGE_URL = (import.meta.env.VITE_PREVIEW_IMAGE_URL || '').trim();
+const PREVIEW_DEFAULT_SITE_URL = (import.meta.env.VITE_SITE_URL || '').trim();
+
 const DEFAULT_BRANDING = {
-  title: 'Your Company',
-  headerSubtitle: 'Performance Dashboard',
-  pageSubtitle: 'Performance Dashboard - Leads, Afspraken & ROI',
-  logoUrl: '/assets/logos/placeholder-logo.svg',
+  title: BRAND_DEFAULT_TITLE,
+  headerSubtitle: BRAND_DEFAULT_SUBTITLE,
+  pageSubtitle: BRAND_DEFAULT_PAGE_SUBTITLE,
+  logoUrl: BRAND_DEFAULT_LOGO,
   logoAlt: 'Company logo'
 };
 
@@ -160,8 +178,15 @@ const SALES_MAIN_MARKUP = salesMainMarkup.trim();
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const ghlLocationId = import.meta.env.VITE_GHL_LOCATION_ID;
-const adminModeEnabled = import.meta.env.VITE_ADMIN_MODE === 'true';
-const settingsModeEnabled = import.meta.env.VITE_SETTINGS_MODE === 'true';
+const parseBooleanEnv = (value, fallback = false) => {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'on') return true;
+  if (normalized === 'false' || normalized === '0' || normalized === 'no' || normalized === 'off') return false;
+  return fallback;
+};
+const adminModeEnabled = parseBooleanEnv(import.meta.env.VITE_ADMIN_MODE, false);
+const settingsModeEnabled = parseBooleanEnv(import.meta.env.VITE_SETTINGS_MODE, Boolean(supabaseUrl && supabaseKey));
 const settingsEnabled = settingsModeEnabled || adminModeEnabled;
 const settingsButtonLabel = adminModeEnabled ? 'Setup' : 'Instellingen';
 const teamleaderDealUrlTemplate =
@@ -3347,9 +3372,11 @@ const buildSalesMetrics = (
     sellers,
     summary,
     funnel: {
+      appointments: allDealsInRangeCount,
       quotes: dealsInRange.length,
       approved: wonDeals.length,
-      rejected: lostDeals.length
+      rejected: lostDeals.length,
+      open: openDeals.length
     }
   };
 };
@@ -3412,8 +3439,18 @@ const buildTrendMarkup = (monthly) => {
     return '<div class="text-sm text-muted-foreground">Geen trenddata beschikbaar.</div>';
   }
 
-  const totalQuotes = monthly.reduce((sum, entry) => sum + (Number(entry?.quotes) || 0), 0);
-  const totalWon = monthly.reduce((sum, entry) => sum + (Number(entry?.won) || 0), 0);
+  const normalized = monthly.map((entry, index) => {
+    const labelRaw = typeof entry?.label === 'string' ? entry.label.trim() : '';
+    return {
+      key: typeof entry?.key === 'string' ? entry.key : String(index),
+      label: labelRaw || `M${index + 1}`,
+      quotes: Math.max(0, Number(entry?.quotes) || 0),
+      won: Math.max(0, Number(entry?.won) || 0)
+    };
+  });
+
+  const totalQuotes = normalized.reduce((sum, entry) => sum + entry.quotes, 0);
+  const totalWon = normalized.reduce((sum, entry) => sum + entry.won, 0);
   if (totalQuotes === 0 && totalWon === 0) {
     return `
       <div class="h-[180px] w-full flex items-center justify-center text-sm text-muted-foreground">
@@ -3426,34 +3463,216 @@ const buildTrendMarkup = (monthly) => {
     `;
   }
 
-  const maxValue = Math.max(
-    1,
-    ...monthly.map((entry) => Math.max(entry.quotes || 0, entry.won || 0))
-  );
-  const bars = monthly
-    .map((entry) => {
-      const quotes = Number(entry?.quotes) || 0;
-      const won = Number(entry?.won) || 0;
-      const quotesHeight = Math.round((quotes / maxValue) * 100);
-      const wonHeight = Math.round((won / maxValue) * 100);
+  const defaultEntry = normalized[normalized.length - 1] || normalized[0];
+  const maxValue = Math.max(1, ...normalized.map((entry) => Math.max(entry.quotes, entry.won)));
+  const bars = normalized
+    .map((entry, index) => {
+      const quotesHeight = entry.quotes > 0 ? Math.max(4, Math.round((entry.quotes / maxValue) * 100)) : 0;
+      const wonHeight = entry.won > 0 ? Math.max(4, Math.round((entry.won / maxValue) * 100)) : 0;
+      const conversion = formatPercent(safeDivide(entry.won, entry.quotes), 1);
+      const label = escapeHtml(entry.label);
+      const key = escapeHtml(entry.key);
+      const ariaLabel = escapeHtml(
+        `${entry.label}: ${formatNumber(entry.quotes)} offertes, ${formatNumber(entry.won)} deals, ${conversion} conversie`
+      );
       return `
-        <div class="flex flex-col items-center gap-2 flex-1 h-full">
-          <div class="w-full flex items-end gap-1 flex-1">
-            <div class="flex-1 rounded-t-md bg-primary/80" style="height:${quotesHeight}%"></div>
-            <div class="flex-1 rounded-t-md bg-emerald-500/70" style="height:${wonHeight}%"></div>
-          </div>
-          <span class="text-xs text-muted-foreground">${entry.label}</span>
-        </div>
+        <button
+          type="button"
+          class="sales-trend-month"
+          data-sales-trend-item
+          data-sales-trend-index="${index}"
+          data-sales-trend-key="${key}"
+          data-sales-trend-label="${label}"
+          data-sales-trend-quotes="${entry.quotes}"
+          data-sales-trend-won="${entry.won}"
+          aria-label="${ariaLabel}"
+        >
+          <span class="sales-trend-bars">
+            <span class="sales-trend-bar sales-trend-bar-quotes" data-sales-trend-bar="quotes" style="height:${quotesHeight}%"></span>
+            <span class="sales-trend-bar sales-trend-bar-deals" data-sales-trend-bar="won" style="height:${wonHeight}%"></span>
+          </span>
+          <span class="sales-trend-month-label">${label}</span>
+        </button>
       `;
     })
     .join('');
+
   return `
-    <div class="flex gap-4 h-[180px] w-full">${bars}</div>
-    <div class="mt-3 flex items-center justify-end gap-4 text-xs text-muted-foreground">
-      <span class="inline-flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-primary/80"></span>Offertes</span>
-      <span class="inline-flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-emerald-500/70"></span>Deals</span>
+    <div class="sales-trend-chart" data-sales-trend-chart>
+      <div class="sales-trend-top">
+        <div class="sales-trend-tooltip">
+          <p class="sales-trend-tooltip-month" data-sales-trend-tooltip-month>${escapeHtml(defaultEntry.label)}</p>
+          <div class="sales-trend-tooltip-metrics">
+            <span class="sales-trend-tooltip-metric">
+              <span class="sales-trend-dot sales-trend-dot-quotes"></span>
+              <span data-sales-trend-tooltip-quotes>${formatNumber(defaultEntry.quotes)}</span>
+              offertes
+            </span>
+            <span class="sales-trend-tooltip-metric">
+              <span class="sales-trend-dot sales-trend-dot-deals"></span>
+              <span data-sales-trend-tooltip-deals>${formatNumber(defaultEntry.won)}</span>
+              deals
+            </span>
+            <span class="sales-trend-tooltip-conversion" data-sales-trend-tooltip-conversion>
+              ${formatPercent(safeDivide(defaultEntry.won, defaultEntry.quotes), 1)} conversie
+            </span>
+          </div>
+        </div>
+        <div class="sales-trend-legend">
+          <button
+            type="button"
+            class="sales-trend-series-toggle is-active"
+            data-sales-trend-toggle="quotes"
+            aria-label="Toon of verberg offertes"
+            aria-pressed="true"
+          >
+            <span class="sales-trend-dot sales-trend-dot-quotes"></span>
+            Offertes
+          </button>
+          <button
+            type="button"
+            class="sales-trend-series-toggle is-active"
+            data-sales-trend-toggle="won"
+            aria-label="Toon of verberg deals"
+            aria-pressed="true"
+          >
+            <span class="sales-trend-dot sales-trend-dot-deals"></span>
+            Deals
+          </button>
+        </div>
+      </div>
+      <div class="sales-trend-grid" data-sales-trend-grid>
+        ${bars}
+      </div>
     </div>
   `;
+};
+
+const bindSalesTrendCharts = () => {
+  document.querySelectorAll('[data-sales-trend-chart]').forEach((chart) => {
+    if (chart.dataset.salesTrendBound === 'true') return;
+    chart.dataset.salesTrendBound = 'true';
+
+    const items = Array.from(chart.querySelectorAll('[data-sales-trend-item]'));
+    if (!items.length) return;
+
+    const toggles = Array.from(chart.querySelectorAll('[data-sales-trend-toggle]'));
+    const tooltipMonth = chart.querySelector('[data-sales-trend-tooltip-month]');
+    const tooltipQuotes = chart.querySelector('[data-sales-trend-tooltip-quotes]');
+    const tooltipDeals = chart.querySelector('[data-sales-trend-tooltip-deals]');
+    const tooltipConversion = chart.querySelector('[data-sales-trend-tooltip-conversion]');
+    const visibleSeries = new Set(['quotes', 'won']);
+    const defaultItem = items[items.length - 1] || items[0];
+
+    const readMetric = (item, attribute) => {
+      const value = Number(item.getAttribute(attribute));
+      return Number.isFinite(value) ? Math.max(0, value) : 0;
+    };
+
+    const setActive = (item) => {
+      if (!item) return;
+      const label = item.getAttribute('data-sales-trend-label') || '';
+      const quotes = readMetric(item, 'data-sales-trend-quotes');
+      const deals = readMetric(item, 'data-sales-trend-won');
+
+      if (tooltipMonth) tooltipMonth.textContent = label;
+      if (tooltipQuotes) tooltipQuotes.textContent = formatNumber(quotes);
+      if (tooltipDeals) tooltipDeals.textContent = formatNumber(deals);
+      if (tooltipConversion) tooltipConversion.textContent = `${formatPercent(safeDivide(deals, quotes), 1)} conversie`;
+
+      items.forEach((entry) => {
+        const isActive = entry === item;
+        entry.classList.toggle('is-active', isActive);
+        if (isActive) {
+          entry.setAttribute('aria-current', 'true');
+        } else {
+          entry.removeAttribute('aria-current');
+        }
+      });
+    };
+
+    const applySeriesVisibility = () => {
+      const showQuotes = visibleSeries.has('quotes');
+      const showWon = visibleSeries.has('won');
+
+      chart.querySelectorAll('[data-sales-trend-bar="quotes"]').forEach((bar) => {
+        bar.classList.toggle('is-hidden', !showQuotes);
+      });
+      chart.querySelectorAll('[data-sales-trend-bar="won"]').forEach((bar) => {
+        bar.classList.toggle('is-hidden', !showWon);
+      });
+
+      toggles.forEach((toggle) => {
+        const series = toggle.getAttribute('data-sales-trend-toggle');
+        const isActive = series ? visibleSeries.has(series) : false;
+        toggle.classList.toggle('is-active', isActive);
+        toggle.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+      });
+    };
+
+    setActive(defaultItem);
+    applySeriesVisibility();
+
+    items.forEach((item, index) => {
+      item.addEventListener('mouseenter', () => setActive(item));
+      item.addEventListener('focus', () => setActive(item));
+      item.addEventListener('click', () => setActive(item));
+      item.addEventListener('keydown', (event) => {
+        if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+          event.preventDefault();
+          const next = items[Math.min(items.length - 1, index + 1)];
+          if (next) next.focus();
+          return;
+        }
+        if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+          event.preventDefault();
+          const prev = items[Math.max(0, index - 1)];
+          if (prev) prev.focus();
+          return;
+        }
+        if (event.key === 'Home') {
+          event.preventDefault();
+          items[0]?.focus();
+          return;
+        }
+        if (event.key === 'End') {
+          event.preventDefault();
+          items[items.length - 1]?.focus();
+        }
+      });
+    });
+
+    const grid = chart.querySelector('[data-sales-trend-grid]');
+    if (grid) {
+      grid.addEventListener('mouseleave', () => {
+        if (!chart.contains(document.activeElement)) {
+          setActive(defaultItem);
+        }
+      });
+    }
+
+    chart.addEventListener('focusout', () => {
+      requestAnimationFrame(() => {
+        if (!chart.contains(document.activeElement)) {
+          setActive(defaultItem);
+        }
+      });
+    });
+
+    toggles.forEach((toggle) => {
+      toggle.addEventListener('click', () => {
+        const series = toggle.getAttribute('data-sales-trend-toggle');
+        if (!series) return;
+        if (visibleSeries.has(series)) {
+          if (visibleSeries.size === 1) return;
+          visibleSeries.delete(series);
+        } else {
+          visibleSeries.add(series);
+        }
+        applySeriesVisibility();
+      });
+    });
+  });
 };
 
 const buildLossReasonsMarkup = (reasons) => {
@@ -3513,27 +3732,118 @@ const buildOpenDealsRows = (deals) => {
     .join('');
 };
 const buildFunnelMarkup = (funnel) => {
-  const total = funnel.quotes || 0;
-  const approved = funnel.approved || 0;
-  const rejected = funnel.rejected || 0;
-  const approvedRate = safeDivide(approved, total);
-  const rejectedRate = safeDivide(rejected, total);
+  const appointmentsRaw = Math.max(0, Number(funnel?.appointments) || 0);
+  const quotesRaw = Math.max(0, Number(funnel?.quotes) || 0);
+  const approvedRaw = Math.max(0, Number(funnel?.approved) || 0);
+  const appointments = Math.round(appointmentsRaw);
+  const quotes = Math.round(Math.min(quotesRaw, appointments || quotesRaw));
+  const approved = Math.round(Math.min(approvedRaw, quotes || approvedRaw));
+  const base = appointments > 0 ? appointments : Math.max(quotes, approved);
+
+  const clampPercent = (value) => Math.max(0, Math.min(100, value));
+  const toWidthPercent = (value, total) => {
+    if (total <= 0) return 100;
+    if (value <= 0) return 35;
+    return clampPercent(Math.max((value / total) * 100, 35));
+  };
+
+  const appointmentsToQuotesRate = safeDivide(quotes, base);
+  const quotesToDealsRate = safeDivide(approved, quotes);
+  const totalConversionRate = safeDivide(approved, base);
+  const lostBeforeQuote = Math.max(base - quotes, 0);
+  const lostBeforeDeal = Math.max(quotes - approved, 0);
+  const lostBeforeQuoteRate = safeDivide(lostBeforeQuote, base);
+  const lostBeforeDealRate = safeDivide(lostBeforeDeal, quotes);
+  const quotesWidth = toWidthPercent(quotes, base);
+  const approvedWidth = toWidthPercent(approved, base);
+
   return `
-    <div class="grid gap-4 md:grid-cols-3">
-      <div class="rounded-lg bg-blue-500/90 text-white p-4">
-        <p class="text-xs uppercase tracking-wide text-white/70">Offertes</p>
-        <p class="text-2xl font-bold" data-sales-drill="all">${formatNumber(total)}</p>
-        <p class="text-xs text-white/70" data-sales-drill="all">100%</p>
+    <div class="sales-funnel">
+      <div class="sales-funnel-stack">
+        <div class="sales-funnel-stage-wrap">
+          <div class="sales-funnel-stage sales-funnel-stage-appointments" style="width: 100%;">
+            <div class="sales-funnel-stage-main">
+              <div class="sales-funnel-stage-icon">
+                ${icons.calendar('lucide lucide-calendar w-5 h-5')}
+              </div>
+              <div class="sales-funnel-stage-copy">
+                <p class="sales-funnel-stage-title">Afspraken</p>
+                <p class="sales-funnel-stage-subtitle">Totaal gevoerde gesprekken</p>
+              </div>
+            </div>
+            <div class="sales-funnel-stage-metric">
+              <p class="sales-funnel-stage-value">${formatNumber(appointments)}</p>
+              <p class="sales-funnel-stage-share">${base > 0 ? '100%' : '0%'}</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="sales-funnel-drop">
+          <span class="sales-funnel-drop-arrow sales-funnel-drop-arrow-appointments" aria-hidden="true"></span>
+          <span class="sales-funnel-drop-pill">
+            <span class="sales-funnel-drop-rate">${formatPercent(lostBeforeQuoteRate, 1)}</span>
+            <span class="sales-funnel-drop-loss">(${formatNumber(lostBeforeQuote)} verloren)</span>
+          </span>
+        </div>
+
+        <div class="sales-funnel-stage-wrap">
+          <div class="sales-funnel-stage sales-funnel-stage-quotes" style="width: ${quotesWidth}%;">
+            <div class="sales-funnel-stage-main">
+              <div class="sales-funnel-stage-icon">
+                ${icons.fileText('lucide lucide-file-text w-5 h-5')}
+              </div>
+              <div class="sales-funnel-stage-copy">
+                <p class="sales-funnel-stage-title">Offertes</p>
+                <p class="sales-funnel-stage-subtitle">Verzonden offertes</p>
+              </div>
+            </div>
+            <div class="sales-funnel-stage-metric">
+              <p class="sales-funnel-stage-value" data-sales-drill="all">${formatNumber(quotes)}</p>
+              <p class="sales-funnel-stage-share" data-sales-drill="all">${formatPercent(appointmentsToQuotesRate, 1)} totaal</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="sales-funnel-drop">
+          <span class="sales-funnel-drop-arrow sales-funnel-drop-arrow-quotes" aria-hidden="true"></span>
+          <span class="sales-funnel-drop-pill">
+            <span class="sales-funnel-drop-rate">${formatPercent(lostBeforeDealRate, 1)}</span>
+            <span class="sales-funnel-drop-loss">(${formatNumber(lostBeforeDeal)} verloren)</span>
+          </span>
+        </div>
+
+        <div class="sales-funnel-stage-wrap">
+          <div class="sales-funnel-stage sales-funnel-stage-won" style="width: ${approvedWidth}%;">
+            <div class="sales-funnel-stage-main">
+              <div class="sales-funnel-stage-icon">
+                ${icons.check('lucide lucide-circle-check-big w-5 h-5')}
+              </div>
+              <div class="sales-funnel-stage-copy">
+                <p class="sales-funnel-stage-title">Goedgekeurd</p>
+                <p class="sales-funnel-stage-subtitle">Getekende deals</p>
+              </div>
+            </div>
+            <div class="sales-funnel-stage-metric">
+              <p class="sales-funnel-stage-value" data-sales-drill="won">${formatNumber(approved)}</p>
+              <p class="sales-funnel-stage-share" data-sales-drill="won">${formatPercent(totalConversionRate, 1)} totaal</p>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="rounded-lg bg-emerald-500/90 text-white p-4">
-        <p class="text-xs uppercase tracking-wide text-white/70">Goedgekeurd</p>
-        <p class="text-2xl font-bold" data-sales-drill="won">${formatNumber(approved)}</p>
-        <p class="text-xs text-white/70" data-sales-drill="won">${formatPercent(approvedRate, 1)}</p>
-      </div>
-      <div class="rounded-lg bg-rose-500/90 text-white p-4">
-        <p class="text-xs uppercase tracking-wide text-white/70">Afgekeurd</p>
-        <p class="text-2xl font-bold" data-sales-drill="lost">${formatNumber(rejected)}</p>
-        <p class="text-xs text-white/70" data-sales-drill="lost">${formatPercent(rejectedRate, 1)}</p>
+
+      <div class="sales-funnel-summary">
+        <div class="sales-funnel-summary-card sales-funnel-summary-card-step-1">
+          <p class="sales-funnel-summary-value">${formatPercent(appointmentsToQuotesRate, 1)}</p>
+          <p class="sales-funnel-summary-label">Afspraak -> Offerte</p>
+        </div>
+        <div class="sales-funnel-summary-card sales-funnel-summary-card-step-2">
+          <p class="sales-funnel-summary-value">${formatPercent(quotesToDealsRate, 1)}</p>
+          <p class="sales-funnel-summary-label">Offerte -> Deal</p>
+        </div>
+        <div class="sales-funnel-summary-card sales-funnel-summary-card-total">
+          <p class="sales-funnel-summary-value">${formatPercent(totalConversionRate, 1)}</p>
+          <p class="sales-funnel-summary-label">Totale Conversie</p>
+        </div>
       </div>
     </div>
   `;
@@ -3856,7 +4166,10 @@ const applySalesData = (data) => {
   }
 
   const trend = document.querySelector('[data-sales-trend]');
-  if (trend) trend.innerHTML = buildTrendMarkup(data.monthly);
+  if (trend) {
+    trend.innerHTML = buildTrendMarkup(data.monthly);
+    bindSalesTrendCharts();
+  }
 
   const reasons = document.querySelector('[data-sales-loss-reasons]');
   if (reasons) reasons.innerHTML = buildLossReasonsMarkup(data.lossReasons);
@@ -5943,20 +6256,132 @@ const resolveDashboardTabs = (layoutOverride) => {
   return normalized.length ? normalized : ALL_DASHBOARD_TABS;
 };
 
-const resolveBranding = () => {
-  const title = configState.dashboardTitle || DEFAULT_BRANDING.title;
-  const headerSubtitle = configState.dashboardSubtitle || DEFAULT_BRANDING.headerSubtitle;
-  const pageSubtitle = configState.dashboardSubtitle || DEFAULT_BRANDING.pageSubtitle;
-  const logoUrl = configState.dashboardLogoUrl || DEFAULT_BRANDING.logoUrl;
+const resolveBrandingRaw = () => {
+  const title =
+    typeof configState.dashboardTitle === 'string' && configState.dashboardTitle.trim()
+      ? configState.dashboardTitle.trim()
+      : DEFAULT_BRANDING.title;
+  const subtitleFromConfig =
+    typeof configState.dashboardSubtitle === 'string' && configState.dashboardSubtitle.trim()
+      ? configState.dashboardSubtitle.trim()
+      : '';
+  const headerSubtitle = subtitleFromConfig || DEFAULT_BRANDING.headerSubtitle;
+  const pageSubtitle = subtitleFromConfig || DEFAULT_BRANDING.pageSubtitle;
+  const logoUrl =
+    typeof configState.dashboardLogoUrl === 'string' && configState.dashboardLogoUrl.trim()
+      ? configState.dashboardLogoUrl.trim()
+      : DEFAULT_BRANDING.logoUrl;
   const logoAlt = title ? `${title} logo` : DEFAULT_BRANDING.logoAlt;
 
   return {
-    title: escapeHtml(title),
-    headerSubtitle: escapeHtml(headerSubtitle),
-    pageSubtitle: escapeHtml(pageSubtitle),
-    logoUrl: escapeHtml(logoUrl),
-    logoAlt: escapeHtml(logoAlt)
+    title,
+    headerSubtitle,
+    pageSubtitle,
+    logoUrl,
+    logoAlt
   };
+};
+
+const resolveBranding = () => {
+  const raw = resolveBrandingRaw();
+  return {
+    title: escapeHtml(raw.title),
+    headerSubtitle: escapeHtml(raw.headerSubtitle),
+    pageSubtitle: escapeHtml(raw.pageSubtitle),
+    logoUrl: escapeHtml(raw.logoUrl),
+    logoAlt: escapeHtml(raw.logoAlt)
+  };
+};
+
+const normalizeThemeKey = (value) => {
+  if (typeof value !== 'string') return '';
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+};
+
+const inferBrandThemeFromTitle = (title) => {
+  const normalizedTitle = normalizeThemeKey(title);
+  if (!normalizedTitle) return '';
+  if (normalizedTitle.includes('belivert')) return 'belivert';
+  return '';
+};
+
+const resolveBrandTheme = (branding) => {
+  const explicitTheme = normalizeThemeKey(BRAND_DEFAULT_THEME);
+  if (explicitTheme === 'belivert') return explicitTheme;
+  return inferBrandThemeFromTitle(branding?.title);
+};
+
+const applyBrandTheme = (themeKey) => {
+  const rootNode = document.documentElement;
+  if (!rootNode) return;
+  if (themeKey) {
+    rootNode.setAttribute('data-brand-theme', themeKey);
+  } else {
+    rootNode.removeAttribute('data-brand-theme');
+  }
+};
+
+const normalizeSiteUrl = (value) => {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed.replace(/\/+$/, '');
+  }
+  if (/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(trimmed)) {
+    return `https://${trimmed}`.replace(/\/+$/, '');
+  }
+  return '';
+};
+
+const toAbsoluteUrl = (value, siteUrl = '') => {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (!trimmed.startsWith('/')) return '';
+
+  const base = normalizeSiteUrl(siteUrl) || window.location.origin;
+  try {
+    return new URL(trimmed, `${base}/`).toString();
+  } catch {
+    return '';
+  }
+};
+
+const setMetaContent = (selector, value) => {
+  const node = document.head.querySelector(selector);
+  if (!node || typeof value !== 'string') return;
+  node.setAttribute('content', value);
+};
+
+const applyDocumentBranding = () => {
+  const branding = resolveBrandingRaw();
+  applyBrandTheme(resolveBrandTheme(branding));
+  const siteUrl = normalizeSiteUrl(PREVIEW_DEFAULT_SITE_URL) || window.location.origin;
+  const previewTitle = branding.title || PREVIEW_DEFAULT_TITLE;
+  const previewDescription = branding.pageSubtitle || PREVIEW_DEFAULT_DESCRIPTION;
+  const previewAuthor = branding.title || PREVIEW_DEFAULT_AUTHOR;
+  const imageFromEnv = toAbsoluteUrl(PREVIEW_DEFAULT_IMAGE_URL, siteUrl);
+  const imageFromBranding = toAbsoluteUrl(branding.logoUrl, siteUrl);
+  const previewImage = imageFromEnv || imageFromBranding || `${siteUrl}/favicon-512.png`;
+
+  document.title = previewTitle;
+  setMetaContent('meta[name="description"]', previewDescription);
+  setMetaContent('meta[name="author"]', previewAuthor);
+  setMetaContent('meta[property="og:title"]', previewTitle);
+  setMetaContent('meta[property="og:description"]', previewDescription);
+  setMetaContent('meta[property="og:url"]', siteUrl);
+  setMetaContent('meta[property="og:image"]', previewImage);
+  setMetaContent('meta[property="og:site_name"]', previewTitle);
+  setMetaContent('meta[name="twitter:title"]', previewTitle);
+  setMetaContent('meta[name="twitter:description"]', previewDescription);
+  setMetaContent('meta[name="twitter:image"]', previewImage);
 };
 
 const resolveSectionText = (value, fallback) => {
@@ -6570,6 +6995,7 @@ const buildCallCenterMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
 
 const renderApp = () => {
   if (!root) return;
+  applyDocumentBranding();
   const dashboardTabs = resolveDashboardTabs();
   const routeId = getRouteId(dashboardTabs);
   if (routeId === 'sales') {
@@ -7018,6 +7444,7 @@ const bindInteractions = () => {
   }
 
   bindLostReasonCharts();
+  bindSalesTrendCharts();
 };
 
 dateRange = normalizeRange(dateRange.start, dateRange.end);

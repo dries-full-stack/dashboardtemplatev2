@@ -433,10 +433,61 @@ if ([string]::IsNullOrWhiteSpace($publishableValue)) {
   $publishableValue = 'YOUR_SUPABASE_PUBLISHABLE_KEY'
 }
 
+$brandTitle = if ([string]::IsNullOrWhiteSpace($DashboardTitle)) { 'Your Company' } else { $DashboardTitle.Trim() }
+$brandSubtitle = if ([string]::IsNullOrWhiteSpace($DashboardSubtitle)) { 'Performance Dashboard' } else { $DashboardSubtitle.Trim() }
+$brandPageSubtitle = if ([string]::IsNullOrWhiteSpace($DashboardSubtitle)) { 'Performance Dashboard - Leads, afspraken & ROI' } else { $DashboardSubtitle.Trim() }
+$brandLogoUrl = if ([string]::IsNullOrWhiteSpace($LogoUrl)) { '/assets/logos/placeholder-logo.svg' } else { $LogoUrl.Trim() }
+$normalizedSlug = if ([string]::IsNullOrWhiteSpace($Slug)) { '' } else { ($Slug.Trim().ToLower() -replace '\s+', '-' -replace '[^a-z0-9\-]', '') }
+$normalizedTitle = if ([string]::IsNullOrWhiteSpace($DashboardTitle)) { '' } else { ($DashboardTitle.Trim().ToLower() -replace '\s+', '-' -replace '[^a-z0-9\-]', '') }
+$brandTheme =
+  if ($normalizedSlug -like '*belivert*' -or $normalizedTitle -like '*belivert*') {
+    'belivert'
+  } else {
+    ''
+  }
+
+$siteUrl = ''
+if (-not [string]::IsNullOrWhiteSpace($NetlifyCustomDomain)) {
+  $domainCandidate = $NetlifyCustomDomain.Trim().TrimEnd('/')
+  if ($domainCandidate -match '^https?://') {
+    $siteUrl = $domainCandidate
+  } elseif ($domainCandidate -match '^[a-z0-9.-]+\.[a-z]{2,}$') {
+    $siteUrl = "https://$domainCandidate"
+  }
+} elseif (-not [string]::IsNullOrWhiteSpace($NetlifySiteName)) {
+  $siteUrl = "https://$($NetlifySiteName.Trim()).netlify.app"
+}
+
+$previewTitle = if ([string]::IsNullOrWhiteSpace($brandTitle)) { 'GHL Dashboard Template' } else { "$brandTitle Dashboard" }
+$previewDescription = if ([string]::IsNullOrWhiteSpace($brandPageSubtitle)) { 'Performance dashboard template - Leads, afspraken & ROI' } else { $brandPageSubtitle }
+$previewAuthor = if ([string]::IsNullOrWhiteSpace($brandTitle)) { 'Your Company' } else { $brandTitle }
+$previewImageUrl = ''
+if (-not [string]::IsNullOrWhiteSpace($brandLogoUrl) -and $brandLogoUrl -match '^https?://') {
+  $previewImageUrl = $brandLogoUrl
+} elseif (-not [string]::IsNullOrWhiteSpace($siteUrl) -and $brandLogoUrl.StartsWith('/')) {
+  $previewImageUrl = "$siteUrl$brandLogoUrl"
+} elseif ($brandLogoUrl.StartsWith('/')) {
+  $previewImageUrl = $brandLogoUrl
+} elseif (-not [string]::IsNullOrWhiteSpace($siteUrl)) {
+  $previewImageUrl = "$siteUrl/favicon-512.png"
+} else {
+  $previewImageUrl = '/favicon-512.png'
+}
+
 $dashboardEnv = @"
 VITE_SUPABASE_URL=$SupabaseUrl
 VITE_SUPABASE_PUBLISHABLE_KEY=$publishableValue
 VITE_GHL_LOCATION_ID=$LocationId
+VITE_BRAND_TITLE=$brandTitle
+VITE_BRAND_SUBTITLE=$brandSubtitle
+VITE_BRAND_PAGE_SUBTITLE=$brandPageSubtitle
+VITE_BRAND_LOGO_URL=$brandLogoUrl
+VITE_BRAND_THEME=$brandTheme
+VITE_PREVIEW_TITLE=$previewTitle
+VITE_PREVIEW_DESCRIPTION=$previewDescription
+VITE_PREVIEW_AUTHOR=$previewAuthor
+VITE_PREVIEW_IMAGE_URL=$previewImageUrl
+VITE_SITE_URL=$siteUrl
 "@
 Set-Content -Path (Join-Path $clientDir 'env.dashboard.example') -Value $dashboardEnv -Encoding utf8
 
