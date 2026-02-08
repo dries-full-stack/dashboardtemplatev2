@@ -121,6 +121,8 @@ const env = {
   GHL_CALENDARS_VERSION: optional('GHL_CALENDARS_VERSION', '2021-04-15'),
   SYNC_BATCH_SIZE: Math.min(100, Math.max(1, parseNumber('SYNC_BATCH_SIZE', 100))),
   REQUEST_TIMEOUT_MS: parseNumber('REQUEST_TIMEOUT_MS', 30000),
+  // Hard cap so we always return before the Edge Function gateway timeout.
+  MAX_SYNC_RUNTIME_MS: Math.min(parseNumber('MAX_SYNC_RUNTIME_MS', 110000), 110000),
   MAX_RETRIES: parseNumber('MAX_RETRIES', 5),
   RETRY_BASE_DELAY_MS: parseNumber('RETRY_BASE_DELAY_MS', 1000),
   FULL_SYNC: parseBool('FULL_SYNC', false),
@@ -142,6 +144,23 @@ const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY, {
 });
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+type SyncBudget = {
+  deadlineMs: number;
+  shouldStop: (estimatedWorkMs?: number) => boolean;
+};
+
+const createSyncBudget = (): SyncBudget => {
+  const startedMs = Date.now();
+  const deadlineMs = startedMs + env.MAX_SYNC_RUNTIME_MS;
+  const bufferMs = 4000;
+  return {
+    deadlineMs,
+    // Stop when we don't have enough runway left for the next unit of work.
+    shouldStop: (estimatedWorkMs = 0) =>
+      Date.now() > deadlineMs - bufferMs - Math.max(0, estimatedWorkMs)
+  };
+};
 
 class GhlClient {
   constructor(private baseUrl: string, private token: string) {}
@@ -303,6 +322,24 @@ class GhlClient {
     return this.request<{ pipelines?: unknown[]; data?: unknown[] } | unknown[]>({
       method: 'GET',
       path: '/opportunities/pipelines',
+      query: { locationId: params.locationId },
+      version: env.GHL_API_VERSION
+    });
+  }
+
+  getPipelineLostReasons(params: { locationId: string }) {
+    return this.request<unknown>({
+      method: 'GET',
+      path: '/opportunities/pipelines/lostReasons',
+      query: { locationId: params.locationId },
+      version: env.GHL_API_VERSION
+    });
+  }
+
+  getPipelineSettings(params: { locationId: string }) {
+    return this.request<unknown>({
+      method: 'GET',
+      path: '/opportunities/pipelines/settings',
       query: { locationId: params.locationId },
       version: env.GHL_API_VERSION
     });
@@ -618,13 +655,26 @@ const getFullSyncFlags = (state: SyncState | null, forceFullSync: boolean) => {
   return { isFullSync, lastFullSyncAt };
 };
 
-const syncContacts = async (client: GhlClient, locationId: string, forceFullSync: boolean) => {
+const syncContacts = async (
+  client: GhlClient,
+  locationId: string,
+  forceFullSync: boolean,
+  budget: SyncBudget
+) => {
   const state = await getSyncState('contacts', locationId);
   const now = Date.now();
-  const syncStartedAt = new Date().toISOString();
-  const { isFullSync, lastFullSyncAt } = getFullSyncFlags(state, forceFullSync);
-
+  const invocationStartedAt = new Date().toISOString();
   const cursor = state?.cursor as Record<string, unknown> | null;
+  const cursorFullSyncStartedAt =
+    cursor && typeof cursor.fullSyncStartedAt === 'string' ? (cursor.fullSyncStartedAt as string) : null;
+  const fullSyncInProgress = cursor?.fullSyncInProgress === true && Boolean(cursorFullSyncStartedAt);
+
+  const { isFullSync: shouldFullSync, lastFullSyncAt } = getFullSyncFlags(state, forceFullSync);
+  const freshFullSync = shouldFullSync && !fullSyncInProgress;
+  const isFullSync = shouldFullSync || fullSyncInProgress;
+  const fullSyncStartedAt = isFullSync ? cursorFullSyncStartedAt || invocationStartedAt : null;
+  const syncStartedAt = fullSyncStartedAt || invocationStartedAt;
+
   let allowStartAfter = !(cursor && cursor.contactsStartAfterDisabled === true);
 
   let startAfter = state?.cursor && typeof state.cursor.startAfter === 'number'
@@ -634,10 +684,10 @@ const syncContacts = async (client: GhlClient, locationId: string, forceFullSync
     ? (state.cursor.startAfterId as string)
     : null;
 
-  if (isFullSync) {
+  if (freshFullSync) {
     startAfter = null;
     startAfterId = null;
-  } else if (allowStartAfter && env.CONTACTS_REFRESH_DAYS > 0) {
+  } else if (!isFullSync && allowStartAfter && env.CONTACTS_REFRESH_DAYS > 0) {
     const refreshStart = now - env.CONTACTS_REFRESH_DAYS * 24 * 60 * 60 * 1000;
     if (!startAfter || startAfter > refreshStart) {
       startAfter = refreshStart;
@@ -647,8 +697,33 @@ const syncContacts = async (client: GhlClient, locationId: string, forceFullSync
 
   console.log('Syncing contacts...');
 
+  // Persist the full sync marker before we start paging, so the next invocation can continue with the same timestamp.
+  if (freshFullSync && fullSyncStartedAt) {
+    await saveSyncState(
+      'contacts',
+      locationId,
+      {
+        startAfter: null,
+        startAfterId: null,
+        lastFullSyncAt: lastFullSyncAt ?? null,
+        fullSyncInProgress: true,
+        fullSyncStartedAt,
+        contactsStartAfterDisabled: !allowStartAfter
+      },
+      new Date().toISOString()
+    );
+  }
+
   let total = 0;
+  let completed = false;
+  let lastPageMs = 0;
   while (true) {
+    if (budget.shouldStop(lastPageMs)) {
+      console.warn('Contacts sync: time budget reached, returning partial progress.');
+      break;
+    }
+
+    const pageStartedMs = Date.now();
     let response: { contacts: unknown[]; count?: number };
     try {
       response = await client.getContacts({
@@ -673,7 +748,10 @@ const syncContacts = async (client: GhlClient, locationId: string, forceFullSync
     }
 
     const contacts = (response.contacts ?? []) as ContactRecord[];
-    if (contacts.length === 0) break;
+    if (contacts.length === 0) {
+      completed = true;
+      break;
+    }
 
     const rows = contacts.map((contact) => {
       const createdAt = toIsoDate(
@@ -722,20 +800,42 @@ const syncContacts = async (client: GhlClient, locationId: string, forceFullSync
       {
         startAfter: startAfter ?? null,
         startAfterId: startAfterId ?? null,
-        lastFullSyncAt: isFullSync ? syncStartedAt : lastFullSyncAt,
+        lastFullSyncAt: lastFullSyncAt ?? null,
+        fullSyncInProgress: isFullSync,
+        fullSyncStartedAt: isFullSync ? fullSyncStartedAt : null,
         contactsStartAfterDisabled: !allowStartAfter
       },
       new Date().toISOString()
     );
 
+    lastPageMs = Date.now() - pageStartedMs;
     console.log(`Contacts page synced: ${contacts.length} records (total ${total}).`);
 
-    if (contacts.length < env.SYNC_BATCH_SIZE) break;
+    if (contacts.length < env.SYNC_BATCH_SIZE) {
+      completed = true;
+      break;
+    }
   }
 
   console.log(`Contacts sync complete. Total records: ${total}.`);
 
-  if (isFullSync && env.PRUNE_ON_FULL_SYNC) {
+  if (isFullSync && completed && fullSyncStartedAt) {
+    await saveSyncState(
+      'contacts',
+      locationId,
+      {
+        startAfter: startAfter ?? null,
+        startAfterId: startAfterId ?? null,
+        lastFullSyncAt: fullSyncStartedAt,
+        fullSyncInProgress: false,
+        fullSyncStartedAt: null,
+        contactsStartAfterDisabled: !allowStartAfter
+      },
+      new Date().toISOString()
+    );
+  }
+
+  if (isFullSync && completed && fullSyncStartedAt && env.PRUNE_ON_FULL_SYNC) {
     const { error } = await supabase
       .from('contacts')
       .delete()
@@ -749,11 +849,24 @@ const syncContacts = async (client: GhlClient, locationId: string, forceFullSync
   return total;
 };
 
-const syncOpportunities = async (client: GhlClient, locationId: string, forceFullSync: boolean) => {
+const syncOpportunities = async (
+  client: GhlClient,
+  locationId: string,
+  forceFullSync: boolean,
+  budget: SyncBudget
+) => {
   const state = await getSyncState('opportunities', locationId);
   const now = Date.now();
-  const syncStartedAt = new Date().toISOString();
-  const { isFullSync, lastFullSyncAt } = getFullSyncFlags(state, forceFullSync);
+  const invocationStartedAt = new Date().toISOString();
+  const cursor = state?.cursor as Record<string, unknown> | null;
+  const cursorFullSyncStartedAt =
+    cursor && typeof cursor.fullSyncStartedAt === 'string' ? (cursor.fullSyncStartedAt as string) : null;
+  const fullSyncInProgress = cursor?.fullSyncInProgress === true && Boolean(cursorFullSyncStartedAt);
+  const { isFullSync: shouldFullSync, lastFullSyncAt } = getFullSyncFlags(state, forceFullSync);
+  const freshFullSync = shouldFullSync && !fullSyncInProgress;
+  const isFullSync = shouldFullSync || fullSyncInProgress;
+  const fullSyncStartedAt = isFullSync ? cursorFullSyncStartedAt || invocationStartedAt : null;
+  const syncStartedAt = fullSyncStartedAt || invocationStartedAt;
 
   let startAfter = state?.cursor && typeof state.cursor.startAfter === 'number'
     ? (state.cursor.startAfter as number)
@@ -762,10 +875,10 @@ const syncOpportunities = async (client: GhlClient, locationId: string, forceFul
     ? (state.cursor.startAfterId as string)
     : null;
 
-  if (isFullSync) {
+  if (freshFullSync) {
     startAfter = null;
     startAfterId = null;
-  } else if (env.OPPORTUNITIES_REFRESH_DAYS > 0) {
+  } else if (!isFullSync && env.OPPORTUNITIES_REFRESH_DAYS > 0) {
     const refreshStart = now - env.OPPORTUNITIES_REFRESH_DAYS * 24 * 60 * 60 * 1000;
     if (!startAfter || startAfter > refreshStart) {
       startAfter = refreshStart;
@@ -775,8 +888,31 @@ const syncOpportunities = async (client: GhlClient, locationId: string, forceFul
 
   console.log('Syncing opportunities...');
 
+  if (freshFullSync && fullSyncStartedAt) {
+    await saveSyncState(
+      'opportunities',
+      locationId,
+      {
+        startAfter: null,
+        startAfterId: null,
+        lastFullSyncAt: lastFullSyncAt ?? null,
+        fullSyncInProgress: true,
+        fullSyncStartedAt
+      },
+      new Date().toISOString()
+    );
+  }
+
   let total = 0;
+  let completed = false;
+  let lastPageMs = 0;
   while (true) {
+    if (budget.shouldStop(lastPageMs)) {
+      console.warn('Opportunities sync: time budget reached, returning partial progress.');
+      break;
+    }
+
+    const pageStartedMs = Date.now();
     const response = await client.searchOpportunities({
       locationId,
       limit: env.SYNC_BATCH_SIZE,
@@ -787,7 +923,10 @@ const syncOpportunities = async (client: GhlClient, locationId: string, forceFul
     });
 
     const opportunities = (response.opportunities ?? []) as OpportunityRecord[];
-    if (opportunities.length === 0) break;
+    if (opportunities.length === 0) {
+      completed = true;
+      break;
+    }
 
     const rows = opportunities.map((opportunity) => {
       const createdAt = toIsoDate(opportunity.createdAt ?? (opportunity as Record<string, unknown>).created_at);
@@ -841,19 +980,40 @@ const syncOpportunities = async (client: GhlClient, locationId: string, forceFul
       {
         startAfter: startAfter ?? null,
         startAfterId: startAfterId ?? null,
-        lastFullSyncAt: isFullSync ? syncStartedAt : lastFullSyncAt
+        lastFullSyncAt: lastFullSyncAt ?? null,
+        fullSyncInProgress: isFullSync,
+        fullSyncStartedAt: isFullSync ? fullSyncStartedAt : null
       },
       new Date().toISOString()
     );
 
+    lastPageMs = Date.now() - pageStartedMs;
     console.log(`Opportunities page synced: ${opportunities.length} records (total ${total}).`);
 
-    if (opportunities.length < env.SYNC_BATCH_SIZE) break;
+    if (opportunities.length < env.SYNC_BATCH_SIZE) {
+      completed = true;
+      break;
+    }
   }
 
   console.log(`Opportunities sync complete. Total records: ${total}.`);
 
-  if (isFullSync && env.PRUNE_ON_FULL_SYNC) {
+  if (isFullSync && completed && fullSyncStartedAt) {
+    await saveSyncState(
+      'opportunities',
+      locationId,
+      {
+        startAfter: startAfter ?? null,
+        startAfterId: startAfterId ?? null,
+        lastFullSyncAt: fullSyncStartedAt,
+        fullSyncInProgress: false,
+        fullSyncStartedAt: null
+      },
+      new Date().toISOString()
+    );
+  }
+
+  if (isFullSync && completed && fullSyncStartedAt && env.PRUNE_ON_FULL_SYNC) {
     const { error } = await supabase
       .from('opportunities')
       .delete()
@@ -867,25 +1027,63 @@ const syncOpportunities = async (client: GhlClient, locationId: string, forceFul
   return total;
 };
 
-const syncAppointments = async (client: GhlClient, locationId: string, forceFullSync: boolean) => {
+const syncAppointments = async (
+  client: GhlClient,
+  locationId: string,
+  forceFullSync: boolean,
+  budget: SyncBudget
+) => {
   const state = await getSyncState('appointments', locationId);
-  const syncStartedAt = new Date().toISOString();
   const now = Date.now();
-  const { isFullSync, lastFullSyncAt } = getFullSyncFlags(state, forceFullSync);
+  const invocationStartedAt = new Date().toISOString();
+  const cursor = state?.cursor as Record<string, unknown> | null;
+  const cursorFullSyncStartedAt =
+    cursor && typeof cursor.fullSyncStartedAt === 'string' ? (cursor.fullSyncStartedAt as string) : null;
+  const fullSyncInProgress = cursor?.fullSyncInProgress === true && Boolean(cursorFullSyncStartedAt);
+  const { isFullSync: shouldFullSync, lastFullSyncAt } = getFullSyncFlags(state, forceFullSync);
+  const freshFullSync = shouldFullSync && !fullSyncInProgress;
+  const isFullSync = shouldFullSync || fullSyncInProgress;
+  const fullSyncStartedAt = isFullSync ? cursorFullSyncStartedAt || invocationStartedAt : null;
+  const syncStartedAt = fullSyncStartedAt || invocationStartedAt;
+
+  const windowInProgress = cursor?.windowInProgress === true &&
+    typeof cursor.windowSyncStartedAt === 'string' &&
+    typeof cursor.windowStartTime === 'number' &&
+    typeof cursor.windowEndTime === 'number' &&
+    typeof cursor.calendarOffset === 'number';
 
   const lookbackMs = env.APPOINTMENTS_LOOKBACK_DAYS * 24 * 60 * 60 * 1000;
   const lookaheadMs = env.APPOINTMENTS_LOOKAHEAD_DAYS * 24 * 60 * 60 * 1000;
 
-  let startTime = now - lookbackMs;
-  if (!isFullSync && state?.last_synced_at) {
+  let windowSyncStartedAt = windowInProgress ? (cursor.windowSyncStartedAt as string) : syncStartedAt;
+  let startTime = windowInProgress ? (cursor.windowStartTime as number) : now - lookbackMs;
+  if (!windowInProgress && !isFullSync && state?.last_synced_at) {
     const lastSynced = Date.parse(state.last_synced_at);
-    if (!Number.isNaN(lastSynced)) {
-      startTime = lastSynced - lookbackMs;
-    }
+    if (!Number.isNaN(lastSynced)) startTime = lastSynced - lookbackMs;
   }
-  const endTime = now + lookaheadMs;
+  const endTime = windowInProgress ? (cursor.windowEndTime as number) : now + lookaheadMs;
+
+  let calendarOffset = windowInProgress ? (cursor.calendarOffset as number) : 0;
 
   console.log('Syncing appointments...');
+
+  if (!windowInProgress || freshFullSync) {
+    await saveSyncState(
+      'appointments',
+      locationId,
+      {
+        lastFullSyncAt: lastFullSyncAt ?? null,
+        fullSyncInProgress: isFullSync,
+        fullSyncStartedAt: isFullSync ? fullSyncStartedAt : null,
+        windowInProgress: true,
+        windowSyncStartedAt,
+        windowStartTime: startTime,
+        windowEndTime: endTime,
+        calendarOffset
+      },
+      new Date().toISOString()
+    );
+  }
 
   const calendarsResponse = await client.getCalendars({
     locationId,
@@ -900,9 +1098,19 @@ const syncAppointments = async (client: GhlClient, locationId: string, forceFull
 
   let total = 0;
 
-  for (const calendar of calendars) {
+  let completed = false;
+  let lastCalendarMs = 0;
+  for (let idx = calendarOffset; idx < calendars.length; idx += 1) {
+    if (budget.shouldStop(lastCalendarMs)) {
+      console.warn('Appointments sync: time budget reached, returning partial progress.');
+      calendarOffset = idx;
+      break;
+    }
+
+    const calendar = calendars[idx];
     if (!calendar.id) continue;
 
+    const calendarStartedMs = Date.now();
     const eventsResponse = await client.getCalendarEvents({
       locationId,
       calendarId: calendar.id,
@@ -911,7 +1119,10 @@ const syncAppointments = async (client: GhlClient, locationId: string, forceFull
     });
 
     const events = (eventsResponse.events ?? []) as CalendarEventRecord[];
-    if (events.length === 0) continue;
+    if (events.length === 0) {
+      lastCalendarMs = Date.now() - calendarStartedMs;
+      continue;
+    }
 
     const rows = events.map((event) => {
       const createdAt = toIsoDate(event.dateAdded ?? (event as Record<string, unknown>).createdAt);
@@ -945,15 +1156,48 @@ const syncAppointments = async (client: GhlClient, locationId: string, forceFull
 
     total += events.length;
     console.log(`Appointments synced for calendar ${calendar.id}: ${events.length} records.`);
+    lastCalendarMs = Date.now() - calendarStartedMs;
+
+    calendarOffset = idx + 1;
+    await saveSyncState(
+      'appointments',
+      locationId,
+      {
+        lastFullSyncAt: lastFullSyncAt ?? null,
+        fullSyncInProgress: isFullSync,
+        fullSyncStartedAt: isFullSync ? fullSyncStartedAt : null,
+        windowInProgress: true,
+        windowSyncStartedAt,
+        windowStartTime: startTime,
+        windowEndTime: endTime,
+        calendarOffset
+      },
+      new Date().toISOString()
+    );
   }
 
-  await saveSyncState('appointments', locationId, {
-    lastFullSyncAt: isFullSync ? syncStartedAt : lastFullSyncAt
-  }, new Date().toISOString());
+  if (calendarOffset >= calendars.length) {
+    completed = true;
+    await saveSyncState(
+      'appointments',
+      locationId,
+      {
+        lastFullSyncAt: isFullSync ? syncStartedAt : lastFullSyncAt ?? null,
+        fullSyncInProgress: false,
+        fullSyncStartedAt: null,
+        windowInProgress: false,
+        windowSyncStartedAt: null,
+        windowStartTime: null,
+        windowEndTime: null,
+        calendarOffset: 0
+      },
+      new Date().toISOString()
+    );
+  }
 
   console.log(`Appointments sync complete. Total records: ${total}.`);
 
-  if (isFullSync && env.PRUNE_ON_FULL_SYNC) {
+  if (isFullSync && completed && env.PRUNE_ON_FULL_SYNC) {
     const { error } = await supabase
       .from('appointments')
       .delete()
@@ -982,6 +1226,20 @@ const syncLostReasonLookup = async (client: GhlClient, locationId: string) => {
     collected.push(...extractLostReasonsFromPipelines(pipelineResponse));
   } catch (error) {
     console.warn('Lost reason lookup: pipeline fetch failed.', error);
+  }
+
+  try {
+    const lostReasonsResponse = await client.getPipelineLostReasons({ locationId });
+    collected.push(...extractLostReasonsFromPipelines(lostReasonsResponse));
+  } catch (error) {
+    console.warn('Lost reason lookup: lost reasons endpoint fetch failed.', error);
+  }
+
+  try {
+    const settingsResponse = await client.getPipelineSettings({ locationId });
+    collected.push(...extractLostReasonsFromPipelines(settingsResponse));
+  } catch (error) {
+    console.warn('Lost reason lookup: pipeline settings fetch failed.', error);
   }
 
   try {
@@ -1085,18 +1343,30 @@ Deno.serve(async (req) => {
     const { entities, forceFullSync } = await parseRequestConfig(req);
     const integration = await loadIntegration();
     const client = new GhlClient(env.GHL_BASE_URL, integration.token);
+    const budget = createSyncBudget();
+    const entityEstimatesMs: Record<string, number> = {
+      // Lost reasons endpoints can be slow (rate limits / retries). Don't start them unless we have runway.
+      lost_reasons: 80000
+    };
 
     const results: Record<string, number> = {};
     const errors: Record<string, string> = {};
+    const skipped: string[] = [];
 
-    for (const entity of entities) {
+    for (let idx = 0; idx < entities.length; idx += 1) {
+      const entity = entities[idx];
+      const estimate = entityEstimatesMs[entity] ?? 0;
+      if (budget.shouldStop(estimate)) {
+        skipped.push(...entities.slice(idx));
+        break;
+      }
       try {
         if (entity === 'contacts') {
-          results.contacts = await syncContacts(client, integration.locationId, forceFullSync);
+          results.contacts = await syncContacts(client, integration.locationId, forceFullSync, budget);
         } else if (entity === 'opportunities') {
-          results.opportunities = await syncOpportunities(client, integration.locationId, forceFullSync);
+          results.opportunities = await syncOpportunities(client, integration.locationId, forceFullSync, budget);
         } else if (entity === 'appointments') {
-          results.appointments = await syncAppointments(client, integration.locationId, forceFullSync);
+          results.appointments = await syncAppointments(client, integration.locationId, forceFullSync, budget);
         } else if (entity === 'lost_reasons') {
           results.lost_reasons = await syncLostReasonLookup(client, integration.locationId);
         }
@@ -1109,7 +1379,15 @@ Deno.serve(async (req) => {
 
     const ok = Object.keys(errors).length === 0;
 
-    return new Response(JSON.stringify({ ok, results, errors, force_full_sync: forceFullSync }), {
+    return new Response(JSON.stringify({
+      ok,
+      results,
+      errors,
+      skipped,
+      partial: skipped.length > 0,
+      deadline_ms: budget.deadlineMs,
+      force_full_sync: forceFullSync
+    }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' }
     });
