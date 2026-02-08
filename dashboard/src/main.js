@@ -204,6 +204,7 @@ const supabase =
       })
     : null;
 const adminEndpoint = supabaseUrl ? `${supabaseUrl}/functions/v1/ghl-admin` : '';
+const syncEndpoint = supabaseUrl ? `${supabaseUrl}/functions/v1/ghl-sync` : '';
 
 const formatIsoDate = (date) => date.toISOString().slice(0, 10);
 const pickFirstUrl = (...candidates) =>
@@ -1661,6 +1662,48 @@ const loadLostReasonMappings = async (range = dateRange) => {
     adminState.lostReasons.loading = false;
     renderApp();
   }
+};
+
+const syncLostReasonLookupFromGhl = async () => {
+  if (!syncEndpoint) return;
+  if (adminState.lostReasons.loading) return;
+
+  adminState.lostReasons.loading = true;
+  adminState.lostReasons.status = 'loading';
+  adminState.lostReasons.message = '';
+  renderApp();
+
+  let message = '';
+  try {
+    const response = await fetch(`${syncEndpoint}?entities=lost_reasons`);
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      throw new Error(result?.error || result?.message || `GHL sync mislukt (${response.status}).`);
+    }
+    if (!result?.ok) {
+      throw new Error(result?.error || 'GHL sync mislukt.');
+    }
+
+    const count = Number(result?.results?.lost_reasons ?? 0);
+    if (Number.isFinite(count) && count > 0) {
+      message = `${count} lost reason labels opgehaald.`;
+    } else {
+      message =
+        'Geen lost reason labels gevonden. Dit komt meestal doordat je GHL token geen pipeline scopes heeft (opportunities/pipelines.*).';
+    }
+  } catch (error) {
+    adminState.lostReasons.loading = false;
+    adminState.lostReasons.status = 'error';
+    adminState.lostReasons.message = error instanceof Error ? error.message : 'Onbekende fout';
+    renderApp();
+    return;
+  }
+
+  adminState.lostReasons.loading = false;
+  await loadLostReasonMappings(dateRange);
+  adminState.lostReasons.message = message;
+  renderApp();
 };
 
 const saveLostReasonMappings = async () => {
@@ -5989,6 +6032,9 @@ const renderAdminModal = () => {
   const lostReasonLabelOptionsList = lostReasonLabelOptionsMarkup
     ? `<datalist id="lost-reason-label-options">${lostReasonLabelOptionsMarkup}</datalist>`
     : '';
+  const lostReasonLabelHintMarkup = lostReasonLabelOptionsList
+    ? ''
+    : '<div class="admin-meta">Geen label suggesties gevonden. Klik \"Haal labels op\" (of update je GHL token scopes) en vul anders de labels manueel in.</div>';
   const lostReasonRowsMarkup = lostReasonEntries.length
     ? lostReasonEntries
         .map((entry) => {
@@ -6214,6 +6260,7 @@ const renderAdminModal = () => {
                     </div>
                     <div class="admin-mapping-toolbar">
                       <button type="button" class="admin-ghost" data-lost-reasons-refresh ${lostBusy ? 'disabled' : ''}>Vernieuw IDs</button>
+                      <button type="button" class="admin-ghost" data-lost-reasons-sync ${lostBusy ? 'disabled' : ''}>Haal labels op</button>
                       <button type="button" class="admin-submit" data-lost-reasons-save ${lostBusy ? 'disabled' : ''}>
                         ${adminState.lostReasons.saving ? 'Opslaan...' : 'Opslaan'}
                       </button>
@@ -6239,6 +6286,7 @@ const renderAdminModal = () => {
                       </table>
                     </div>
                     <div class="admin-meta">Tip: vul enkel labels in voor IDs die je effectief gebruikt. Leeg laten = blijft onbekend.</div>
+                    ${lostReasonLabelHintMarkup}
                     ${lostReasonLabelOptionsList}
                   </div>
                 </div>
@@ -8847,6 +8895,13 @@ const bindInteractions = () => {
     if (lostReasonsRefresh) {
       lostReasonsRefresh.addEventListener('click', () => {
         loadLostReasonMappings(dateRange);
+      });
+    }
+
+    const lostReasonsSync = document.querySelector('[data-lost-reasons-sync]');
+    if (lostReasonsSync) {
+      lostReasonsSync.addEventListener('click', () => {
+        syncLostReasonLookupFromGhl();
       });
     }
 
