@@ -3,6 +3,8 @@ param(
   [string]$ProjectRef,
   [string]$SupabaseUrl,
   [string]$LocationId,
+  [string]$HookFieldId,
+  [string]$CampaignFieldId,
   [string]$DashboardTitle,
   [string]$DashboardSubtitle,
   [string]$LogoUrl,
@@ -348,9 +350,14 @@ $clientDir = Join-Path $repoRoot "clients\\$Slug"
 New-Item -ItemType Directory -Force -Path $clientDir | Out-Null
 
 $themeKey = Resolve-BrandTheme -slug $Slug -title $DashboardTitle -logoUrl $LogoUrl
+$hookFieldIdValue = if (-not [string]::IsNullOrWhiteSpace($HookFieldId)) { $HookFieldId.Trim() } else { '' }
+$campaignFieldIdValue = if (-not [string]::IsNullOrWhiteSpace($CampaignFieldId)) { $CampaignFieldId.Trim() } else { '' }
 
 $sourceNormalizationRulesJson = $null
 if ($themeKey -eq 'belivert') {
+  if ([string]::IsNullOrWhiteSpace($hookFieldIdValue)) {
+    $hookFieldIdValue = 'R7CEVThNclchfzYqS5IT'
+  }
   $sourceNormalizationRulesJson = @(
     @{ bucket = 'Solvari'; patterns = @('solvari') },
     @{ bucket = 'Bobex'; patterns = @('bobex') },
@@ -421,6 +428,20 @@ if ($sourceNormalizationRulesJson) {
   $normalizationUpdate = ",`n  source_normalization_rules = excluded.source_normalization_rules"
 }
 
+$hookColumns = ''
+$hookValues = ''
+$hookUpdate = ''
+if (-not [string]::IsNullOrWhiteSpace($hookFieldIdValue)) {
+  $hookColumns += ",`n  hook_field_id"
+  $hookValues += ",`n  $(To-SqlString $hookFieldIdValue)"
+  $hookUpdate += ",`n  hook_field_id = excluded.hook_field_id"
+}
+if (-not [string]::IsNullOrWhiteSpace($campaignFieldIdValue)) {
+  $hookColumns += ",`n  campaign_field_id"
+  $hookValues += ",`n  $(To-SqlString $campaignFieldIdValue)"
+  $hookUpdate += ",`n  campaign_field_id = excluded.campaign_field_id"
+}
+
 $dashboardSql = @"
 -- Client dashboard_config for $Slug
 -- Run this in Supabase SQL editor (or via CLI).
@@ -430,7 +451,7 @@ insert into public.dashboard_config (
   dashboard_title,
   dashboard_subtitle,
   dashboard_logo_url,
-  dashboard_layout$normalizationColumns
+  dashboard_layout$normalizationColumns$hookColumns
 )
 values (
   1,
@@ -438,14 +459,14 @@ values (
   $(To-SqlString $DashboardTitle),
   $(To-SqlString $DashboardSubtitle),
   $(To-SqlString $LogoUrl),
-  $layoutSql$normalizationValues
+  $layoutSql$normalizationValues$hookValues
 )
 on conflict (id) do update set
   location_id = excluded.location_id,
   dashboard_title = excluded.dashboard_title,
   dashboard_subtitle = excluded.dashboard_subtitle,
   dashboard_logo_url = excluded.dashboard_logo_url,
-  dashboard_layout = excluded.dashboard_layout$normalizationUpdate,
+  dashboard_layout = excluded.dashboard_layout$normalizationUpdate$hookUpdate,
   updated_at = now();
 "@
 
@@ -896,6 +917,12 @@ if ($shouldApplyConfig) {
     }
     if ($sourceNormalizationRulesJson) {
       $payload.source_normalization_rules = $sourceNormalizationRulesJson | ConvertFrom-Json
+    }
+    if (-not [string]::IsNullOrWhiteSpace($hookFieldIdValue)) {
+      $payload.hook_field_id = $hookFieldIdValue
+    }
+    if (-not [string]::IsNullOrWhiteSpace($campaignFieldIdValue)) {
+      $payload.campaign_field_id = $campaignFieldIdValue
     }
 
     $apiUrl = "$SupabaseUrl/rest/v1/dashboard_config?on_conflict=id"

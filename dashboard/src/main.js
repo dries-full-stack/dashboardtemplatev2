@@ -2287,6 +2287,73 @@ const extractCustomFieldValue = (customFields, fieldId) => {
   );
 };
 
+// Mirrors public.extract_url_param() and public.normalize_hook_value() in SQL.
+const extractUrlParamValue = (url, key) => {
+  const text = toTrimmedText(url);
+  const token = toTrimmedText(key);
+  if (!text || !token) return null;
+  const pattern = new RegExp(`(?:\\?|&)${token}=([^&]+)`);
+  const match = text.match(pattern);
+  const raw = match && match[1] ? match[1] : null;
+  if (!raw) return null;
+  try {
+    return decodeURIComponent(raw);
+  } catch (_error) {
+    return raw;
+  }
+};
+
+const normalizeHookValue = (value, source) => {
+  const raw = toTrimmedText(value);
+  const fallbackSource = toTrimmedText(source) || 'Onbekend';
+  if (!raw || raw.toLowerCase() === 'onbekend') return fallbackSource;
+
+  const lowered = raw.toLowerCase();
+  const looksLikeUrl =
+    lowered.startsWith('http') ||
+    lowered.includes('gclid=') ||
+    lowered.includes('gad_campaignid=') ||
+    lowered.includes('fbclid=');
+
+  if (!looksLikeUrl) return raw;
+
+  return (
+    extractUrlParamValue(raw, 'utm_campaign') ||
+    (() => {
+      const campaignId = extractUrlParamValue(raw, 'gad_campaignid');
+      return campaignId ? `Google Campagne ${campaignId}` : null;
+    })() ||
+    (extractUrlParamValue(raw, 'gclid') ? 'Google - woning prijsberekening' : null) ||
+    (extractUrlParamValue(raw, 'fbclid') ? 'Meta - Calculator' : null) ||
+    raw
+  );
+};
+
+const resolveHookFields = ({
+  customFields,
+  contactCustomFields,
+  hookFieldId,
+  campaignFieldId,
+  source
+}) => {
+  const hookRaw =
+    extractCustomFieldValue(customFields, hookFieldId) ||
+    extractCustomFieldValue(contactCustomFields, hookFieldId) ||
+    extractCustomFieldValue(customFields, campaignFieldId) ||
+    extractCustomFieldValue(contactCustomFields, campaignFieldId) ||
+    'Onbekend';
+
+  const campaignRaw =
+    extractCustomFieldValue(customFields, campaignFieldId) ||
+    extractCustomFieldValue(contactCustomFields, campaignFieldId) ||
+    'Onbekend';
+
+  return {
+    hook: normalizeHookValue(hookRaw, source),
+    campaign: normalizeHookValue(campaignRaw, source)
+  };
+};
+
 const firstText = (...candidates) => {
   for (const candidate of candidates) {
     const text = toTrimmedText(candidate);
@@ -2477,6 +2544,174 @@ const fetchSourceBreakdownComputed = async (range, activeLocationId) => {
   return rows;
 };
 
+const fetchContactsCustomFieldsLookup = async (activeLocationId, contactIds) => {
+  const byId = new Map();
+  const byEmail = new Map();
+  const ids = Array.from(new Set((contactIds || []).map((id) => toTrimmedText(id)).filter(Boolean)));
+  if (!ids.length) return { byId, byEmail };
+
+  const chunkSize = 100;
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize);
+    const { data, error } = await withTimeout(
+      supabase
+        .from('contacts_view')
+        .select('id,email,source_guess,custom_fields')
+        .eq('location_id', activeLocationId)
+        .in('id', chunk),
+      12000,
+      'Supabase query timeout (contacts custom fields).'
+    );
+    if (error) throw error;
+    (data || []).forEach((row) => {
+      const id = toTrimmedText(row?.id);
+      if (!id) return;
+      byId.set(id, row);
+      const emailNorm = normalizeEmailValue(row?.email);
+      if (emailNorm && !byEmail.has(emailNorm)) byEmail.set(emailNorm, row);
+    });
+  }
+
+  return { byId, byEmail };
+};
+
+const fetchHookPerformanceComputed = async (range, activeLocationId) => {
+  const hookFieldId = toTrimmedText(configState.hookFieldId);
+  const campaignFieldId = toTrimmedText(configState.campaignFieldId);
+  if (!hookFieldId && !campaignFieldId) return [];
+
+  const belivertMode = isBelivertSourceBreakdownMode();
+  const defaultSource = getDefaultDrilldownSource(belivertMode);
+  const startIso = toUtcStart(range.start);
+  const endIso = toUtcEndExclusive(range.end);
+
+  const opportunities = await fetchAllRows(() =>
+    supabase
+      .from('opportunities_view')
+      .select('id,contact_id,contact_email,source_guess,custom_fields,created_at')
+      .eq('location_id', activeLocationId)
+      .gte('created_at', startIso)
+      .lt('created_at', endIso)
+  );
+
+  const appointments = await fetchAllRows(() =>
+    supabase
+      .from('appointments_view')
+      .select('id,contact_id,contact_email,source,appointment_status,appointment_status_raw,custom_fields,start_time')
+      .eq('location_id', activeLocationId)
+      .gte('start_time', startIso)
+      .lt('start_time', endIso)
+  );
+
+  const contactIds = new Set();
+  opportunities.forEach((row) => {
+    const contactId = toTrimmedText(row?.contact_id);
+    if (contactId) contactIds.add(contactId);
+  });
+  appointments.forEach((row) => {
+    const contactId = toTrimmedText(row?.contact_id);
+    if (contactId) contactIds.add(contactId);
+  });
+
+  const { byId: contactsById, byEmail: contactsByEmail } = await fetchContactsCustomFieldsLookup(
+    activeLocationId,
+    Array.from(contactIds)
+  );
+
+  const appointmentContactIds = Array.from(
+    new Set(appointments.map((row) => toTrimmedText(row?.contact_id)).filter(Boolean))
+  );
+
+  let opportunitiesForAppointments = [];
+  if (appointmentContactIds.length) {
+    opportunitiesForAppointments = await fetchAllRows(
+      () =>
+        supabase
+          .from('opportunities_view')
+          .select('contact_id,contact_email,source_guess,created_at')
+          .eq('location_id', activeLocationId)
+          .in('contact_id', appointmentContactIds)
+          .order('created_at', { ascending: false }),
+      500
+    );
+  }
+
+  const sourceByContactId = new Map();
+  const sourceByEmail = new Map();
+  opportunitiesForAppointments.forEach((row) => {
+    const source = normalizeDrilldownSource(row?.source_guess, belivertMode);
+    if (!source) return;
+
+    const contactId = toTrimmedText(row?.contact_id);
+    if (contactId && !sourceByContactId.has(contactId)) {
+      sourceByContactId.set(contactId, source);
+    }
+
+    const emailNorm = normalizeEmailValue(row?.contact_email);
+    if (emailNorm && !sourceByEmail.has(emailNorm)) {
+      sourceByEmail.set(emailNorm, source);
+    }
+  });
+
+  const aggregated = new Map();
+  const ensureEntry = (hook, campaign, source) => {
+    const key = `${hook}|||${campaign}|||${source}`;
+    const current = aggregated.get(key) || { hook, campaign, source, leads: 0, appointments: 0 };
+    aggregated.set(key, current);
+    return current;
+  };
+
+  opportunities.forEach((row) => {
+    const contactId = toTrimmedText(row?.contact_id);
+    const emailNorm = normalizeEmailValue(row?.contact_email);
+    const contact = (contactId ? contactsById.get(contactId) : null) || (emailNorm ? contactsByEmail.get(emailNorm) : null);
+    const source = normalizeDrilldownSource(row?.source_guess, belivertMode) || defaultSource;
+    const { hook, campaign } = resolveHookFields({
+      customFields: row?.custom_fields,
+      contactCustomFields: contact?.custom_fields,
+      hookFieldId,
+      campaignFieldId,
+      source
+    });
+    const entry = ensureEntry(hook, campaign, source);
+    entry.leads += 1;
+  });
+
+  appointments.forEach((row) => {
+    if (!isAppointmentConfirmedStatus(row?.appointment_status, row?.appointment_status_raw)) return;
+
+    const contactId = toTrimmedText(row?.contact_id);
+    const emailNorm = normalizeEmailValue(row?.contact_email);
+    const contact = (contactId ? contactsById.get(contactId) : null) || (emailNorm ? contactsByEmail.get(emailNorm) : null);
+    const source =
+      normalizeDrilldownSource(row?.source, belivertMode) ||
+      (contactId ? sourceByContactId.get(contactId) : null) ||
+      (emailNorm ? sourceByEmail.get(emailNorm) : null) ||
+      defaultSource;
+
+    const { hook, campaign } = resolveHookFields({
+      customFields: row?.custom_fields,
+      contactCustomFields: contact?.custom_fields,
+      hookFieldId,
+      campaignFieldId,
+      source
+    });
+    const entry = ensureEntry(hook, campaign, source);
+    entry.appointments += 1;
+  });
+
+  const rows = Array.from(aggregated.values());
+  rows.sort((a, b) => {
+    const leadDiff = (b.leads ?? 0) - (a.leads ?? 0);
+    if (leadDiff) return leadDiff;
+    const apptDiff = (b.appointments ?? 0) - (a.appointments ?? 0);
+    if (apptDiff) return apptDiff;
+    return String(a.hook ?? '').localeCompare(String(b.hook ?? ''));
+  });
+
+  return rows;
+};
+
 const fetchLostReasonsComputed = async (range, activeLocationId) => {
   const startIso = toUtcStart(range.start);
   const endIso = toUtcEndExclusive(range.end);
@@ -2574,21 +2809,8 @@ const fetchHookPerformance = async (range) => {
     throw new Error('Location ID ontbreekt. Voeg deze toe via de setup (dashboard_config).');
   }
 
-  const startIso = toUtcStart(range.start);
-  const endIso = toUtcEndExclusive(range.end);
-
-  const { data, error } = await withTimeout(
-    supabase.rpc('get_hook_performance', {
-      p_location_id: activeLocationId,
-      p_start: startIso,
-      p_end: endIso
-    }),
-    12000,
-    'Supabase query timeout (hook performance).'
-  );
-
-  if (error) throw error;
-  return data ?? [];
+  // Compute in the client using indexed table queries: the RPC can hit low statement_timeout limits.
+  return fetchHookPerformanceComputed(range, activeLocationId);
 };
 
 const fetchLostReasons = async (range) => {
@@ -3035,6 +3257,301 @@ const fetchSourceRecordsComputed = async ({
   return [];
 };
 
+const fetchHookOpportunityDrilldownRecordsComputed = async ({
+  activeLocationId,
+  startIso,
+  endIso,
+  hookLabel,
+  limit
+}) => {
+  const hookFieldId = toTrimmedText(configState.hookFieldId);
+  const campaignFieldId = toTrimmedText(configState.campaignFieldId);
+  if (!hookFieldId && !campaignFieldId) return [];
+
+  const belivertMode = isBelivertSourceBreakdownMode();
+  const wantedHook = hookLabel ? String(hookLabel) : null;
+  const effectiveLimit = clampLimit(limit, 200);
+  const defaultSource = getDefaultDrilldownSource(belivertMode);
+  const pageSize = 1000;
+  const maxScan = 15000;
+
+  const rows = [];
+  const contactsById = new Map();
+  const contactsByEmail = new Map();
+
+  const hydrateContacts = async (contactIds) => {
+    const unique = Array.from(new Set(contactIds.filter(Boolean))).filter((id) => !contactsById.has(id));
+    if (!unique.length) return;
+    const chunkSize = 100;
+    for (let i = 0; i < unique.length; i += chunkSize) {
+      const chunk = unique.slice(i, i + chunkSize);
+      const { data, error } = await withTimeout(
+        supabase
+          .from('contacts_view')
+          .select('id,email,custom_fields')
+          .eq('location_id', activeLocationId)
+          .in('id', chunk),
+        12000,
+        'Supabase query timeout (hook drilldown contacts).'
+      );
+      if (error) throw error;
+      (data || []).forEach((row) => {
+        const id = toTrimmedText(row?.id);
+        if (!id) return;
+        contactsById.set(id, row);
+        const emailNorm = normalizeEmailValue(row?.email);
+        if (emailNorm && !contactsByEmail.has(emailNorm)) contactsByEmail.set(emailNorm, row);
+      });
+    }
+  };
+
+  let from = 0;
+  while (rows.length < effectiveLimit && from < maxScan) {
+    const { data, error } = await withTimeout(
+      supabase
+        .from('opportunities_view')
+        .select('id,created_at,contact_id,contact_name,contact_email,source_guess,status,custom_fields')
+        .eq('location_id', activeLocationId)
+        .gte('created_at', startIso)
+        .lt('created_at', endIso)
+        .order('created_at', { ascending: false })
+        .range(from, from + pageSize - 1),
+      12000,
+      'Supabase query timeout (hook drilldown opportunities).'
+    );
+    if (error) throw error;
+    const batch = Array.isArray(data) ? data : [];
+    if (!batch.length) break;
+
+    const batchContactIds = batch.map((row) => toTrimmedText(row?.contact_id)).filter(Boolean);
+    await hydrateContacts(batchContactIds);
+
+    for (const row of batch) {
+      const recordSource = normalizeDrilldownSource(row?.source_guess, belivertMode) || defaultSource;
+      const contactId = toTrimmedText(row?.contact_id);
+      const emailNorm = normalizeEmailValue(row?.contact_email);
+      const contact = (contactId ? contactsById.get(contactId) : null) || (emailNorm ? contactsByEmail.get(emailNorm) : null);
+      const { hook, campaign } = resolveHookFields({
+        customFields: row?.custom_fields,
+        contactCustomFields: contact?.custom_fields,
+        hookFieldId,
+        campaignFieldId,
+        source: recordSource
+      });
+
+      if (
+        wantedHook &&
+        hook !== wantedHook &&
+        campaign !== wantedHook &&
+        recordSource !== wantedHook
+      ) {
+        continue;
+      }
+
+      rows.push({
+        record_id: row?.id ?? '',
+        record_type: 'lead',
+        occurred_at: row?.created_at ?? null,
+        contact_id: row?.contact_id ?? null,
+        contact_name: row?.contact_name ?? null,
+        contact_email: row?.contact_email ?? null,
+        source: recordSource,
+        status: row?.status ?? null
+      });
+
+      if (rows.length >= effectiveLimit) break;
+    }
+
+    if (batch.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+};
+
+const fetchHookAppointmentDrilldownRecordsComputed = async ({
+  activeLocationId,
+  startIso,
+  endIso,
+  hookLabel,
+  limit
+}) => {
+  const hookFieldId = toTrimmedText(configState.hookFieldId);
+  const campaignFieldId = toTrimmedText(configState.campaignFieldId);
+  if (!hookFieldId && !campaignFieldId) return [];
+
+  const belivertMode = isBelivertSourceBreakdownMode();
+  const wantedHook = hookLabel ? String(hookLabel) : null;
+  const effectiveLimit = clampLimit(limit, 200);
+  const defaultSource = getDefaultDrilldownSource(belivertMode);
+  const pageSize = 1000;
+  const maxScan = 20000;
+
+  const rows = [];
+  const contactsById = new Map();
+  const contactsByEmail = new Map();
+  const sourceByContactId = new Map();
+  const sourceByEmail = new Map();
+
+  const hydrateContacts = async (contactIds) => {
+    const unique = Array.from(new Set(contactIds.filter(Boolean))).filter((id) => !contactsById.has(id));
+    if (!unique.length) return;
+    const chunkSize = 100;
+    for (let i = 0; i < unique.length; i += chunkSize) {
+      const chunk = unique.slice(i, i + chunkSize);
+      const { data, error } = await withTimeout(
+        supabase
+          .from('contacts_view')
+          .select('id,email,custom_fields')
+          .eq('location_id', activeLocationId)
+          .in('id', chunk),
+        12000,
+        'Supabase query timeout (hook drilldown contacts).'
+      );
+      if (error) throw error;
+      (data || []).forEach((row) => {
+        const id = toTrimmedText(row?.id);
+        if (!id) return;
+        contactsById.set(id, row);
+        const emailNorm = normalizeEmailValue(row?.email);
+        if (emailNorm && !contactsByEmail.has(emailNorm)) contactsByEmail.set(emailNorm, row);
+      });
+    }
+  };
+
+  const hydrateSourceMaps = async (contactIds) => {
+    const unique = Array.from(new Set(contactIds.filter(Boolean))).filter((id) => !sourceByContactId.has(id));
+    if (!unique.length) return;
+    const chunks = chunkValues(unique, 100);
+    for (const chunk of chunks) {
+      const { data, error } = await withTimeout(
+        supabase
+          .from('opportunities_view')
+          .select('contact_id,contact_email,source_guess,created_at')
+          .eq('location_id', activeLocationId)
+          .in('contact_id', chunk)
+          .order('created_at', { ascending: false }),
+        12000,
+        'Supabase query timeout (hook drilldown appointment source).'
+      );
+      if (error) throw error;
+      (data ?? []).forEach((row) => {
+        const mapped = normalizeDrilldownSource(row?.source_guess, belivertMode);
+        if (!mapped) return;
+
+        const contactId = toTrimmedText(row?.contact_id);
+        if (contactId && !sourceByContactId.has(contactId)) {
+          sourceByContactId.set(contactId, mapped);
+        }
+
+        const emailNorm = normalizeEmailValue(row?.contact_email);
+        if (emailNorm && !sourceByEmail.has(emailNorm)) {
+          sourceByEmail.set(emailNorm, mapped);
+        }
+      });
+    }
+  };
+
+  let from = 0;
+  while (rows.length < effectiveLimit && from < maxScan) {
+    const { data, error } = await withTimeout(
+      supabase
+        .from('appointments_view')
+        .select('id,start_time,contact_id,contact_name,contact_email,source,appointment_status,appointment_status_raw,custom_fields')
+        .eq('location_id', activeLocationId)
+        .gte('start_time', startIso)
+        .lt('start_time', endIso)
+        .order('start_time', { ascending: false })
+        .range(from, from + pageSize - 1),
+      12000,
+      'Supabase query timeout (hook drilldown appointments).'
+    );
+    if (error) throw error;
+    const batch = Array.isArray(data) ? data : [];
+    if (!batch.length) break;
+
+    const batchContactIds = batch.map((row) => toTrimmedText(row?.contact_id)).filter(Boolean);
+    await hydrateContacts(batchContactIds);
+    await hydrateSourceMaps(batchContactIds);
+
+    for (const row of batch) {
+      if (!isAppointmentConfirmedStatus(row?.appointment_status, row?.appointment_status_raw)) continue;
+
+      const contactId = toTrimmedText(row?.contact_id);
+      const emailNorm = normalizeEmailValue(row?.contact_email);
+      const contact = (contactId ? contactsById.get(contactId) : null) || (emailNorm ? contactsByEmail.get(emailNorm) : null);
+
+      const recordSource =
+        normalizeDrilldownSource(row?.source, belivertMode) ||
+        (contactId ? sourceByContactId.get(contactId) : null) ||
+        (emailNorm ? sourceByEmail.get(emailNorm) : null) ||
+        defaultSource;
+
+      const { hook, campaign } = resolveHookFields({
+        customFields: row?.custom_fields,
+        contactCustomFields: contact?.custom_fields,
+        hookFieldId,
+        campaignFieldId,
+        source: recordSource
+      });
+
+      if (
+        wantedHook &&
+        hook !== wantedHook &&
+        campaign !== wantedHook &&
+        recordSource !== wantedHook
+      ) {
+        continue;
+      }
+
+      rows.push({
+        record_id: row?.id ?? '',
+        record_type: 'appointment',
+        occurred_at: row?.start_time ?? null,
+        contact_id: row?.contact_id ?? null,
+        contact_name: row?.contact_name ?? null,
+        contact_email: row?.contact_email ?? null,
+        source: recordSource,
+        status: row?.appointment_status ?? row?.appointment_status_raw ?? null
+      });
+
+      if (rows.length >= effectiveLimit) break;
+    }
+
+    if (batch.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+};
+
+const fetchHookDrilldownRecordsComputed = async ({
+  activeLocationId,
+  startIso,
+  endIso,
+  kind,
+  hook,
+  limit
+}) => {
+  const effectiveLimit = clampLimit(limit, 200);
+  if (kind === 'leads') {
+    return fetchHookOpportunityDrilldownRecordsComputed({
+      activeLocationId,
+      startIso,
+      endIso,
+      hookLabel: hook,
+      limit: effectiveLimit
+    });
+  }
+  return fetchHookAppointmentDrilldownRecordsComputed({
+    activeLocationId,
+    startIso,
+    endIso,
+    hookLabel: hook,
+    limit: effectiveLimit
+  });
+};
+
 const fetchDrilldownRecords = async ({ kind, source, range }) => {
   if (!supabase) return null;
   const activeLocationId = configState.locationId || ghlLocationId;
@@ -3047,21 +3564,14 @@ const fetchDrilldownRecords = async ({ kind, source, range }) => {
 
   if (kind === 'hook_leads' || kind === 'hook_appointments') {
     const hookKind = kind === 'hook_leads' ? 'leads' : 'appointments';
-    const { data, error } = await withTimeout(
-      supabase.rpc('get_hook_records', {
-        p_location_id: activeLocationId,
-        p_start: startIso,
-        p_end: endIso,
-        p_kind: hookKind,
-        p_hook: source || null,
-        p_limit: 200
-      }),
-      12000,
-      'Supabase query timeout (hook records).'
-    );
-
-    if (error) throw error;
-    return data ?? [];
+    return fetchHookDrilldownRecordsComputed({
+      activeLocationId,
+      startIso,
+      endIso,
+      kind: hookKind,
+      hook: source || null,
+      limit: 200
+    });
   }
 
   if (kind === 'lost_reason_leads') {

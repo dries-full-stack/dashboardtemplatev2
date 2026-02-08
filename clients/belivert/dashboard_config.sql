@@ -3,6 +3,7 @@
 insert into public.dashboard_config (
   id,
   location_id,
+  hook_field_id,
   dashboard_title,
   dashboard_subtitle,
   dashboard_logo_url,
@@ -12,6 +13,7 @@ insert into public.dashboard_config (
 values (
   1,
   'PLaZB1vgUhy4CCo3vEDi',
+  'R7CEVThNclchfzYqS5IT',
   'Belivert',
   'Lead & Marketing Dashboard',
   'https://belivert.be/wp-content/uploads/2025/12/Belivert-logo-Z-rgb.jpg',
@@ -86,6 +88,7 @@ $$::jsonb
 )
 on conflict (id) do update set
   location_id = excluded.location_id,
+  hook_field_id = excluded.hook_field_id,
   dashboard_title = excluded.dashboard_title,
   dashboard_subtitle = excluded.dashboard_subtitle,
   dashboard_logo_url = excluded.dashboard_logo_url,
