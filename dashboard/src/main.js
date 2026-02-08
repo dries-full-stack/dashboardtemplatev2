@@ -1588,33 +1588,24 @@ const loadLostReasonMappings = async (range = dateRange) => {
       overrideRows = overrides || [];
     }
 
-    // Suggest labels based on Teamleader lost reasons (if synced), plus existing overrides.
-    // This keeps mapping fast even when GHL only returns lostReasonId values.
+    // Suggest labels based on known GHL lost reason names (lookup table), plus existing overrides.
+    // If the lookup table is empty, mappings stay manual.
     let labelOptions = [];
     try {
-      const { data: teamleaderReasons, error: teamleaderError } = await supabase
-        .from('teamleader_lost_reasons')
-        .select('name')
+      const { data: lookupRows, error: lookupError } = await supabase
+        .from('lost_reason_lookup')
+        .select('reason_name')
         .eq('location_id', locationId);
-      if (teamleaderError) {
-        const msg = teamleaderError.message ?? String(teamleaderError);
-        if (!msg.includes('does not exist')) {
-          console.warn('Unable to load Teamleader lost reasons for label suggestions', teamleaderError);
-        }
-      } else {
-        labelOptions = [
-          ...labelOptions,
-          ...(teamleaderReasons || []).map((row) => toTrimmedText(row?.name)).filter(Boolean)
-        ];
-      }
+      if (lookupError) throw lookupError;
+      labelOptions = [
+        ...labelOptions,
+        ...(lookupRows || []).map((row) => toTrimmedText(row?.reason_name)).filter(Boolean)
+      ];
     } catch (error) {
-      console.warn('Unable to load Teamleader lost reasons for label suggestions', error);
+      console.warn('Unable to load GHL lost reason lookup for label suggestions', error);
     }
 
-    labelOptions = [
-      ...labelOptions,
-      ...overrideRows.map((row) => toTrimmedText(row?.reason_name)).filter(Boolean)
-    ];
+    labelOptions = [...labelOptions, ...overrideRows.map((row) => toTrimmedText(row?.reason_name)).filter(Boolean)];
 
     const occurrencesById = new Map();
     (candidateRows || []).forEach((row) => {
