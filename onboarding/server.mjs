@@ -201,16 +201,27 @@ const normalizeSourceText = (value) => {
   return value.trim();
 };
 
-const SOURCE_BUCKET_ORDER = ['Solvari', 'Bobex', 'Trustlocal', 'Facebook Ads', 'Google Ads', 'Organic'];
+const SOURCE_BUCKET_ORDER = [
+  'Solvari',
+  'Bobex',
+  'Trustlocal',
+  'Bambelo',
+  'Facebook Ads',
+  'Google Ads',
+  'Organic',
+  'Overig'
+];
 
 const suggestSourceBucket = (rawValue) => {
   const text = normalizeSourceText(rawValue);
   const lower = text.toLowerCase();
-  if (!lower || lower === 'onbekend' || lower === 'unknown' || lower === 'n/a') return 'Organic';
+  if (!lower) return 'Organic';
+  if (lower === 'onbekend' || lower === 'unknown' || lower === 'n/a') return 'Overig';
 
   if (lower.includes('solvari')) return 'Solvari';
   if (lower.includes('bobex')) return 'Bobex';
   if (lower.includes('trustlocal') || lower.includes('trust local')) return 'Trustlocal';
+  if (lower.includes('bambelo')) return 'Bambelo';
 
   if (
     lower.includes('facebook') ||
@@ -244,7 +255,7 @@ const suggestSourceBucket = (rawValue) => {
     return 'Organic';
   }
 
-  return 'Organic';
+  return 'Overig';
 };
 
 const resolveOnboardingContext = (data = {}) => {

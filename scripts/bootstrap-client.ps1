@@ -349,6 +349,19 @@ New-Item -ItemType Directory -Force -Path $clientDir | Out-Null
 
 $themeKey = Resolve-BrandTheme -slug $Slug -title $DashboardTitle -logoUrl $LogoUrl
 
+$sourceNormalizationRulesJson = $null
+if ($themeKey -eq 'belivert') {
+  $sourceNormalizationRulesJson = @(
+    @{ bucket = 'Solvari'; patterns = @('solvari') },
+    @{ bucket = 'Bobex'; patterns = @('bobex') },
+    @{ bucket = 'Trustlocal'; patterns = @('trustlocal', 'trust local') },
+    @{ bucket = 'Bambelo'; patterns = @('bambelo') },
+    @{ bucket = 'Facebook Ads'; patterns = @('facebook', 'instagram', 'meta', 'fbclid', 'meta - calculator', 'meta ads - calculator') },
+    @{ bucket = 'Google Ads'; patterns = @('google', 'adwords', 'gclid', 'cpc', 'google - woning prijsberekening') },
+    @{ bucket = 'Organic'; patterns = @('organic', 'seo', 'direct', 'referral', '(none)', 'website') }
+  ) | ConvertTo-Json -Depth 6
+}
+
 $layoutJson = $null
 if (-not $NoLayout) {
   $selectedTabs = @()
@@ -399,6 +412,15 @@ if ($layoutJson) {
   $layoutSql = "`$$`n$layoutJson`n`$$::jsonb"
 }
 
+$normalizationColumns = ''
+$normalizationValues = ''
+$normalizationUpdate = ''
+if ($sourceNormalizationRulesJson) {
+  $normalizationColumns = ",`n  source_normalization_rules"
+  $normalizationValues = ",`n  `$$`n$sourceNormalizationRulesJson`n`$$::jsonb"
+  $normalizationUpdate = ",`n  source_normalization_rules = excluded.source_normalization_rules"
+}
+
 $dashboardSql = @"
 -- Client dashboard_config for $Slug
 -- Run this in Supabase SQL editor (or via CLI).
@@ -408,7 +430,7 @@ insert into public.dashboard_config (
   dashboard_title,
   dashboard_subtitle,
   dashboard_logo_url,
-  dashboard_layout
+  dashboard_layout$normalizationColumns
 )
 values (
   1,
@@ -416,14 +438,14 @@ values (
   $(To-SqlString $DashboardTitle),
   $(To-SqlString $DashboardSubtitle),
   $(To-SqlString $LogoUrl),
-  $layoutSql
+  $layoutSql$normalizationValues
 )
 on conflict (id) do update set
   location_id = excluded.location_id,
   dashboard_title = excluded.dashboard_title,
   dashboard_subtitle = excluded.dashboard_subtitle,
   dashboard_logo_url = excluded.dashboard_logo_url,
-  dashboard_layout = excluded.dashboard_layout,
+  dashboard_layout = excluded.dashboard_layout$normalizationUpdate,
   updated_at = now();
 "@
 
@@ -871,6 +893,9 @@ if ($shouldApplyConfig) {
     }
     if ($layoutJson) {
       $payload.dashboard_layout = $layoutJson | ConvertFrom-Json
+    }
+    if ($sourceNormalizationRulesJson) {
+      $payload.source_normalization_rules = $sourceNormalizationRulesJson | ConvertFrom-Json
     }
 
     $apiUrl = "$SupabaseUrl/rest/v1/dashboard_config?on_conflict=id"

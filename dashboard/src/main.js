@@ -254,7 +254,16 @@ const getDefaultRange = () => {
 const DEFAULT_RANGE = getDefaultRange();
 
 const SOURCE_ORDER = ['META', 'Google Ads', 'Makelaar vergelijker', 'Immoweb'];
-const BELIVERT_SOURCE_ORDER = ['Solvari', 'Bobex', 'Trustlocal', 'Facebook Ads', 'Google Ads', 'Organic'];
+const BELIVERT_SOURCE_ORDER = [
+  'Solvari',
+  'Bobex',
+  'Trustlocal',
+  'Bambelo',
+  'Facebook Ads',
+  'Google Ads',
+  'Organic',
+  'Overig'
+];
 const HOOK_ORDER = ['Bereken mijn woningwaarde', 'Gratis schatting', '5 verkooptips', 'Lokale makelaar vs grote groep?'];
 
 const LOST_REASON_RATIOS = [
@@ -549,6 +558,7 @@ const configState = {
   salesMonthlyDealsTarget: null,
   salesMonthlyDealsTargets: null,
   salesQuotesFromPhaseId: null,
+  sourceNormalizationRules: null,
   billingPortalUrl: null,
   billingCheckoutUrl: null,
   billingCheckoutEmbed: false,
@@ -598,6 +608,16 @@ const adminState = {
     quotesPhaseOptions: [],
     hasChanges: false
   },
+  sources: {
+    status: 'idle',
+    message: '',
+    loading: false,
+    saving: false,
+    rules: [],
+    samples: [],
+    samplesLoading: false,
+    hasChanges: false
+  },
   billing: {
     status: 'idle',
     message: '',
@@ -636,6 +656,19 @@ const resetKpiState = () => {
     monthlyDealsTargets: {},
     quotesFromPhaseId: '',
     quotesPhaseOptions: [],
+    hasChanges: false
+  };
+};
+
+const resetSourceNormalizationState = () => {
+  adminState.sources = {
+    status: 'idle',
+    message: '',
+    loading: false,
+    saving: false,
+    rules: [],
+    samples: [],
+    samplesLoading: false,
     hasChanges: false
   };
 };
@@ -682,6 +715,7 @@ const initAuth = async () => {
       adminState.auth.message = '';
       resetMappingState();
       resetKpiState();
+      resetSourceNormalizationState();
       resetBillingState();
     } else if (adminState.open) {
       if (adminModeEnabled) {
@@ -689,6 +723,7 @@ const initAuth = async () => {
         loadSpendMapping();
       }
       loadKpiSettings();
+      loadSourceNormalizationSettings();
     }
     renderApp();
   });
@@ -761,6 +796,7 @@ const loadLocationConfig = async () => {
     typeof data?.sales_quotes_from_phase_id === 'string' && data.sales_quotes_from_phase_id.trim()
       ? data.sales_quotes_from_phase_id.trim()
       : null;
+  configState.sourceNormalizationRules = data?.source_normalization_rules ?? null;
   configState.billingPortalUrl = normalizeBillingUrl(data?.billing_portal_url);
   configState.billingCheckoutUrl = normalizeBillingUrl(data?.billing_checkout_url);
   configState.billingCheckoutEmbed = data?.billing_checkout_embed === true;
@@ -1455,6 +1491,214 @@ const saveKpiSettings = async () => {
   }
 };
 
+const cloneNormalizationRules = (rules) =>
+  (Array.isArray(rules) ? rules : []).map((rule) => ({
+    bucket: normalizeSourceLabel(rule?.bucket),
+    patterns: Array.isArray(rule?.patterns) ? [...rule.patterns] : []
+  }));
+
+const loadSourceNormalizationSettings = async () => {
+  if (!settingsEnabled) return;
+  if (!isBelivertSourceBreakdownMode()) return;
+  if (adminState.sources.loading) return;
+
+  adminState.sources.loading = true;
+  adminState.sources.status = 'loading';
+  adminState.sources.message = '';
+  renderApp();
+
+  try {
+    const rules =
+      sanitizeSourceNormalizationRules(configState.sourceNormalizationRules) ||
+      sanitizeSourceNormalizationRules(DEFAULT_BELIVERT_SOURCE_NORMALIZATION_RULES) ||
+      [];
+
+    adminState.sources.rules = cloneNormalizationRules(rules);
+    adminState.sources.hasChanges = false;
+    adminState.sources.status = 'ready';
+    adminState.sources.message = '';
+
+    // Load samples in the background (no await) so users immediately see what's landing in "Overig".
+    loadSourceNormalizationSamples();
+  } catch (error) {
+    adminState.sources.status = 'error';
+    adminState.sources.message = error instanceof Error ? error.message : 'Onbekende fout';
+  } finally {
+    adminState.sources.loading = false;
+    renderApp();
+  }
+};
+
+const loadSourceNormalizationSamples = async () => {
+  if (!supabase || !settingsEnabled) return;
+  if (!isBelivertSourceBreakdownMode()) return;
+  if (adminState.sources.samplesLoading) return;
+  const activeLocationId = configState.locationId || ghlLocationId;
+  if (!activeLocationId) {
+    adminState.sources.status = 'error';
+    adminState.sources.message = 'Location ID ontbreekt. Sla eerst de integratie op.';
+    renderApp();
+    return;
+  }
+
+  adminState.sources.samplesLoading = true;
+  renderApp();
+
+  try {
+    const sampleRange = buildRecentRange(120);
+    const startIso = toUtcStart(sampleRange.start);
+    const endIso = toUtcEndExclusive(sampleRange.end);
+
+    const { data, error } = await withTimeout(
+      supabase
+        .from('opportunities_view')
+        .select('source_guess,created_at')
+        .eq('location_id', activeLocationId)
+        .gte('created_at', startIso)
+        .lt('created_at', endIso)
+        .order('created_at', { ascending: false })
+        .limit(5000),
+      12000,
+      'Supabase query timeout (source samples).'
+    );
+    if (error) throw error;
+
+    const counts = new Map();
+    (data ?? []).forEach((row) => {
+      const raw = normalizeSourceValue(row?.source_guess) || 'Onbekend';
+      counts.set(raw, (counts.get(raw) || 0) + 1);
+    });
+
+    const rows = Array.from(counts.entries())
+      .map(([raw, count]) => ({
+        raw,
+        count,
+        bucket: mapBelivertSourceLabel(raw)
+      }))
+      .sort((a, b) => (b.count ?? 0) - (a.count ?? 0));
+
+    adminState.sources.samples = rows.slice(0, 50);
+  } catch (error) {
+    adminState.sources.status = 'error';
+    adminState.sources.message = error instanceof Error ? error.message : 'Onbekende fout';
+  } finally {
+    adminState.sources.samplesLoading = false;
+    renderApp();
+  }
+};
+
+const saveSourceNormalizationSettings = async () => {
+  if (!supabase || !settingsEnabled) return;
+  if (!isBelivertSourceBreakdownMode()) return;
+  if (adminState.sources.saving) return;
+
+  const kpiOnlyMode = settingsModeEnabled && !adminModeEnabled;
+  if (adminModeEnabled) {
+    const token = await getAuthToken();
+    if (!token) {
+      adminState.sources.status = 'error';
+      adminState.sources.message = 'Log in om source normalisatie op te slaan.';
+      renderApp();
+      return;
+    }
+  }
+
+  const rules = sanitizeSourceNormalizationRules(adminState.sources.rules);
+  if (!rules || rules.length === 0) {
+    adminState.sources.status = 'error';
+    adminState.sources.message = 'Voeg minstens 1 normalisatie-regel toe (of vul keywords in).';
+    renderApp();
+    return;
+  }
+
+  const locationId = (configState.locationId || ghlLocationId || adminState.form.locationId || '').trim();
+  if (adminModeEnabled && !locationId) {
+    adminState.sources.status = 'error';
+    adminState.sources.message = 'Location ID ontbreekt. Sla eerst de integratie op.';
+    renderApp();
+    return;
+  }
+
+  adminState.sources.saving = true;
+  adminState.sources.status = 'saving';
+  adminState.sources.message = '';
+  renderApp();
+
+  try {
+    const now = new Date().toISOString();
+
+    if (kpiOnlyMode) {
+      const { data, error } = await supabase
+        .from('dashboard_config')
+        .update({
+          source_normalization_rules: rules,
+          updated_at: now
+        })
+        .eq('id', 1)
+        .select('id')
+        .maybeSingle();
+      if (error) throw error;
+      if (!data?.id) {
+        throw new Error('dashboard_config ontbreekt. Contacteer je dashboardbeheerder.');
+      }
+    } else {
+      const { error } = await supabase
+        .from('dashboard_config')
+        .upsert(
+          {
+            id: 1,
+            location_id: locationId,
+            source_normalization_rules: rules,
+            updated_at: now
+          },
+          { onConflict: 'id' }
+        );
+      if (error) throw error;
+    }
+
+    adminState.sources.saving = false;
+    adminState.sources.status = 'success';
+    adminState.sources.message = 'Source normalisatie opgeslagen.';
+    adminState.sources.hasChanges = false;
+
+    configState.sourceNormalizationRules = rules;
+
+    liveState.sourceBreakdown = {
+      status: 'idle',
+      rows: null,
+      rangeKey: '',
+      errorMessage: '',
+      inFlight: false
+    };
+    liveState.hookPerformance = {
+      status: 'idle',
+      rows: null,
+      rangeKey: '',
+      errorMessage: '',
+      inFlight: false
+    };
+    liveState.spendBySource = {
+      status: 'idle',
+      totals: null,
+      rangeKey: '',
+      errorMessage: '',
+      inFlight: false
+    };
+
+    ensureSourceBreakdown(dateRange);
+    ensureHookPerformance(dateRange);
+    ensureSpendBySource(dateRange);
+
+    loadSourceNormalizationSamples();
+  } catch (error) {
+    adminState.sources.status = 'error';
+    adminState.sources.message = error instanceof Error ? error.message : 'Onbekende fout';
+  } finally {
+    adminState.sources.saving = false;
+    renderApp();
+  }
+};
+
 const saveBillingSettings = async () => {
   if (!supabase || !settingsEnabled) return;
   if (adminState.billing.saving) return;
@@ -1677,37 +1921,98 @@ const MAPPING_PLATFORMS = {
 const normalizeMappingPlatform = (value) => String(value ?? '').trim().toLowerCase();
 const normalizeSourceLabel = (value) => String(value ?? '').trim();
 const isBelivertSourceBreakdownMode = () => resolveBrandTheme() === 'belivert';
-const mapBelivertSourceLabel = (value) => {
-  const source = normalizeSourceLabel(value).toLowerCase();
-  if (!source || source === 'onbekend' || source === 'unknown') return 'Organic';
+const DEFAULT_BELIVERT_SOURCE_NORMALIZATION_RULES = [
+  { bucket: 'Solvari', patterns: ['solvari'] },
+  { bucket: 'Bobex', patterns: ['bobex'] },
+  { bucket: 'Trustlocal', patterns: ['trustlocal', 'trust local'] },
+  { bucket: 'Bambelo', patterns: ['bambelo'] },
+  { bucket: 'Facebook Ads', patterns: ['facebook', 'instagram', 'meta', 'fbclid', 'meta - calculator', 'meta ads - calculator'] },
+  { bucket: 'Google Ads', patterns: ['google', 'adwords', 'gclid', 'cpc', 'google - woning prijsberekening'] },
+  { bucket: 'Organic', patterns: ['organic', 'seo', 'direct', 'referral', '(none)', 'website'] }
+];
 
-  if (source.includes('solvari')) return 'Solvari';
-  if (source.includes('bobex')) return 'Bobex';
-  if (source.includes('trustlocal') || source.includes('trust local')) return 'Trustlocal';
+const sanitizeSourceNormalizationRules = (value) => {
+  if (!Array.isArray(value)) return null;
 
-  if (
-    source.includes('facebook') ||
-    source.includes('instagram') ||
-    source.includes('meta') ||
-    source.includes('fbclid') ||
-    source.includes('meta - calculator') ||
-    source.includes('meta ads - calculator')
-  ) {
-    return 'Facebook Ads';
-  }
+  const cleaned = value
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return null;
+      const bucket = normalizeSourceLabel(entry.bucket);
+      if (!bucket) return null;
 
-  if (
-    source.includes('google') ||
-    source.includes('adwords') ||
-    source.includes('gclid') ||
-    source.includes('google - woning prijsberekening')
-  ) {
-    return 'Google Ads';
-  }
+      let patterns = entry.patterns;
+      if (typeof patterns === 'string') {
+        patterns = patterns
+          .split(',')
+          .map((token) => token.trim())
+          .filter(Boolean);
+      }
 
-  return 'Organic';
+      if (!Array.isArray(patterns)) patterns = [];
+
+      const normalizedPatterns = patterns
+        .map((pattern) => normalizeSourceLabel(pattern).toLowerCase())
+        .filter(Boolean);
+
+      if (!normalizedPatterns.length) return null;
+      return { bucket, patterns: normalizedPatterns };
+    })
+    .filter(Boolean);
+
+  return cleaned.length ? cleaned : null;
 };
-const getSourceBreakdownOrder = () => (isBelivertSourceBreakdownMode() ? BELIVERT_SOURCE_ORDER : SOURCE_ORDER);
+
+let belivertNormalizationRules = sanitizeSourceNormalizationRules(DEFAULT_BELIVERT_SOURCE_NORMALIZATION_RULES) ?? [];
+let belivertNormalizationConfigRef = null;
+let belivertNormalizationConfig = null;
+const getBelivertNormalizationRules = () => {
+  const raw = configState.sourceNormalizationRules;
+  if (raw !== belivertNormalizationConfigRef) {
+    belivertNormalizationConfigRef = raw;
+    belivertNormalizationConfig = sanitizeSourceNormalizationRules(raw);
+  }
+
+  return belivertNormalizationConfig && belivertNormalizationConfig.length
+    ? belivertNormalizationConfig
+    : belivertNormalizationRules;
+};
+
+const getBelivertSourceBreakdownOrder = () => {
+  const order = [...BELIVERT_SOURCE_ORDER];
+  const rules = getBelivertNormalizationRules();
+  rules.forEach((rule) => {
+    const bucket = normalizeSourceLabel(rule?.bucket);
+    if (!bucket) return;
+    if (bucket === 'Overig') return;
+    if (order.includes(bucket)) return;
+    const overigIndex = order.indexOf('Overig');
+    const insertAt = overigIndex >= 0 ? overigIndex : order.length;
+    order.splice(insertAt, 0, bucket);
+  });
+  if (!order.includes('Organic')) order.push('Organic');
+  if (!order.includes('Overig')) order.push('Overig');
+  return order;
+};
+
+const mapBelivertSourceLabel = (value) => {
+  const raw = normalizeSourceLabel(value);
+  const source = raw.toLowerCase();
+  if (!source) return 'Organic';
+  if (source === 'onbekend' || source === 'unknown' || source === 'n/a') return 'Overig';
+
+  const rules = getBelivertNormalizationRules();
+  for (const rule of rules) {
+    const bucket = normalizeSourceLabel(rule?.bucket);
+    if (!bucket) continue;
+    const patterns = Array.isArray(rule?.patterns) ? rule.patterns : [];
+    for (const pattern of patterns) {
+      if (pattern && source.includes(pattern)) return bucket;
+    }
+  }
+
+  return 'Overig';
+};
+const getSourceBreakdownOrder = () => (isBelivertSourceBreakdownMode() ? getBelivertSourceBreakdownOrder() : SOURCE_ORDER);
 const buildMappingKey = (platform, campaignId, adsetId) => {
   const normalized = normalizeMappingPlatform(platform);
   if (normalized === MAPPING_PLATFORMS.google) {
@@ -1731,7 +2036,7 @@ const buildSourceOptions = (rows) => {
     if (row?.source) options.add(row.source);
   });
   if (isBelivertSourceBreakdownMode()) {
-    BELIVERT_SOURCE_ORDER.forEach((source) => options.add(source));
+    getBelivertSourceBreakdownOrder().forEach((source) => options.add(source));
   }
   options.add(META_SOURCE_BY_LANG.nl);
   options.add(META_SOURCE_BY_LANG.fr);
@@ -2151,7 +2456,7 @@ const fetchSourceBreakdownComputed = async (range, activeLocationId) => {
 
   if (belivertMode) {
     const rowsBySource = new Map(rows.map((row) => [row.source, row]));
-    return BELIVERT_SOURCE_ORDER.map((source) => ({
+    return getBelivertSourceBreakdownOrder().map((source) => ({
       source,
       leads: rowsBySource.get(source)?.leads || 0,
       appointments: rowsBySource.get(source)?.appointments || 0,
@@ -2462,7 +2767,7 @@ const fetchSpendBySource = async (range) => {
       addSpend(row?.source, Number(row?.spend ?? 0));
     });
 
-    BELIVERT_SOURCE_ORDER.forEach((source) => {
+    getBelivertSourceBreakdownOrder().forEach((source) => {
       if (!Object.prototype.hasOwnProperty.call(totals, source)) totals[source] = 0;
     });
   }
@@ -4737,6 +5042,45 @@ const renderAdminModal = () => {
   const mappingStatusClass = adminState.mapping.status === 'error' ? 'error' : 'success';
   const kpiBusy = adminState.kpi.loading || adminState.kpi.saving;
   const kpiStatusClass = adminState.kpi.status === 'error' ? 'error' : 'success';
+  const sourcesBusy = adminState.sources.loading || adminState.sources.saving;
+  const sourcesStatusClass = adminState.sources.status === 'error' ? 'error' : 'success';
+  const sourcesRules = Array.isArray(adminState.sources.rules) ? adminState.sources.rules : [];
+  const sourcesRulesRowsMarkup = sourcesRules.length
+    ? sourcesRules
+        .map((rule, idx) => {
+          const bucket = normalizeSourceLabel(rule?.bucket);
+          const patterns = Array.isArray(rule?.patterns) ? rule.patterns.join(', ') : '';
+          return `
+            <tr>
+              <td>
+                <input type="text" class="admin-input admin-mapping-input" value="${escapeHtml(bucket)}" placeholder="Kanaal" data-source-rule-bucket="${idx}" ${sourcesBusy ? 'disabled' : ''} />
+              </td>
+              <td>
+                <input type="text" class="admin-input admin-mapping-input" value="${escapeHtml(patterns)}" placeholder="keywords, komma-gescheiden" data-source-rule-patterns="${idx}" ${sourcesBusy ? 'disabled' : ''} />
+              </td>
+            </tr>
+          `;
+        })
+        .join('')
+    : '<tr><td colspan="2" class="admin-mapping-empty">Geen regels gevonden.</td></tr>';
+  const sourcesSamples = Array.isArray(adminState.sources.samples) ? adminState.sources.samples : [];
+  const sourcesSamplesRowsMarkup = sourcesSamples.length
+    ? sourcesSamples
+        .map((row) => {
+          const raw = escapeHtml(row?.raw ?? '');
+          const count = formatNumber(row?.count ?? 0);
+          const bucket = escapeHtml(row?.bucket ?? '');
+          const bucketMarkup = bucket === 'Overig' ? `<span class="text-destructive">${bucket}</span>` : bucket;
+          return `
+            <tr>
+              <td>${raw || '--'}</td>
+              <td class="admin-mapping-muted">${count}</td>
+              <td>${bucketMarkup}</td>
+            </tr>
+          `;
+        })
+        .join('')
+    : '<tr><td colspan="3" class="admin-mapping-empty">Nog geen samples geladen.</td></tr>';
   const monthlyDealsTargetValue =
     adminState.kpi.monthlyDealsTarget ||
     String(
@@ -4997,6 +5341,67 @@ const renderAdminModal = () => {
                     <div class="admin-meta">Leeg = gebruikt default target (placeholder).</div>
                   </div>
                 </div>
+                ${
+                  isBelivertSourceBreakdownMode()
+                    ? `<div class="admin-section">
+                        <div class="admin-section-header">
+                          <div>
+                            <h4 class="admin-section-title">Source normalisatie</h4>
+                            <p class="admin-section-subtitle">
+                              Koppel raw sources aan vaste kanalen. Lege source telt als Organic. Alles wat niet matcht valt onder Overig.
+                            </p>
+                          </div>
+                          <div class="admin-mapping-toolbar">
+                            <button type="button" class="admin-ghost" data-source-rules-add ${sourcesBusy ? 'disabled' : ''}>+ Bucket</button>
+                            <button type="button" class="admin-ghost" data-source-samples-refresh ${adminState.sources.samplesLoading ? 'disabled' : ''}>Vernieuw bronnen</button>
+                            <button type="button" class="admin-submit" data-source-rules-save ${sourcesBusy ? 'disabled' : ''}>
+                              ${adminState.sources.saving ? 'Opslaan...' : 'Opslaan'}
+                            </button>
+                          </div>
+                        </div>
+                        ${
+                          adminState.sources.message
+                            ? `<div class="admin-message ${sourcesStatusClass}">${escapeHtml(adminState.sources.message)}</div>`
+                            : ''
+                        }
+                        ${adminState.sources.loading ? '<div class="admin-meta">Normalisatie wordt geladen...</div>' : ''}
+                        <div class="admin-mapping-block">
+                          <h5 class="admin-mapping-title">Regels (keywords)</h5>
+                          <div class="admin-mapping-table-wrapper">
+                            <table class="admin-mapping-table">
+                              <thead>
+                                <tr>
+                                  <th>Kanaal</th>
+                                  <th>Keywords</th>
+                                </tr>
+                              </thead>
+                              <tbody>${sourcesRulesRowsMarkup}</tbody>
+                            </table>
+                          </div>
+                          <div class="admin-meta">
+                            Voorbeeld: kanaal = Bambelo, keywords = bambelo. Gebruik komma's om meerdere keywords toe te voegen.
+                          </div>
+                        </div>
+                        <div class="admin-mapping-block">
+                          <h5 class="admin-mapping-title">Gedetecteerde raw sources</h5>
+                          <div class="admin-mapping-table-wrapper">
+                            <table class="admin-mapping-table">
+                              <thead>
+                                <tr>
+                                  <th>Raw source</th>
+                                  <th>Aantal</th>
+                                  <th>Bucket</th>
+                                </tr>
+                              </thead>
+                              <tbody>${sourcesSamplesRowsMarkup}</tbody>
+                            </table>
+                          </div>
+                          ${adminState.sources.samplesLoading ? '<div class="admin-meta">Bronnen worden geladen...</div>' : ''}
+                          <div class="admin-meta">Tip: kijk vooral naar alles dat in Overig valt en voeg keywords toe.</div>
+                        </div>
+                      </div>`
+                    : ''
+                }
                 ${
                   adminModeEnabled && loggedIn
                     ? `<div class="admin-section">
@@ -7193,6 +7598,7 @@ const bindInteractions = () => {
         adminState.auth.status = 'idle';
         adminState.loading = false;
         adminState.kpi.message = '';
+        adminState.sources.message = '';
         renderApp();
         if (authSession) {
           if (adminModeEnabled) {
@@ -7200,8 +7606,10 @@ const bindInteractions = () => {
             loadSpendMapping();
           }
           loadKpiSettings();
+          loadSourceNormalizationSettings();
         } else if (settingsModeEnabled && !adminModeEnabled) {
           loadKpiSettings();
+          loadSourceNormalizationSettings();
         }
       });
     });
@@ -7366,6 +7774,7 @@ const bindInteractions = () => {
         adminState.loading = false;
         resetMappingState();
         resetKpiState();
+        resetSourceNormalizationState();
         resetBillingState();
         renderApp();
       });
@@ -7446,6 +7855,63 @@ const bindInteractions = () => {
     document.querySelectorAll('[data-map-key]').forEach((input) => {
       input.addEventListener('input', (event) => {
         setMappingValue(input.getAttribute('data-map-key'), event.target.value);
+      });
+    });
+
+    const sourceRulesAdd = document.querySelector('[data-source-rules-add]');
+    if (sourceRulesAdd) {
+      sourceRulesAdd.addEventListener('click', () => {
+        if (!Array.isArray(adminState.sources.rules)) adminState.sources.rules = [];
+        adminState.sources.rules = [...adminState.sources.rules, { bucket: '', patterns: [] }];
+        adminState.sources.hasChanges = true;
+        renderApp();
+      });
+    }
+
+    const sourceRulesSave = document.querySelector('[data-source-rules-save]');
+    if (sourceRulesSave) {
+      sourceRulesSave.addEventListener('click', () => {
+        saveSourceNormalizationSettings();
+      });
+    }
+
+    const sourceSamplesRefresh = document.querySelector('[data-source-samples-refresh]');
+    if (sourceSamplesRefresh) {
+      sourceSamplesRefresh.addEventListener('click', () => {
+        loadSourceNormalizationSamples();
+      });
+    }
+
+    document.querySelectorAll('[data-source-rule-bucket]').forEach((input) => {
+      input.addEventListener('input', (event) => {
+        const index = Number(input.getAttribute('data-source-rule-bucket'));
+        if (!Number.isFinite(index)) return;
+        if (!Array.isArray(adminState.sources.rules)) adminState.sources.rules = [];
+        const existing = adminState.sources.rules[index] ?? { bucket: '', patterns: [] };
+        adminState.sources.rules[index] = {
+          ...existing,
+          bucket: event.target.value
+        };
+        adminState.sources.hasChanges = true;
+      });
+    });
+
+    document.querySelectorAll('[data-source-rule-patterns]').forEach((input) => {
+      input.addEventListener('input', (event) => {
+        const index = Number(input.getAttribute('data-source-rule-patterns'));
+        if (!Number.isFinite(index)) return;
+        if (!Array.isArray(adminState.sources.rules)) adminState.sources.rules = [];
+        const existing = adminState.sources.rules[index] ?? { bucket: '', patterns: [] };
+        const raw = String(event.target.value ?? '');
+        const patterns = raw
+          .split(',')
+          .map((token) => token.trim())
+          .filter(Boolean);
+        adminState.sources.rules[index] = {
+          ...existing,
+          patterns
+        };
+        adminState.sources.hasChanges = true;
       });
     });
   }

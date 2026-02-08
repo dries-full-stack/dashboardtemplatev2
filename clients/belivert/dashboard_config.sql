@@ -6,7 +6,8 @@ insert into public.dashboard_config (
   dashboard_title,
   dashboard_subtitle,
   dashboard_logo_url,
-  dashboard_layout
+  dashboard_layout,
+  source_normalization_rules
 )
 values (
   1,
@@ -70,6 +71,18 @@ values (
     "theme":  "belivert"
 }
 $$
+  ,
+  $$
+[
+  { "bucket": "Solvari", "patterns": ["solvari"] },
+  { "bucket": "Bobex", "patterns": ["bobex"] },
+  { "bucket": "Trustlocal", "patterns": ["trustlocal", "trust local"] },
+  { "bucket": "Bambelo", "patterns": ["bambelo"] },
+  { "bucket": "Facebook Ads", "patterns": ["facebook", "instagram", "meta", "fbclid", "meta - calculator", "meta ads - calculator"] },
+  { "bucket": "Google Ads", "patterns": ["google", "adwords", "gclid", "cpc", "google - woning prijsberekening"] },
+  { "bucket": "Organic", "patterns": ["organic", "seo", "direct", "referral", "(none)", "website"] }
+]
+$$::jsonb
 )
 on conflict (id) do update set
   location_id = excluded.location_id,
@@ -77,4 +90,5 @@ on conflict (id) do update set
   dashboard_subtitle = excluded.dashboard_subtitle,
   dashboard_logo_url = excluded.dashboard_logo_url,
   dashboard_layout = excluded.dashboard_layout,
+  source_normalization_rules = excluded.source_normalization_rules,
   updated_at = now();
