@@ -3,4 +3,3 @@
 
 alter table public.dashboard_config
   add column if not exists sales_monthly_deals_targets jsonb not null default '{}'::jsonb;
-
