@@ -243,6 +243,16 @@ const buildGhlContactUrl = (locationId, contactId) => {
   return `${base}/v2/location/${encodeURIComponent(loc)}/contacts/detail/${encodeURIComponent(id)}`;
 };
 
+const buildGhlContactSearchUrl = (locationId, query) => {
+  const loc = toTrimmedText(locationId);
+  if (!loc) return '';
+  const base = (ghlAppBaseUrl || 'https://app.gohighlevel.com').replace(/\/+$/, '');
+  const q = toTrimmedText(query);
+  return q
+    ? `${base}/v2/location/${encodeURIComponent(loc)}/contacts/?query=${encodeURIComponent(q)}`
+    : `${base}/v2/location/${encodeURIComponent(loc)}/contacts/`;
+};
+
 const getDefaultRange = () => {
   const today = new Date();
   const end = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
@@ -3898,7 +3908,13 @@ const chunkValues = (values, size = 100) => {
 const hydrateDrilldownContacts = async (rows) => {
   if (!supabase || !Array.isArray(rows) || rows.length === 0) return rows;
 
-  const missing = rows.filter((row) => !row?.contact_name || !row?.contact_email);
+  // Fill missing contact meta + recover contact_id from email so drilldowns can link back to GHL.
+  const missing = rows.filter((row) => {
+    if (!row) return false;
+    if (!row.contact_name || !row.contact_email) return true;
+    if (!row.contact_id && row.contact_email) return true;
+    return false;
+  });
   if (!missing.length) return rows;
 
   const ids = Array.from(new Set(missing.map((row) => row?.contact_id).filter(Boolean)));
@@ -3922,11 +3938,12 @@ const hydrateDrilldownContacts = async (rows) => {
           contact?.contact_name ||
           [contact?.first_name, contact?.last_name].filter(Boolean).join(' ').trim();
         const email = normalizeEmail(contact?.email);
+        const record = { id: contact?.id ?? null, name: contactName, email: contact?.email ?? null };
         if (contact?.id) {
-          contactById.set(contact.id, { name: contactName, email: contact?.email });
+          contactById.set(contact.id, record);
         }
         if (email) {
-          contactByEmail.set(email, { name: contactName, email: contact?.email });
+          contactByEmail.set(email, record);
         }
       });
     }
@@ -3952,6 +3969,7 @@ const hydrateDrilldownContacts = async (rows) => {
     if (!fallback) return row;
     return {
       ...row,
+      contact_id: row.contact_id || fallback.id || row.contact_id,
       contact_name: row.contact_name || fallback.name || row.contact_name,
       contact_email: row.contact_email || fallback.email || row.contact_email
     };
@@ -7143,13 +7161,21 @@ const renderDrilldownRows = (rows, options = {}) =>
     .map((row) => {
       const occurred = formatDateTime(row.occurred_at);
       const contactId = toTrimmedText(row?.contact_id);
-      const ghlUrl = buildGhlContactUrl(configState.locationId || ghlLocationId, contactId);
+      const locationId = configState.locationId || ghlLocationId;
+      const ghlUrl = buildGhlContactUrl(locationId, contactId);
       const contactName = row.contact_name ? escapeHtml(row.contact_name) : '';
+      const contactEmailRaw = toTrimmedText(row?.contact_email);
+      const ghlFallbackUrl = contactEmailRaw ? buildGhlContactSearchUrl(locationId, contactEmailRaw) : '';
+      const ghlLink = ghlUrl || ghlFallbackUrl;
       const contactCell = ghlUrl
         ? `<a class="text-primary hover:underline" href="${escapeHtml(ghlUrl)}" target="_blank" rel="noreferrer">${
             contactName || 'Open contact'
           }</a>`
-        : contactName || '--';
+        : ghlLink
+          ? `<a class="text-primary hover:underline" href="${escapeHtml(ghlLink)}" target="_blank" rel="noreferrer">${
+              contactName || 'Open contact'
+            }</a>`
+          : contactName || '--';
       const contactEmail = row.contact_email ? escapeHtml(row.contact_email) : '--';
       const source = row.source ? escapeHtml(row.source) : 'Onbekend';
       const status = row.status ? escapeHtml(row.status) : '--';
@@ -8448,7 +8474,6 @@ const renderApp = () => {
   // Avoid flashing template branding/layout while the per-customer config is still loading.
   if (
     Boolean(supabase) &&
-    !configState.locationId &&
     configState.status !== 'error' &&
     configState.status !== 'ready'
   ) {
