@@ -6788,6 +6788,28 @@ const normalizeThemeKey = (value) => {
     .replace(/^-|-$/g, '');
 };
 
+const BRAND_THEME_STORAGE_KEY = 'dashboard_brand_theme';
+
+const readCachedBrandTheme = () => {
+  try {
+    return normalizeThemeKey(localStorage.getItem(BRAND_THEME_STORAGE_KEY) || '');
+  } catch (error) {
+    return '';
+  }
+};
+
+const writeCachedBrandTheme = (theme) => {
+  try {
+    if (theme) {
+      localStorage.setItem(BRAND_THEME_STORAGE_KEY, theme);
+    } else {
+      localStorage.removeItem(BRAND_THEME_STORAGE_KEY);
+    }
+  } catch (error) {
+    // Ignore localStorage access issues (privacy mode, blocked storage, etc.).
+  }
+};
+
 const getLayoutThemeHint = () => {
   const layout = configState.dashboardLayout;
   if (!layout || typeof layout !== 'object' || Array.isArray(layout)) return '';
@@ -6824,6 +6846,14 @@ const resolveBrandTheme = () => {
     return 'belivert';
   }
 
+  // During initial load, keep the previously-detected theme to avoid a flash of template styles.
+  if (configState.status !== 'ready') {
+    const cachedTheme = readCachedBrandTheme();
+    if (cachedTheme === 'belivert' || cachedTheme === 'belivet') {
+      return 'belivert';
+    }
+  }
+
   return '';
 };
 
@@ -6833,8 +6863,12 @@ const applyBrandTheme = () => {
   const theme = resolveBrandTheme();
   if (theme) {
     rootNode.setAttribute('data-brand-theme', theme);
+    writeCachedBrandTheme(theme);
   } else {
     rootNode.removeAttribute('data-brand-theme');
+    if (configState.status === 'ready') {
+      writeCachedBrandTheme('');
+    }
   }
 };
 
@@ -7131,6 +7165,15 @@ const getRequiredLiveData = (layoutOverride) => {
 };
 
 const root = document.getElementById('root');
+
+const buildBootMarkup = () => `
+  <div class="min-h-screen w-full bg-background flex items-center justify-center">
+    <div class="flex flex-col items-center gap-3 px-6 py-4 rounded-2xl border border-border/60 bg-card/80 shadow-sm">
+      <div class="h-10 w-10 rounded-full border-4 border-muted-foreground/20 border-t-primary animate-spin"></div>
+      <p class="text-sm font-semibold text-muted-foreground">Dashboard laden...</p>
+    </div>
+  </div>
+`;
 
 const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = ALL_DASHBOARD_TABS) => {
   const metrics = applyLiveOverrides(computeMetrics(range), range);
@@ -7505,6 +7548,21 @@ const buildCallCenterMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
 const renderApp = () => {
   if (!root) return;
   applyBrandTheme();
+
+  // Avoid flashing template branding/layout while the per-customer config is still loading.
+  if (
+    Boolean(supabase) &&
+    !configState.locationId &&
+    configState.status !== 'error' &&
+    configState.status !== 'ready'
+  ) {
+    if (configState.status === 'idle') {
+      loadLocationConfig();
+    }
+    root.innerHTML = buildBootMarkup();
+    return;
+  }
+
   const branding = resolveBranding();
   applyDocumentBranding(branding.raw);
   const dashboardTabs = resolveDashboardTabs();

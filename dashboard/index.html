@@ -14,6 +14,22 @@
     <meta property="og:title" content="GHL Dashboard Template" />
     <meta property="og:description" content="Performance dashboard template - Leads, afspraken & ROI" />
     <meta property="og:type" content="website" />
+    <script>
+      (function () {
+        try {
+          var theme = (localStorage.getItem('dashboard_brand_theme') || '').trim();
+          if (!theme) return;
+          theme = theme
+            .toLowerCase()
+            .replace(/[^a-z0-9-]+/g, '-')
+            .replace(/-+/g, '-')
+            .replace(/^-|-$/g, '');
+          if (theme) document.documentElement.setAttribute('data-brand-theme', theme);
+        } catch (e) {
+          // Ignore localStorage access issues (privacy mode, blocked storage, etc.).
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
