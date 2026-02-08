@@ -34,6 +34,11 @@ const icons = {
       '<path d="M8 2v4"></path><path d="M16 2v4"></path><rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M3 10h18"></path>',
       className
     ),
+  fileText: (className) =>
+    icon(
+      '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path><path d="M10 9H8"></path><path d="M16 13H8"></path><path d="M16 17H8"></path>',
+      className
+    ),
   users: (className) =>
     icon(
       '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path>',
@@ -3328,6 +3333,7 @@ const buildSalesMetrics = (
     sellers,
     summary,
     funnel: {
+      appointments: allDealsInRangeCount,
       quotes: dealsInRange.length,
       approved: wonDeals.length,
       rejected: lostDeals.length
@@ -3494,27 +3500,121 @@ const buildOpenDealsRows = (deals) => {
     .join('');
 };
 const buildFunnelMarkup = (funnel) => {
-  const total = funnel.quotes || 0;
-  const approved = funnel.approved || 0;
-  const rejected = funnel.rejected || 0;
-  const approvedRate = safeDivide(approved, total);
-  const rejectedRate = safeDivide(rejected, total);
+  const appointmentsRaw = Math.max(0, Number(funnel?.appointments) || 0);
+  const quotesRaw = Math.max(0, Number(funnel?.quotes) || 0);
+  const approvedRaw = Math.max(0, Number(funnel?.approved) || 0);
+
+  const appointments = Math.round(appointmentsRaw);
+  const quotes = Math.round(Math.min(quotesRaw, appointments || quotesRaw));
+  const approved = Math.round(Math.min(approvedRaw, quotes || approvedRaw));
+  const base = appointments > 0 ? appointments : Math.max(quotes, approved);
+
+  const clampPercent = (value) => Math.max(0, Math.min(100, value));
+  const toWidthPercent = (value, total) => {
+    if (total <= 0) return 100;
+    if (value <= 0) return 35;
+    return clampPercent(Math.max((value / total) * 100, 35));
+  };
+
+  const appointmentsToQuotesRate = safeDivide(quotes, base);
+  const quotesToDealsRate = safeDivide(approved, quotes);
+  const totalConversionRate = safeDivide(approved, base);
+
+  const lostBeforeQuote = Math.max(base - quotes, 0);
+  const lostBeforeDeal = Math.max(quotes - approved, 0);
+  const lostBeforeQuoteRate = safeDivide(lostBeforeQuote, base);
+  const lostBeforeDealRate = safeDivide(lostBeforeDeal, quotes);
+
+  const quotesWidth = toWidthPercent(quotes, base);
+  const approvedWidth = toWidthPercent(approved, base);
+
   return `
-    <div class="grid gap-4 md:grid-cols-3">
-      <div class="rounded-lg bg-blue-500/90 text-white p-4">
-        <p class="text-xs uppercase tracking-wide text-white/70">Offertes</p>
-        <p class="text-2xl font-bold" data-sales-drill="all">${formatNumber(total)}</p>
-        <p class="text-xs text-white/70" data-sales-drill="all">100%</p>
+    <div class="sales-funnel">
+      <div class="sales-funnel-stack">
+        <div class="sales-funnel-stage-wrap">
+          <div class="sales-funnel-stage sales-funnel-stage-appointments" style="width: 100%;">
+            <div class="sales-funnel-stage-main">
+              <div class="sales-funnel-stage-icon">
+                ${icons.calendar('lucide lucide-calendar w-5 h-5')}
+              </div>
+              <div class="sales-funnel-stage-copy">
+                <p class="sales-funnel-stage-title">Afspraken</p>
+                <p class="sales-funnel-stage-subtitle">Totaal gevoerde gesprekken</p>
+              </div>
+            </div>
+            <div class="sales-funnel-stage-metric">
+              <p class="sales-funnel-stage-value">${formatNumber(appointments)}</p>
+              <p class="sales-funnel-stage-share">${base > 0 ? '100%' : '0%'}</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="sales-funnel-drop">
+          <span class="sales-funnel-drop-arrow sales-funnel-drop-arrow-appointments" aria-hidden="true"></span>
+          <span class="sales-funnel-drop-pill">
+            <span class="sales-funnel-drop-rate">${formatPercent(lostBeforeQuoteRate, 1)}</span>
+            <span class="sales-funnel-drop-loss">(${formatNumber(lostBeforeQuote)} verloren)</span>
+          </span>
+        </div>
+
+        <div class="sales-funnel-stage-wrap">
+          <div class="sales-funnel-stage sales-funnel-stage-quotes" style="width: ${quotesWidth}%;">
+            <div class="sales-funnel-stage-main">
+              <div class="sales-funnel-stage-icon">
+                ${icons.fileText('lucide lucide-file-text w-5 h-5')}
+              </div>
+              <div class="sales-funnel-stage-copy">
+                <p class="sales-funnel-stage-title">Offertes</p>
+                <p class="sales-funnel-stage-subtitle">Verzonden offertes</p>
+              </div>
+            </div>
+            <div class="sales-funnel-stage-metric">
+              <p class="sales-funnel-stage-value" data-sales-drill="all">${formatNumber(quotes)}</p>
+              <p class="sales-funnel-stage-share" data-sales-drill="all">${formatPercent(appointmentsToQuotesRate, 1)} totaal</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="sales-funnel-drop">
+          <span class="sales-funnel-drop-arrow sales-funnel-drop-arrow-quotes" aria-hidden="true"></span>
+          <span class="sales-funnel-drop-pill">
+            <span class="sales-funnel-drop-rate">${formatPercent(lostBeforeDealRate, 1)}</span>
+            <span class="sales-funnel-drop-loss">(${formatNumber(lostBeforeDeal)} verloren)</span>
+          </span>
+        </div>
+
+        <div class="sales-funnel-stage-wrap">
+          <div class="sales-funnel-stage sales-funnel-stage-won" style="width: ${approvedWidth}%;">
+            <div class="sales-funnel-stage-main">
+              <div class="sales-funnel-stage-icon">
+                ${icons.check('lucide lucide-circle-check-big w-5 h-5')}
+              </div>
+              <div class="sales-funnel-stage-copy">
+                <p class="sales-funnel-stage-title">Goedgekeurd</p>
+                <p class="sales-funnel-stage-subtitle">Getekende deals</p>
+              </div>
+            </div>
+            <div class="sales-funnel-stage-metric">
+              <p class="sales-funnel-stage-value" data-sales-drill="won">${formatNumber(approved)}</p>
+              <p class="sales-funnel-stage-share" data-sales-drill="won">${formatPercent(totalConversionRate, 1)} totaal</p>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="rounded-lg bg-emerald-500/90 text-white p-4">
-        <p class="text-xs uppercase tracking-wide text-white/70">Goedgekeurd</p>
-        <p class="text-2xl font-bold" data-sales-drill="won">${formatNumber(approved)}</p>
-        <p class="text-xs text-white/70" data-sales-drill="won">${formatPercent(approvedRate, 1)}</p>
-      </div>
-      <div class="rounded-lg bg-rose-500/90 text-white p-4">
-        <p class="text-xs uppercase tracking-wide text-white/70">Afgekeurd</p>
-        <p class="text-2xl font-bold" data-sales-drill="lost">${formatNumber(rejected)}</p>
-        <p class="text-xs text-white/70" data-sales-drill="lost">${formatPercent(rejectedRate, 1)}</p>
+
+      <div class="sales-funnel-summary">
+        <div class="sales-funnel-summary-card sales-funnel-summary-card-step-1">
+          <p class="sales-funnel-summary-value">${formatPercent(appointmentsToQuotesRate, 1)}</p>
+          <p class="sales-funnel-summary-label">Afspraak -> Offerte</p>
+        </div>
+        <div class="sales-funnel-summary-card sales-funnel-summary-card-step-2">
+          <p class="sales-funnel-summary-value">${formatPercent(quotesToDealsRate, 1)}</p>
+          <p class="sales-funnel-summary-label">Offerte -> Deal</p>
+        </div>
+        <div class="sales-funnel-summary-card sales-funnel-summary-card-total">
+          <p class="sales-funnel-summary-value">${formatPercent(totalConversionRate, 1)}</p>
+          <p class="sales-funnel-summary-label">Totale Conversie</p>
+        </div>
       </div>
     </div>
   `;
