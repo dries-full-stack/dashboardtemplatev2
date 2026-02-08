@@ -55,6 +55,56 @@
     --chart-5: 280 60% 55%;
   }
 
+  :root[data-brand-theme='belivert'] {
+    --background: 45 38% 92%;
+    --foreground: 0 0% 15%;
+    --card: 45 45% 97%;
+    --card-foreground: 0 0% 15%;
+    --popover: 45 45% 98%;
+    --popover-foreground: 0 0% 15%;
+    --primary: 135 53% 38%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 45 30% 88%;
+    --secondary-foreground: 0 0% 15%;
+    --muted: 45 25% 85%;
+    --muted-foreground: 0 0% 40%;
+    --accent: 135 40% 90%;
+    --accent-foreground: 135 53% 30%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 135 53% 38%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 15%;
+    --border: 45 25% 80%;
+    --input: 45 30% 93%;
+    --ring: 135 53% 38%;
+    --radius: 0.625rem;
+    --sidebar-background: 45 35% 90%;
+    --sidebar-foreground: 0 0% 25%;
+    --sidebar-primary: 135 53% 38%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 45 30% 85%;
+    --sidebar-accent-foreground: 0 0% 15%;
+    --sidebar-border: 45 25% 78%;
+    --sidebar-ring: 135 53% 38%;
+    --gradient-primary: linear-gradient(135deg, hsl(135 53% 38%), hsl(135 45% 30%));
+    --gradient-secondary: linear-gradient(135deg, hsl(135 45% 50%), hsl(135 42% 40%));
+    --gradient-card: linear-gradient(180deg, hsl(45 45% 98%), hsl(45 40% 94%));
+    --gradient-success: linear-gradient(135deg, hsl(135 53% 38%), hsl(135 45% 30%));
+    --gradient-warning: linear-gradient(135deg, hsl(38 92% 50%), hsl(25 95% 45%));
+    --gradient-danger: linear-gradient(135deg, hsl(0 72% 51%), hsl(0 65% 40%));
+    --gradient-accent: linear-gradient(135deg, hsl(135 40% 90%), hsl(135 35% 85%));
+    --shadow-glow: 0 0 40px hsl(135 53% 38% / 0.2);
+    --shadow-card: 0 4px 24px hsl(45 30% 50% / 0.12);
+    --shadow-elevated: 0 8px 32px hsl(45 30% 50% / 0.18);
+    --chart-1: 135 53% 38%;
+    --chart-2: 135 45% 50%;
+    --chart-3: 38 92% 50%;
+    --chart-4: 45 60% 65%;
+    --chart-5: 135 30% 70%;
+  }
+
   .dark {
     --background: 215 50% 10%;
     --foreground: 210 20% 95%;

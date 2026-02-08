@@ -5924,6 +5924,32 @@ const resolveBranding = () => {
   };
 };
 
+const normalizeThemeKey = (value) => {
+  if (typeof value !== 'string') return '';
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+};
+
+const resolveBrandTheme = () => {
+  const title = normalizeThemeKey(configState.dashboardTitle || DEFAULT_BRANDING.title);
+  return title.includes('belivert') ? 'belivert' : '';
+};
+
+const applyBrandTheme = () => {
+  const rootNode = document.documentElement;
+  if (!rootNode) return;
+  const theme = resolveBrandTheme();
+  if (theme) {
+    rootNode.setAttribute('data-brand-theme', theme);
+  } else {
+    rootNode.removeAttribute('data-brand-theme');
+  }
+};
+
 const resolveSectionText = (value, fallback) => {
   if (typeof value === 'string' && value.trim()) return value.trim();
   return fallback;
@@ -6535,6 +6561,7 @@ const buildCallCenterMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
 
 const renderApp = () => {
   if (!root) return;
+  applyBrandTheme();
   const dashboardTabs = resolveDashboardTabs();
   const routeId = getRouteId(dashboardTabs);
   if (routeId === 'sales') {
