@@ -25,6 +25,20 @@ supabase db push
 clients/<slug>/dashboard_config.sql
 ```
 
+## Layout Behavior (Config-Driven)
+
+We sturen klant-specifieke logica zoveel mogelijk via `dashboard_config.dashboard_layout` (JSON) en `dashboard_config.source_normalization_rules` (JSONB), zodat de volgende onboarding geen code-changes nodig heeft.
+
+Ondersteunde `dashboard_layout.behavior` keys:
+- `appointments_provider`: `ghl` (default) of `teamleader_meetings`
+- `source_breakdown.variant`: `default` of `deals`
+- `source_breakdown.cost_denominator`: `confirmed` (default), `appointments`, `deals`
+- `hook_performance.source_bucket_filter`: bv. `Facebook Ads` (leeg/null = alle sources)
+
+Source bucketing / normalisatie:
+- `dashboard_config.source_normalization_rules`: array van `{ bucket, patterns[] }`. Als dit leeg is, blijven sources "raw".
+- Optioneel: `dashboard_layout.behavior.source_bucketing` met `unmatched` (`fallback`/`keep`), `fallback_bucket`, `empty_bucket`, `order`.
+
 5. Deploy edge functions (per klant):
 
 ```
@@ -32,6 +46,8 @@ supabase functions deploy ghl-sync --project-ref YOUR_PROJECT_REF
 supabase functions deploy meta-sync --project-ref YOUR_PROJECT_REF
 supabase functions deploy google-sync --project-ref YOUR_PROJECT_REF
 supabase functions deploy google-sheet-sync --project-ref YOUR_PROJECT_REF
+supabase functions deploy teamleader-oauth --project-ref YOUR_PROJECT_REF
+supabase functions deploy teamleader-sync --project-ref YOUR_PROJECT_REF
 ```
 
 ## Wat maakt de script aan?
@@ -88,8 +104,11 @@ Gebruik de onboarding UI om Teamleader secrets te zetten:
 - `TEAMLEADER_REDIRECT_URL`
 - `TEAMLEADER_SCOPES` (optioneel)
 
-Deploy de functie:
+Deploy de functies:
 
 ```
 supabase functions deploy teamleader-oauth --project-ref YOUR_PROJECT_REF
+supabase functions deploy teamleader-sync --project-ref YOUR_PROJECT_REF
 ```
+
+Plan de cron jobs (GHL/Teamleader/Meta/Google) via `clients/<slug>/schedule.sql` (wordt aangemaakt door `scripts/bootstrap-client.ps1`).

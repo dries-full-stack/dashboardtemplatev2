@@ -1,7 +1,6 @@
-import './styles.css';
+﻿import './styles.css';
 import { createClient } from '@supabase/supabase-js';
 import salesMainMarkup from './sales-layout.html?raw';
-import salesEmptyMarkup from './sales-empty-layout.html?raw';
 
 const icon = (paths, className, extra = '') =>
   `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${className}" ${extra}>${paths}</svg>`;
@@ -33,6 +32,11 @@ const icons = {
   calendar: (className) =>
     icon(
       '<path d="M8 2v4"></path><path d="M16 2v4"></path><rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M3 10h18"></path>',
+      className
+    ),
+  fileText: (className) =>
+    icon(
+      '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path><path d="M10 9H8"></path><path d="M16 13H8"></path><path d="M16 17H8"></path>',
       className
     ),
   users: (className) =>
@@ -118,6 +122,11 @@ const DEFAULT_BRANDING = {
   logoAlt: 'Company logo'
 };
 
+const DEFAULT_SIDEBAR_BRANDING = {
+  logoUrl: '/assets/logos/profit-pulse/logo.png',
+  logoAlt: 'Profit Pulse'
+};
+
 const DEFAULT_LAYOUT = [
   {
     id: 'funnel',
@@ -153,13 +162,41 @@ const DEFAULT_LAYOUT = [
   }
 ];
 
+const readEnvString = (value) => {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : '';
+};
+
 const MOCK_ENABLED = import.meta.env.VITE_ENABLE_MOCK_DATA === 'true';
-const SALES_MAIN_MARKUP = (MOCK_ENABLED ? salesMainMarkup : salesEmptyMarkup).trim();
+const SALES_RANGE_MONTHS = 6;
+const SALES_TARGET_MONTHLY_DEALS = 25;
+const SALES_MAIN_MARKUP = salesMainMarkup.trim();
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const ghlLocationId = import.meta.env.VITE_GHL_LOCATION_ID;
+const ghlAppBaseUrl = (readEnvString(import.meta.env.VITE_GHL_APP_BASE_URL) || 'https://app.gohighlevel.com')
+  .replace(/\/+$/, '')
+  .replace(/\/v2$/, '');
+const envDashboardTitle = readEnvString(import.meta.env.VITE_DASHBOARD_TITLE);
+const envDashboardSubtitle = readEnvString(import.meta.env.VITE_DASHBOARD_SUBTITLE);
+const envDashboardLogoUrl = readEnvString(import.meta.env.VITE_DASHBOARD_LOGO_URL);
+const envDashboardTheme = readEnvString(import.meta.env.VITE_DASHBOARD_THEME);
+const envSidebarLogoUrl = readEnvString(import.meta.env.VITE_SIDEBAR_LOGO_URL);
+const envSidebarLogoAlt = readEnvString(import.meta.env.VITE_SIDEBAR_LOGO_ALT);
+const envMetaTitle = readEnvString(import.meta.env.VITE_META_TITLE || import.meta.env.VITE_DASHBOARD_META_TITLE);
+const envMetaDescription = readEnvString(
+  import.meta.env.VITE_META_DESCRIPTION || import.meta.env.VITE_DASHBOARD_META_DESCRIPTION
+);
+const envMetaImage = readEnvString(import.meta.env.VITE_META_IMAGE || import.meta.env.VITE_DASHBOARD_META_IMAGE);
 const adminModeEnabled = import.meta.env.VITE_ADMIN_MODE === 'true';
+const settingsModeValue = readEnvString(import.meta.env.VITE_SETTINGS_MODE).toLowerCase();
+const settingsModeEnabled = settingsModeValue ? settingsModeValue === 'true' : true;
+const settingsEnabled = settingsModeEnabled || adminModeEnabled;
+const settingsButtonLabel = adminModeEnabled ? 'Setup' : 'Instellingen';
+const teamleaderDealUrlTemplate =
+  import.meta.env.VITE_TEAMLEADER_DEAL_URL_TEMPLATE || 'https://app.teamleader.eu/deals/{id}';
 const supabase =
   supabaseUrl && supabaseKey
     ? createClient(supabaseUrl, supabaseKey, {
@@ -167,19 +204,77 @@ const supabase =
       })
     : null;
 const adminEndpoint = supabaseUrl ? `${supabaseUrl}/functions/v1/ghl-admin` : '';
+const syncEndpoint = supabaseUrl ? `${supabaseUrl}/functions/v1/ghl-sync` : '';
 
 const formatIsoDate = (date) => date.toISOString().slice(0, 10);
+const pickFirstUrl = (...candidates) =>
+  candidates.find((value) => typeof value === 'string' && value.startsWith('http')) || '';
+
+const getTeamleaderDealUrlFromRaw = (rawData) => {
+  if (!rawData || typeof rawData !== 'object') return '';
+  const links = rawData.links && typeof rawData.links === 'object' ? rawData.links : {};
+  return pickFirstUrl(
+    rawData.web_url,
+    rawData.url,
+    rawData.link,
+    rawData.permalink,
+    links.web_url,
+    links.url,
+    links.self,
+    links.html
+  );
+};
+
+const buildTeamleaderDealUrl = (dealId, rawData) => {
+  const direct = getTeamleaderDealUrlFromRaw(rawData);
+  if (direct) return direct;
+  if (!teamleaderDealUrlTemplate || !dealId) return '';
+  const encodedId = encodeURIComponent(String(dealId));
+  if (teamleaderDealUrlTemplate.includes('{id}')) {
+    return teamleaderDealUrlTemplate.replace('{id}', encodedId);
+  }
+  return `${teamleaderDealUrlTemplate.replace(/\/$/, '')}/${encodedId}`;
+};
+
+const buildGhlContactUrl = (locationId, contactId) => {
+  const loc = toTrimmedText(locationId);
+  const id = toTrimmedText(contactId);
+  if (!loc || !id) return '';
+  const base = (ghlAppBaseUrl || 'https://app.gohighlevel.com').replace(/\/+$/, '');
+  return `${base}/v2/location/${encodeURIComponent(loc)}/contacts/detail/${encodeURIComponent(id)}`;
+};
+
+const buildGhlContactSearchUrl = (locationId, query) => {
+  const loc = toTrimmedText(locationId);
+  if (!loc) return '';
+  const base = (ghlAppBaseUrl || 'https://app.gohighlevel.com').replace(/\/+$/, '');
+  const q = toTrimmedText(query);
+  return q
+    ? `${base}/v2/location/${encodeURIComponent(loc)}/contacts/?query=${encodeURIComponent(q)}`
+    : `${base}/v2/location/${encodeURIComponent(loc)}/contacts/`;
+};
+
 const getDefaultRange = () => {
   const today = new Date();
   const end = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
   const start = new Date(end);
-  start.setUTCDate(start.getUTCDate() - 29);
+  start.setUTCMonth(start.getUTCMonth() - 1);
   return { start: formatIsoDate(start), end: formatIsoDate(end) };
 };
 
 const DEFAULT_RANGE = getDefaultRange();
 
 const SOURCE_ORDER = ['META', 'Google Ads', 'Makelaar vergelijker', 'Immoweb'];
+const BELIVERT_SOURCE_ORDER = [
+  'Solvari',
+  'Bobex',
+  'Trustlocal',
+  'Bambelo',
+  'Facebook Ads',
+  'Google Ads',
+  'Organic',
+  'Overig'
+];
 const HOOK_ORDER = ['Bereken mijn woningwaarde', 'Gratis schatting', '5 verkooptips', 'Lokale makelaar vs grote groep?'];
 
 const LOST_REASON_RATIOS = [
@@ -202,7 +297,8 @@ const DRILLDOWN_LABELS = {
   deals: 'Deals',
   hook_leads: 'Leads',
   hook_appointments: 'Afspraken',
-  lost_reason_leads: 'Verloren leads'
+  lost_reason_leads: 'Verloren leads',
+  finance_spend: 'Leadkosten'
 };
 
 const DEFAULT_BOUNDS = { min: '2018-01-01', max: '2035-12-31' };
@@ -446,6 +542,14 @@ const liveState = {
   }
 };
 
+const salesState = {
+  status: 'idle',
+  data: null,
+  rangeKey: '',
+  errorMessage: '',
+  inFlight: false
+};
+
 let renderQueued = false;
 const scheduleRender = () => {
   if (renderQueued) return;
@@ -463,6 +567,14 @@ const configState = {
   hookFieldId: null,
   campaignFieldId: null,
   lostReasonFieldId: null,
+  salesMonthlyDealsTarget: null,
+  salesMonthlyDealsTargets: null,
+  salesQuotesFromPhaseId: null,
+  sourceNormalizationRules: null,
+  costPerLeadBySource: null,
+  billingPortalUrl: null,
+  billingCheckoutUrl: null,
+  billingCheckoutEmbed: false,
   dashboardTitle: null,
   dashboardSubtitle: null,
   dashboardLogoUrl: null,
@@ -477,7 +589,8 @@ const adminState = {
   auth: {
     email: '',
     status: 'idle',
-    message: ''
+    message: '',
+    requested: false
   },
   loading: false,
   form: {
@@ -496,8 +609,60 @@ const adminState = {
     google: null,
     sourceOptions: [],
     hasChanges: false
+  },
+  kpi: {
+    status: 'idle',
+    message: '',
+    loading: false,
+    saving: false,
+    year: new Date().getFullYear(),
+    monthlyDealsTarget: '',
+    monthlyDealsTargets: {},
+    lostReasonFieldId: '',
+    quotesFromPhaseId: '',
+    quotesPhaseOptions: [],
+    hasChanges: false
+  },
+  lostReasons: {
+    status: 'idle',
+    message: '',
+    loading: false,
+    saving: false,
+    entries: [],
+    labelOptions: [],
+    hasChanges: false
+  },
+  sources: {
+    status: 'idle',
+    message: '',
+    loading: false,
+    saving: false,
+    rules: [],
+    samples: [],
+    samplesLoading: false,
+    hasChanges: false
+  },
+  leadCost: {
+    status: 'idle',
+    message: '',
+    loading: false,
+    saving: false,
+    rows: [],
+    hasChanges: false
+  },
+  billing: {
+    status: 'idle',
+    message: '',
+    loading: false,
+    saving: false,
+    portalUrl: '',
+    checkoutUrl: '',
+    checkoutEmbed: false,
+    hasChanges: false
   }
 };
+
+const isAdminAccessEnabled = () => adminModeEnabled || adminState.auth.requested;
 
 const resetMappingState = () => {
   adminState.mapping = {
@@ -514,6 +679,71 @@ const resetMappingState = () => {
   };
 };
 
+const resetKpiState = () => {
+  adminState.kpi = {
+    status: 'idle',
+    message: '',
+    loading: false,
+    saving: false,
+    year: new Date().getFullYear(),
+    monthlyDealsTarget: '',
+    monthlyDealsTargets: {},
+    lostReasonFieldId: '',
+    quotesFromPhaseId: '',
+    quotesPhaseOptions: [],
+    hasChanges: false
+  };
+};
+
+const resetLostReasonsState = () => {
+  adminState.lostReasons = {
+    status: 'idle',
+    message: '',
+    loading: false,
+    saving: false,
+    entries: [],
+    labelOptions: [],
+    hasChanges: false
+  };
+};
+
+const resetSourceNormalizationState = () => {
+  adminState.sources = {
+    status: 'idle',
+    message: '',
+    loading: false,
+    saving: false,
+    rules: [],
+    samples: [],
+    samplesLoading: false,
+    hasChanges: false
+  };
+};
+
+const resetLeadCostState = () => {
+  adminState.leadCost = {
+    status: 'idle',
+    message: '',
+    loading: false,
+    saving: false,
+    rows: [],
+    hasChanges: false
+  };
+};
+
+const resetBillingState = () => {
+  adminState.billing = {
+    status: 'idle',
+    message: '',
+    loading: false,
+    saving: false,
+    portalUrl: '',
+    checkoutUrl: '',
+    checkoutEmbed: false,
+    hasChanges: false
+  };
+};
+
 const drilldownState = {
   open: false,
   status: 'idle',
@@ -522,13 +752,14 @@ const drilldownState = {
   source: null,
   rows: [],
   errorMessage: '',
-  range: null
+  range: null,
+  financeView: 'daily'
 };
 
 let authSession = null;
 
 const initAuth = async () => {
-  if (!supabase || !adminModeEnabled) return;
+  if (!supabase || !settingsEnabled) return;
   const { data } = await supabase.auth.getSession();
   authSession = data.session;
   renderApp();
@@ -541,10 +772,21 @@ const initAuth = async () => {
       adminState.status = 'idle';
       adminState.auth.status = 'idle';
       adminState.auth.message = '';
+      adminState.auth.requested = false;
       resetMappingState();
+      resetKpiState();
+      resetLostReasonsState();
+      resetSourceNormalizationState();
+      resetLeadCostState();
+      resetBillingState();
     } else if (adminState.open) {
-      loadAdminIntegration();
-      loadSpendMapping();
+      if (isAdminAccessEnabled()) {
+        loadAdminIntegration();
+        loadSpendMapping();
+      }
+      loadKpiSettings();
+      loadSourceNormalizationSettings();
+      loadLeadCostSettings();
     }
     renderApp();
   });
@@ -571,9 +813,8 @@ const loadLocationConfig = async () => {
 
   const { data, error } = await supabase
     .from('dashboard_config')
-    .select(
-      'location_id, hook_field_id, campaign_field_id, lost_reason_field_id, dashboard_title, dashboard_subtitle, dashboard_logo_url, dashboard_layout, updated_at'
-    )
+    // Use '*' so older schemas (missing optional branding/layout columns) don't 400.
+    .select('*')
     .eq('id', 1)
     .maybeSingle();
 
@@ -606,6 +847,28 @@ const loadLocationConfig = async () => {
   configState.hookFieldId = data?.hook_field_id || null;
   configState.campaignFieldId = data?.campaign_field_id || null;
   configState.lostReasonFieldId = data?.lost_reason_field_id || null;
+  configState.salesMonthlyDealsTarget =
+    typeof data?.sales_monthly_deals_target === 'number' && Number.isFinite(data.sales_monthly_deals_target)
+      ? data.sales_monthly_deals_target
+      : null;
+  configState.salesMonthlyDealsTargets =
+    data?.sales_monthly_deals_targets && typeof data.sales_monthly_deals_targets === 'object' && !Array.isArray(data.sales_monthly_deals_targets)
+      ? data.sales_monthly_deals_targets
+      : null;
+  configState.salesQuotesFromPhaseId =
+    typeof data?.sales_quotes_from_phase_id === 'string' && data.sales_quotes_from_phase_id.trim()
+      ? data.sales_quotes_from_phase_id.trim()
+      : null;
+  configState.sourceNormalizationRules = data?.source_normalization_rules ?? null;
+  configState.costPerLeadBySource =
+    data?.cost_per_lead_by_source &&
+    typeof data.cost_per_lead_by_source === 'object' &&
+    !Array.isArray(data.cost_per_lead_by_source)
+      ? data.cost_per_lead_by_source
+      : null;
+  configState.billingPortalUrl = normalizeBillingUrl(data?.billing_portal_url);
+  configState.billingCheckoutUrl = normalizeBillingUrl(data?.billing_checkout_url);
+  configState.billingCheckoutEmbed = data?.billing_checkout_embed === true;
   configState.dashboardTitle = data?.dashboard_title || null;
   configState.dashboardSubtitle = data?.dashboard_subtitle || null;
   configState.dashboardLogoUrl = data?.dashboard_logo_url || null;
@@ -641,7 +904,7 @@ const loadLocationConfig = async () => {
 };
 
 const loadAdminIntegration = async () => {
-  if (!supabase || !adminEndpoint) return;
+  if (!supabase || !adminEndpoint || !isAdminAccessEnabled()) return;
   const token = await getAuthToken();
   if (!token) {
     adminState.status = 'error';
@@ -687,7 +950,7 @@ const loadAdminIntegration = async () => {
 };
 
 const loadSpendMapping = async () => {
-  if (!supabase || !adminModeEnabled) return;
+  if (!supabase || !isAdminAccessEnabled()) return;
   const activeLocationId = configState.locationId || ghlLocationId;
   if (!activeLocationId) {
     adminState.mapping.status = 'error';
@@ -909,7 +1172,7 @@ const setMappingValue = (key, value) => {
 };
 
 const saveSpendMapping = async () => {
-  if (!supabase || !adminModeEnabled) return;
+  if (!supabase || !isAdminAccessEnabled()) return;
   if (adminState.mapping.saving) return;
   const activeLocationId = configState.locationId || ghlLocationId;
   if (!activeLocationId) {
@@ -1001,6 +1264,1020 @@ const saveSpendMapping = async () => {
   }
 };
 
+const loadKpiSettings = async () => {
+  if (!supabase || !settingsEnabled) return;
+  if (adminState.kpi.loading || adminState.billing.loading) return;
+
+  adminState.kpi.loading = true;
+  adminState.kpi.status = 'loading';
+  adminState.kpi.message = '';
+  adminState.billing.loading = true;
+  adminState.billing.status = 'loading';
+  adminState.billing.message = '';
+  renderApp();
+
+  try {
+    const { data, error } = await supabase.from('dashboard_config').select('*').eq('id', 1).maybeSingle();
+    if (error) throw error;
+
+    const rawTarget = data?.sales_monthly_deals_target;
+    const rawTargetsByMonth =
+      data?.sales_monthly_deals_targets &&
+      typeof data.sales_monthly_deals_targets === 'object' &&
+      !Array.isArray(data.sales_monthly_deals_targets)
+        ? data.sales_monthly_deals_targets
+        : null;
+    const fallbackTarget =
+      Number.isFinite(configState.salesMonthlyDealsTarget) && configState.salesMonthlyDealsTarget > 0
+        ? configState.salesMonthlyDealsTarget
+        : SALES_TARGET_MONTHLY_DEALS;
+    const target =
+      typeof rawTarget === 'number' && Number.isFinite(rawTarget) && rawTarget > 0 ? rawTarget : fallbackTarget;
+
+    adminState.kpi.monthlyDealsTarget = String(Math.max(1, Math.round(target)));
+
+    const fallbackTargets =
+      configState.salesMonthlyDealsTargets &&
+      typeof configState.salesMonthlyDealsTargets === 'object' &&
+      !Array.isArray(configState.salesMonthlyDealsTargets)
+        ? configState.salesMonthlyDealsTargets
+        : {};
+    const sourceTargets = rawTargetsByMonth || fallbackTargets;
+    const cleanedTargets = {};
+    const monthKeyPattern = /^\d{4}-\d{2}$/;
+    Object.entries(sourceTargets || {}).forEach(([key, value]) => {
+      if (!monthKeyPattern.test(key)) return;
+      const month = Number(key.slice(5));
+      if (!Number.isFinite(month) || month < 1 || month > 12) return;
+      const num = typeof value === 'number' ? value : Number(value);
+      if (!Number.isFinite(num) || num <= 0) return;
+      cleanedTargets[key] = String(Math.max(1, Math.round(num)));
+    });
+    adminState.kpi.monthlyDealsTargets = cleanedTargets;
+
+    const rawQuotesFromPhase = data?.sales_quotes_from_phase_id;
+    const fallbackQuotesFromPhase = configState.salesQuotesFromPhaseId;
+    const normalizedQuotesFromPhase =
+      typeof rawQuotesFromPhase === 'string'
+        ? rawQuotesFromPhase.trim()
+        : typeof fallbackQuotesFromPhase === 'string'
+          ? fallbackQuotesFromPhase.trim()
+          : '';
+    adminState.kpi.quotesFromPhaseId = normalizedQuotesFromPhase || '';
+
+    const rawLostReasonFieldId = data?.lost_reason_field_id;
+    const fallbackLostReasonFieldId = configState.lostReasonFieldId;
+    const normalizedLostReasonFieldId =
+      typeof rawLostReasonFieldId === 'string'
+        ? rawLostReasonFieldId.trim()
+        : typeof fallbackLostReasonFieldId === 'string'
+          ? fallbackLostReasonFieldId.trim()
+          : '';
+    adminState.kpi.lostReasonFieldId = normalizedLostReasonFieldId || '';
+
+    const rawPortalUrl = normalizeBillingUrl(data?.billing_portal_url);
+    const fallbackPortalUrl = normalizeBillingUrl(configState.billingPortalUrl);
+    const rawCheckoutUrl = normalizeBillingUrl(data?.billing_checkout_url);
+    const fallbackCheckoutUrl = normalizeBillingUrl(configState.billingCheckoutUrl);
+    const portalUrl = rawPortalUrl || fallbackPortalUrl || '';
+    const checkoutUrl = rawCheckoutUrl || fallbackCheckoutUrl || '';
+    const checkoutEmbedFlag = data?.billing_checkout_embed === true || configState.billingCheckoutEmbed === true;
+
+    adminState.billing.portalUrl = portalUrl;
+    adminState.billing.checkoutUrl = checkoutUrl;
+    adminState.billing.checkoutEmbed = Boolean(checkoutUrl && checkoutEmbedFlag);
+
+    const locationId = (configState.locationId || ghlLocationId || data?.location_id || adminState.form.locationId || '').trim();
+    adminState.kpi.quotesPhaseOptions = [];
+    if (locationId) {
+      const { data: phaseRows, error: phaseError } = await supabase
+        .from('teamleader_deal_phases')
+        .select('id,name,probability,sort_order')
+        .eq('location_id', locationId);
+      if (phaseError) {
+        const phaseMessage = phaseError.message ?? String(phaseError);
+        if (phaseMessage.includes('sort_order') && phaseMessage.includes('does not exist')) {
+          const { data: fallbackRows, error: fallbackError } = await supabase
+            .from('teamleader_deal_phases')
+            .select('id,name,probability')
+            .eq('location_id', locationId);
+          if (fallbackError) {
+            console.warn('Unable to load Teamleader deal phases for Sales KPI settings', fallbackError);
+          } else {
+            adminState.kpi.quotesPhaseOptions = (fallbackRows || []).map((row) => ({ ...row, sort_order: null }));
+          }
+        } else {
+          console.warn('Unable to load Teamleader deal phases for Sales KPI settings', phaseError);
+        }
+      } else {
+        adminState.kpi.quotesPhaseOptions = phaseRows || [];
+      }
+    }
+
+    if (!Number.isFinite(Number(adminState.kpi.year))) {
+      adminState.kpi.year = new Date().getFullYear();
+    }
+    adminState.kpi.status = 'ready';
+    adminState.kpi.message = '';
+    adminState.kpi.hasChanges = false;
+    adminState.billing.status = 'ready';
+    adminState.billing.message = '';
+    adminState.billing.hasChanges = false;
+  } catch (error) {
+    adminState.kpi.status = 'error';
+    adminState.kpi.message = error instanceof Error ? error.message : 'Onbekende fout';
+    adminState.billing.status = 'error';
+    adminState.billing.message = error instanceof Error ? error.message : 'Onbekende fout';
+    if (!adminState.kpi.monthlyDealsTarget) {
+      adminState.kpi.monthlyDealsTarget = String(SALES_TARGET_MONTHLY_DEALS);
+    }
+    if (
+      !adminState.kpi.monthlyDealsTargets ||
+      typeof adminState.kpi.monthlyDealsTargets !== 'object' ||
+      Array.isArray(adminState.kpi.monthlyDealsTargets)
+    ) {
+      adminState.kpi.monthlyDealsTargets = {};
+    }
+    if (
+      Object.keys(adminState.kpi.monthlyDealsTargets).length === 0 &&
+      configState.salesMonthlyDealsTargets &&
+      typeof configState.salesMonthlyDealsTargets === 'object' &&
+      !Array.isArray(configState.salesMonthlyDealsTargets)
+    ) {
+      const cleanedTargets = {};
+      const monthKeyPattern = /^\d{4}-\d{2}$/;
+      Object.entries(configState.salesMonthlyDealsTargets).forEach(([key, value]) => {
+        if (!monthKeyPattern.test(key)) return;
+        const month = Number(key.slice(5));
+        if (!Number.isFinite(month) || month < 1 || month > 12) return;
+        const num = typeof value === 'number' ? value : Number(value);
+        if (!Number.isFinite(num) || num <= 0) return;
+        cleanedTargets[key] = String(Math.max(1, Math.round(num)));
+      });
+      adminState.kpi.monthlyDealsTargets = cleanedTargets;
+    }
+
+    if (typeof adminState.kpi.quotesFromPhaseId !== 'string') {
+      adminState.kpi.quotesFromPhaseId = configState.salesQuotesFromPhaseId || '';
+    }
+    if (typeof adminState.kpi.lostReasonFieldId !== 'string') {
+      adminState.kpi.lostReasonFieldId = configState.lostReasonFieldId || '';
+    }
+    if (!Array.isArray(adminState.kpi.quotesPhaseOptions)) {
+      adminState.kpi.quotesPhaseOptions = [];
+    }
+    adminState.billing.portalUrl = configState.billingPortalUrl || '';
+    adminState.billing.checkoutUrl = configState.billingCheckoutUrl || '';
+    adminState.billing.checkoutEmbed = Boolean(configState.billingCheckoutEmbed && configState.billingCheckoutUrl);
+    adminState.billing.hasChanges = false;
+  } finally {
+    adminState.kpi.loading = false;
+    adminState.billing.loading = false;
+    renderApp();
+  }
+};
+
+const saveKpiSettings = async () => {
+  if (!supabase || !settingsEnabled) return;
+  if (adminState.kpi.saving) return;
+
+  const adminAccessEnabled = isAdminAccessEnabled();
+  const kpiOnlyMode = settingsModeEnabled && !adminAccessEnabled;
+  if (adminAccessEnabled) {
+    const token = await getAuthToken();
+    if (!token) {
+      adminState.kpi.status = 'error';
+      adminState.kpi.message = 'Log in om KPI instellingen op te slaan.';
+      renderApp();
+      return;
+    }
+  }
+
+  const rawValue = String(adminState.kpi.monthlyDealsTarget ?? '').trim();
+  const parsed = Number(rawValue);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    adminState.kpi.status = 'error';
+    adminState.kpi.message = 'Vul een geldig positief getal in voor de maandelijkse target.';
+    renderApp();
+    return;
+  }
+
+  const target = Math.max(1, Math.round(parsed));
+
+  const monthTargets = adminState.kpi.monthlyDealsTargets;
+  const monthKeyPattern = /^\d{4}-\d{2}$/;
+  const monthOverrides = {};
+  if (monthTargets && typeof monthTargets === 'object' && !Array.isArray(monthTargets)) {
+    for (const [key, value] of Object.entries(monthTargets)) {
+      if (!monthKeyPattern.test(key)) continue;
+      const month = Number(key.slice(5));
+      if (!Number.isFinite(month) || month < 1 || month > 12) continue;
+
+      const raw = String(value ?? '').trim();
+      if (!raw) continue;
+      const num = Number(raw);
+      if (!Number.isFinite(num) || num <= 0) {
+        adminState.kpi.status = 'error';
+        adminState.kpi.message = `Ongeldige maandtarget voor ${key}. Gebruik een positief getal of laat leeg.`;
+        renderApp();
+        return;
+      }
+
+      const rounded = Math.max(1, Math.round(num));
+      if (rounded !== target) {
+        monthOverrides[key] = rounded;
+      }
+    }
+  }
+
+  const quotesFromPhaseIdRaw = String(adminState.kpi.quotesFromPhaseId ?? '').trim();
+  const quotesFromPhaseId = quotesFromPhaseIdRaw || null;
+
+  const lostReasonFieldIdRaw = String(adminState.kpi.lostReasonFieldId ?? '').trim();
+  const lostReasonFieldId = lostReasonFieldIdRaw || null;
+
+  const locationId = (configState.locationId || ghlLocationId || adminState.form.locationId || '').trim();
+  if (adminAccessEnabled && !locationId) {
+    adminState.kpi.status = 'error';
+    adminState.kpi.message = 'Location ID ontbreekt. Sla eerst de integratie op.';
+    renderApp();
+    return;
+  }
+
+  adminState.kpi.saving = true;
+  adminState.kpi.status = 'saving';
+  adminState.kpi.message = '';
+  renderApp();
+
+  try {
+    const now = new Date().toISOString();
+    if (kpiOnlyMode) {
+      const { data, error } = await supabase
+        .from('dashboard_config')
+        .update({
+          sales_monthly_deals_target: target,
+          sales_monthly_deals_targets: monthOverrides,
+          sales_quotes_from_phase_id: quotesFromPhaseId,
+          lost_reason_field_id: lostReasonFieldId,
+          updated_at: now
+        })
+        .eq('id', 1)
+        .select('id')
+        .maybeSingle();
+      if (error) throw error;
+      if (!data?.id) {
+        throw new Error('dashboard_config ontbreekt. Contacteer je dashboardbeheerder.');
+      }
+    } else {
+      const { error } = await supabase
+        .from('dashboard_config')
+        .upsert(
+          {
+            id: 1,
+            location_id: locationId,
+            sales_monthly_deals_target: target,
+            sales_monthly_deals_targets: monthOverrides,
+            sales_quotes_from_phase_id: quotesFromPhaseId,
+            lost_reason_field_id: lostReasonFieldId,
+            updated_at: now
+          },
+          { onConflict: 'id' }
+        );
+      if (error) throw error;
+    }
+
+    adminState.kpi.saving = false;
+    adminState.kpi.status = 'success';
+    adminState.kpi.message = 'KPI opgeslagen.';
+    adminState.kpi.hasChanges = false;
+    adminState.kpi.monthlyDealsTarget = String(target);
+    adminState.kpi.monthlyDealsTargets = Object.fromEntries(
+      Object.entries(monthOverrides).map(([key, value]) => [key, String(value)])
+    );
+    adminState.kpi.quotesFromPhaseId = quotesFromPhaseIdRaw;
+    adminState.kpi.lostReasonFieldId = lostReasonFieldIdRaw;
+
+    configState.salesMonthlyDealsTarget = target;
+    configState.salesMonthlyDealsTargets = monthOverrides;
+    configState.salesQuotesFromPhaseId = quotesFromPhaseId;
+    configState.lostReasonFieldId = lostReasonFieldId;
+    liveState.lostReasons = {
+      status: 'idle',
+      rows: null,
+      rangeKey: '',
+      errorMessage: '',
+      inFlight: false
+    };
+    ensureLostReasons(dateRange);
+
+    // Refresh Sales metrics if the Sales dashboard is open.
+    const routeId = getRouteId(resolveDashboardTabs());
+    if (routeId === 'sales') {
+      salesState.status = 'idle';
+      salesState.data = null;
+      salesState.rangeKey = '';
+      salesState.errorMessage = '';
+      salesState.inFlight = false;
+      ensureSalesData();
+    }
+  } catch (error) {
+    adminState.kpi.status = 'error';
+    adminState.kpi.message = error instanceof Error ? error.message : 'Onbekende fout';
+  } finally {
+    adminState.kpi.saving = false;
+    renderApp();
+  }
+};
+
+const loadLostReasonMappings = async (range = dateRange) => {
+  if (!supabase || !settingsEnabled) return;
+  if (adminState.lostReasons.loading) return;
+
+  const locationId = (configState.locationId || ghlLocationId || adminState.form.locationId || '').trim();
+  if (!locationId) {
+    adminState.lostReasons.status = 'error';
+    adminState.lostReasons.message = 'Location ID ontbreekt. Sla eerst de integratie op.';
+    renderApp();
+    return;
+  }
+
+  adminState.lostReasons.loading = true;
+  adminState.lostReasons.status = 'loading';
+  adminState.lostReasons.message = '';
+  renderApp();
+
+  try {
+    const startIso = toUtcStart(range.start);
+    const endIso = toUtcEndExclusive(range.end);
+
+    const { data: candidateRows, error: candidateError } = await withTimeout(
+      supabase.rpc('get_lost_reason_id_candidates', {
+        p_location_id: locationId,
+        p_start: startIso,
+        p_end: endIso
+      }),
+      12000,
+      'Supabase query timeout (lost reason candidates).'
+    );
+    if (candidateError) throw candidateError;
+
+    let overrideRows = [];
+    const { data: overrides, error: overridesError } = await supabase
+      .from('lost_reason_overrides')
+      .select('reason_id,reason_name')
+      .eq('location_id', locationId);
+
+    if (overridesError) {
+      const message = overridesError.message ?? String(overridesError);
+      if (!message.includes('does not exist')) throw overridesError;
+    } else {
+      overrideRows = overrides || [];
+    }
+
+    // Suggest labels based on known GHL lost reason names (lookup table), plus existing overrides.
+    // If the lookup table is empty, mappings stay manual.
+    let labelOptions = [];
+    try {
+      const { data: lookupRows, error: lookupError } = await supabase
+        .from('lost_reason_lookup')
+        .select('reason_name')
+        .eq('location_id', locationId);
+      if (lookupError) throw lookupError;
+      labelOptions = [
+        ...labelOptions,
+        ...(lookupRows || []).map((row) => toTrimmedText(row?.reason_name)).filter(Boolean)
+      ];
+    } catch (error) {
+      console.warn('Unable to load GHL lost reason lookup for label suggestions', error);
+    }
+
+    labelOptions = [...labelOptions, ...overrideRows.map((row) => toTrimmedText(row?.reason_name)).filter(Boolean)];
+
+    const occurrencesById = new Map();
+    (candidateRows || []).forEach((row) => {
+      const id = toTrimmedText(row?.reason_id);
+      const occurrences = Number(row?.occurrences ?? 0);
+      if (!id) return;
+      occurrencesById.set(id, Number.isFinite(occurrences) ? occurrences : 0);
+    });
+
+    const nameById = new Map();
+    overrideRows.forEach((row) => {
+      const id = toTrimmedText(row?.reason_id);
+      const name = toTrimmedText(row?.reason_name);
+      if (!id) return;
+      if (name) nameById.set(id, name);
+    });
+
+    const ids = new Set([...occurrencesById.keys(), ...nameById.keys()]);
+    const entries = Array.from(ids).map((id) => ({
+      id,
+      occurrences: occurrencesById.get(id) || 0,
+      name: nameById.get(id) || ''
+    }));
+
+    entries.sort((a, b) => {
+      const diff = (b.occurrences ?? 0) - (a.occurrences ?? 0);
+      if (diff) return diff;
+      return String(a.id ?? '').localeCompare(String(b.id ?? ''));
+    });
+
+    // Keep options stable and deduplicated.
+    labelOptions = Array.from(new Set(labelOptions)).sort((a, b) => a.localeCompare(b, 'nl', { sensitivity: 'base' }));
+
+    adminState.lostReasons.entries = entries;
+    adminState.lostReasons.labelOptions = labelOptions;
+    adminState.lostReasons.status = 'ready';
+    adminState.lostReasons.message = '';
+    adminState.lostReasons.hasChanges = false;
+  } catch (error) {
+    adminState.lostReasons.status = 'error';
+    adminState.lostReasons.message = error instanceof Error ? error.message : 'Onbekende fout';
+  } finally {
+    adminState.lostReasons.loading = false;
+    renderApp();
+  }
+};
+
+const syncLostReasonLookupFromGhl = async () => {
+  if (!syncEndpoint) return;
+  if (adminState.lostReasons.loading) return;
+
+  adminState.lostReasons.loading = true;
+  adminState.lostReasons.status = 'loading';
+  adminState.lostReasons.message = '';
+  renderApp();
+
+  let message = '';
+  try {
+    const response = await fetch(`${syncEndpoint}?entities=lost_reasons`);
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      throw new Error(result?.error || result?.message || `GHL sync mislukt (${response.status}).`);
+    }
+    if (!result?.ok) {
+      throw new Error(result?.error || 'GHL sync mislukt.');
+    }
+
+    const count = Number(result?.results?.lost_reasons ?? 0);
+    if (Number.isFinite(count) && count > 0) {
+      message = `${count} lost reason labels opgehaald.`;
+    } else {
+      message =
+        'Geen lost reason labels gevonden. Dit komt meestal doordat je GHL token geen pipeline scopes heeft (opportunities/pipelines.*).';
+    }
+  } catch (error) {
+    adminState.lostReasons.loading = false;
+    adminState.lostReasons.status = 'error';
+    adminState.lostReasons.message = error instanceof Error ? error.message : 'Onbekende fout';
+    renderApp();
+    return;
+  }
+
+  adminState.lostReasons.loading = false;
+  await loadLostReasonMappings(dateRange);
+  adminState.lostReasons.message = message;
+  renderApp();
+};
+
+const saveLostReasonMappings = async () => {
+  if (!supabase || !settingsEnabled) return;
+  if (adminState.lostReasons.saving) return;
+
+  const locationId = (configState.locationId || ghlLocationId || adminState.form.locationId || '').trim();
+  if (!locationId) {
+    adminState.lostReasons.status = 'error';
+    adminState.lostReasons.message = 'Location ID ontbreekt. Sla eerst de integratie op.';
+    renderApp();
+    return;
+  }
+
+  const entries = Array.isArray(adminState.lostReasons.entries) ? adminState.lostReasons.entries : [];
+  const now = new Date().toISOString();
+  const upserts = entries
+    .map((entry) => ({
+      id: toTrimmedText(entry?.id),
+      name: toTrimmedText(entry?.name)
+    }))
+    .filter((entry) => entry.id && entry.name)
+    .map((entry) => ({
+      location_id: locationId,
+      reason_id: entry.id,
+      reason_name: entry.name,
+      updated_at: now
+    }));
+
+  if (!upserts.length) {
+    adminState.lostReasons.status = 'success';
+    adminState.lostReasons.message = 'Geen mappings om op te slaan.';
+    adminState.lostReasons.hasChanges = false;
+    renderApp();
+    return;
+  }
+
+  adminState.lostReasons.saving = true;
+  adminState.lostReasons.status = 'saving';
+  adminState.lostReasons.message = '';
+  renderApp();
+
+  try {
+    const { error } = await withTimeout(
+      supabase.from('lost_reason_overrides').upsert(upserts, { onConflict: 'location_id,reason_id' }),
+      12000,
+      'Supabase query timeout (lost reason overrides).'
+    );
+    if (error) throw error;
+
+    adminState.lostReasons.status = 'success';
+    adminState.lostReasons.message = 'Mappings opgeslagen.';
+    adminState.lostReasons.hasChanges = false;
+
+    await loadLostReasonMappings(dateRange);
+    ensureLostReasons(dateRange);
+  } catch (error) {
+    adminState.lostReasons.status = 'error';
+    adminState.lostReasons.message = error instanceof Error ? error.message : 'Onbekende fout';
+  } finally {
+    adminState.lostReasons.saving = false;
+    renderApp();
+  }
+};
+
+const cloneNormalizationRules = (rules) =>
+  (Array.isArray(rules) ? rules : []).map((rule) => ({
+    bucket: normalizeSourceLabel(rule?.bucket),
+    patterns: Array.isArray(rule?.patterns) ? [...rule.patterns] : []
+  }));
+
+const loadSourceNormalizationSettings = async () => {
+  if (!settingsEnabled) return;
+  if (adminState.sources.loading) return;
+
+  adminState.sources.loading = true;
+  adminState.sources.status = 'loading';
+  adminState.sources.message = '';
+  renderApp();
+
+  try {
+    const rules = sanitizeSourceNormalizationRules(configState.sourceNormalizationRules) || [];
+
+    adminState.sources.rules = cloneNormalizationRules(rules);
+    adminState.sources.hasChanges = false;
+    adminState.sources.status = 'ready';
+    adminState.sources.message = '';
+
+    // Load samples in the background (no await) so users immediately see what's landing in "Overig".
+    loadSourceNormalizationSamples();
+  } catch (error) {
+    adminState.sources.status = 'error';
+    adminState.sources.message = error instanceof Error ? error.message : 'Onbekende fout';
+  } finally {
+    adminState.sources.loading = false;
+    renderApp();
+  }
+};
+
+const loadSourceNormalizationSamples = async () => {
+  if (!supabase || !settingsEnabled) return;
+  if (adminState.sources.samplesLoading) return;
+  const activeLocationId = configState.locationId || ghlLocationId;
+  if (!activeLocationId) {
+    adminState.sources.status = 'error';
+    adminState.sources.message = 'Location ID ontbreekt. Sla eerst de integratie op.';
+    renderApp();
+    return;
+  }
+
+  adminState.sources.samplesLoading = true;
+  renderApp();
+
+  try {
+    const sampleRange = buildRecentRange(120);
+    const startIso = toUtcStart(sampleRange.start);
+    const endIso = toUtcEndExclusive(sampleRange.end);
+
+    const { data, error } = await withTimeout(
+      supabase
+        .from('opportunities_view')
+        .select('source_guess,created_at')
+        .eq('location_id', activeLocationId)
+        .gte('created_at', startIso)
+        .lt('created_at', endIso)
+        .order('created_at', { ascending: false })
+        .limit(5000),
+      12000,
+      'Supabase query timeout (source samples).'
+    );
+    if (error) throw error;
+
+    const counts = new Map();
+    (data ?? []).forEach((row) => {
+      const raw = normalizeSourceValue(row?.source_guess) || 'Onbekend';
+      counts.set(raw, (counts.get(raw) || 0) + 1);
+    });
+
+    const rows = Array.from(counts.entries())
+      .map(([raw, count]) => ({
+        raw,
+        count,
+        bucket: mapSourceToBucketLabel(raw)
+      }))
+      .sort((a, b) => (b.count ?? 0) - (a.count ?? 0));
+
+    adminState.sources.samples = rows.slice(0, 50);
+  } catch (error) {
+    adminState.sources.status = 'error';
+    adminState.sources.message = error instanceof Error ? error.message : 'Onbekende fout';
+  } finally {
+    adminState.sources.samplesLoading = false;
+    renderApp();
+  }
+};
+
+const saveSourceNormalizationSettings = async () => {
+  if (!supabase || !settingsEnabled) return;
+  if (adminState.sources.saving) return;
+
+  const adminAccessEnabled = isAdminAccessEnabled();
+  const kpiOnlyMode = settingsModeEnabled && !adminAccessEnabled;
+  if (adminAccessEnabled) {
+    const token = await getAuthToken();
+    if (!token) {
+      adminState.sources.status = 'error';
+      adminState.sources.message = 'Log in om source normalisatie op te slaan.';
+      renderApp();
+      return;
+    }
+  }
+
+  const rules = sanitizeSourceNormalizationRules(adminState.sources.rules);
+  if (!rules || rules.length === 0) {
+    adminState.sources.status = 'error';
+    adminState.sources.message = 'Voeg minstens 1 normalisatie-regel toe (of vul keywords in).';
+    renderApp();
+    return;
+  }
+
+  const locationId = (configState.locationId || ghlLocationId || adminState.form.locationId || '').trim();
+  if (adminAccessEnabled && !locationId) {
+    adminState.sources.status = 'error';
+    adminState.sources.message = 'Location ID ontbreekt. Sla eerst de integratie op.';
+    renderApp();
+    return;
+  }
+
+  adminState.sources.saving = true;
+  adminState.sources.status = 'saving';
+  adminState.sources.message = '';
+  renderApp();
+
+  try {
+    const now = new Date().toISOString();
+
+    if (kpiOnlyMode) {
+      const { data, error } = await supabase
+        .from('dashboard_config')
+        .update({
+          source_normalization_rules: rules,
+          updated_at: now
+        })
+        .eq('id', 1)
+        .select('id')
+        .maybeSingle();
+      if (error) throw error;
+      if (!data?.id) {
+        throw new Error('dashboard_config ontbreekt. Contacteer je dashboardbeheerder.');
+      }
+    } else {
+      const { error } = await supabase
+        .from('dashboard_config')
+        .upsert(
+          {
+            id: 1,
+            location_id: locationId,
+            source_normalization_rules: rules,
+            updated_at: now
+          },
+          { onConflict: 'id' }
+        );
+      if (error) throw error;
+    }
+
+    adminState.sources.saving = false;
+    adminState.sources.status = 'success';
+    adminState.sources.message = 'Source normalisatie opgeslagen.';
+    adminState.sources.hasChanges = false;
+
+    configState.sourceNormalizationRules = rules;
+
+    liveState.sourceBreakdown = {
+      status: 'idle',
+      rows: null,
+      rangeKey: '',
+      errorMessage: '',
+      inFlight: false
+    };
+    liveState.hookPerformance = {
+      status: 'idle',
+      rows: null,
+      rangeKey: '',
+      errorMessage: '',
+      inFlight: false
+    };
+    liveState.spendBySource = {
+      status: 'idle',
+      totals: null,
+      rangeKey: '',
+      errorMessage: '',
+      inFlight: false
+    };
+
+    ensureSourceBreakdown(dateRange);
+    ensureHookPerformance(dateRange);
+    ensureSpendBySource(dateRange);
+
+    loadSourceNormalizationSamples();
+  } catch (error) {
+    adminState.sources.status = 'error';
+    adminState.sources.message = error instanceof Error ? error.message : 'Onbekende fout';
+  } finally {
+    adminState.sources.saving = false;
+    renderApp();
+  }
+};
+
+const cloneLeadCostRows = (rows) =>
+  (Array.isArray(rows) ? rows : []).map((row) => ({
+    source: normalizeSourceLabel(row?.source),
+    cpl: String(row?.cpl ?? '')
+  }));
+
+const loadLeadCostSettings = async () => {
+  if (!settingsEnabled) return;
+  if (adminState.leadCost.loading) return;
+
+  adminState.leadCost.loading = true;
+  adminState.leadCost.status = 'loading';
+  adminState.leadCost.message = '';
+  renderApp();
+
+  try {
+    const saved = sanitizeCostPerLeadBySource(configState.costPerLeadBySource) || {};
+
+    let sourcesFromLive = [];
+    if (liveState.sourceBreakdown.status === 'ready' && Array.isArray(liveState.sourceBreakdown.rows)) {
+      sourcesFromLive = (liveState.sourceBreakdown.rows || [])
+        .map((row) => ({
+          source: normalizeSourceLabel(row?.source),
+          leads: Number(row?.leads ?? 0)
+        }))
+        .filter((entry) => entry.source)
+        .sort((a, b) => (b.leads ?? 0) - (a.leads ?? 0) || a.source.localeCompare(b.source))
+        .map((entry) => entry.source);
+    }
+
+    const sourcesFromConfig = Object.keys(saved).sort((a, b) => a.localeCompare(b));
+    const combined = [];
+    const add = (value) => {
+      const source = normalizeSourceLabel(value);
+      if (!source) return;
+      if (combined.includes(source)) return;
+      combined.push(source);
+    };
+
+    sourcesFromLive.forEach(add);
+    sourcesFromConfig.forEach(add);
+    if (!combined.length) {
+      getSourceBreakdownOrder().forEach(add);
+    }
+    if (!combined.length) combined.push('');
+
+    adminState.leadCost.rows = combined.map((source) => ({
+      source,
+      cpl: Object.prototype.hasOwnProperty.call(saved, source) ? String(saved[source]) : ''
+    }));
+    adminState.leadCost.rows = cloneLeadCostRows(adminState.leadCost.rows);
+    adminState.leadCost.hasChanges = false;
+    adminState.leadCost.status = 'ready';
+    adminState.leadCost.message = '';
+  } catch (error) {
+    adminState.leadCost.status = 'error';
+    adminState.leadCost.message = error instanceof Error ? error.message : 'Onbekende fout';
+    if (!Array.isArray(adminState.leadCost.rows)) adminState.leadCost.rows = [{ source: '', cpl: '' }];
+  } finally {
+    adminState.leadCost.loading = false;
+    renderApp();
+  }
+};
+
+const saveLeadCostSettings = async () => {
+  if (!supabase || !settingsEnabled) return;
+  if (adminState.leadCost.saving) return;
+
+  const adminAccessEnabled = isAdminAccessEnabled();
+  const kpiOnlyMode = settingsModeEnabled && !adminAccessEnabled;
+  if (adminAccessEnabled) {
+    const token = await getAuthToken();
+    if (!token) {
+      adminState.leadCost.status = 'error';
+      adminState.leadCost.message = 'Log in om leadkosten op te slaan.';
+      renderApp();
+      return;
+    }
+  }
+
+  const cleaned = {};
+  const rows = Array.isArray(adminState.leadCost.rows) ? adminState.leadCost.rows : [];
+  for (const row of rows) {
+    const source = normalizeSourceLabel(row?.source);
+    if (!source) continue;
+    const rawCpl = String(row?.cpl ?? '').trim();
+    if (!rawCpl) continue;
+    const value = Number(rawCpl.replace(',', '.'));
+    if (!Number.isFinite(value) || value < 0) {
+      adminState.leadCost.status = 'error';
+      adminState.leadCost.message = `Ongeldige kost per lead voor ${source}. Gebruik een getal (>= 0) of laat leeg.`;
+      renderApp();
+      return;
+    }
+    cleaned[source] = value;
+  }
+
+  const locationId = (configState.locationId || ghlLocationId || adminState.form.locationId || '').trim();
+  if (adminAccessEnabled && !locationId) {
+    adminState.leadCost.status = 'error';
+    adminState.leadCost.message = 'Location ID ontbreekt. Sla eerst de integratie op.';
+    renderApp();
+    return;
+  }
+
+  adminState.leadCost.saving = true;
+  adminState.leadCost.status = 'saving';
+  adminState.leadCost.message = '';
+  renderApp();
+
+  try {
+    const now = new Date().toISOString();
+    if (kpiOnlyMode) {
+      const { data, error } = await supabase
+        .from('dashboard_config')
+        .update({
+          cost_per_lead_by_source: cleaned,
+          updated_at: now
+        })
+        .eq('id', 1)
+        .select('id')
+        .maybeSingle();
+      if (error) throw error;
+      if (!data?.id) {
+        throw new Error('dashboard_config ontbreekt. Contacteer je dashboardbeheerder.');
+      }
+    } else {
+      const { error } = await supabase
+        .from('dashboard_config')
+        .upsert(
+          {
+            id: 1,
+            location_id: locationId,
+            cost_per_lead_by_source: cleaned,
+            updated_at: now
+          },
+          { onConflict: 'id' }
+        );
+      if (error) throw error;
+    }
+
+    adminState.leadCost.status = 'success';
+    adminState.leadCost.message = 'Leadkosten opgeslagen.';
+    adminState.leadCost.hasChanges = false;
+
+    configState.costPerLeadBySource = cleaned;
+    if (!Array.isArray(adminState.leadCost.rows) || adminState.leadCost.rows.length === 0) {
+      adminState.leadCost.rows = [{ source: '', cpl: '' }];
+    }
+
+    // Finance KPIs depend on these settings.
+    liveState.finance = {
+      status: 'idle',
+      totals: null,
+      rangeKey: '',
+      errorMessage: '',
+      inFlight: false
+    };
+    ensureFinanceSummary(dateRange);
+  } catch (error) {
+    adminState.leadCost.status = 'error';
+    adminState.leadCost.message = error instanceof Error ? error.message : 'Onbekende fout';
+  } finally {
+    adminState.leadCost.saving = false;
+    renderApp();
+  }
+};
+
+const saveBillingSettings = async () => {
+  if (!supabase || !settingsEnabled) return;
+  if (adminState.billing.saving) return;
+
+  const adminAccessEnabled = isAdminAccessEnabled();
+  const kpiOnlyMode = settingsModeEnabled && !adminAccessEnabled;
+  if (adminAccessEnabled) {
+    const token = await getAuthToken();
+    if (!token) {
+      adminState.billing.status = 'error';
+      adminState.billing.message = 'Log in om abonnement instellingen op te slaan.';
+      renderApp();
+      return;
+    }
+  }
+
+  const rawPortalUrl = String(adminState.billing.portalUrl ?? '').trim();
+  const rawCheckoutUrl = String(adminState.billing.checkoutUrl ?? '').trim();
+  const portalUrl = rawPortalUrl ? normalizeBillingUrl(rawPortalUrl) : null;
+  const checkoutUrl = rawCheckoutUrl ? normalizeBillingUrl(rawCheckoutUrl) : null;
+  const checkoutEmbed = Boolean(adminState.billing.checkoutEmbed && checkoutUrl);
+
+  if (rawPortalUrl && !portalUrl) {
+    adminState.billing.status = 'error';
+    adminState.billing.message = 'Gebruik een geldige HTTPS URL of een pad dat start met /.';
+    renderApp();
+    return;
+  }
+
+  if (rawCheckoutUrl && !checkoutUrl) {
+    adminState.billing.status = 'error';
+    adminState.billing.message = 'Gebruik een geldige HTTPS URL of een pad dat start met /.';
+    renderApp();
+    return;
+  }
+
+  const locationId = (configState.locationId || ghlLocationId || adminState.form.locationId || '').trim();
+  if (adminAccessEnabled && !locationId) {
+    adminState.billing.status = 'error';
+    adminState.billing.message = 'Location ID ontbreekt. Sla eerst de integratie op.';
+    renderApp();
+    return;
+  }
+
+  adminState.billing.saving = true;
+  adminState.billing.status = 'saving';
+  adminState.billing.message = '';
+  renderApp();
+
+  try {
+    const now = new Date().toISOString();
+    if (kpiOnlyMode) {
+      const { data, error } = await supabase
+        .from('dashboard_config')
+        .update({
+          billing_portal_url: portalUrl,
+          billing_checkout_url: checkoutUrl,
+          billing_checkout_embed: checkoutEmbed,
+          updated_at: now
+        })
+        .eq('id', 1)
+        .select('id')
+        .maybeSingle();
+      if (error) throw error;
+      if (!data?.id) {
+        throw new Error('dashboard_config ontbreekt. Contacteer je dashboardbeheerder.');
+      }
+    } else {
+      const { error } = await supabase
+        .from('dashboard_config')
+        .upsert(
+          {
+            id: 1,
+            location_id: locationId,
+            billing_portal_url: portalUrl,
+            billing_checkout_url: checkoutUrl,
+            billing_checkout_embed: checkoutEmbed,
+            updated_at: now
+          },
+          { onConflict: 'id' }
+        );
+      if (error) throw error;
+    }
+
+    adminState.billing.status = 'success';
+    adminState.billing.message = 'Abonnement instellingen opgeslagen.';
+    adminState.billing.hasChanges = false;
+    adminState.billing.portalUrl = portalUrl || '';
+    adminState.billing.checkoutUrl = checkoutUrl || '';
+    adminState.billing.checkoutEmbed = checkoutEmbed;
+
+    configState.billingPortalUrl = portalUrl;
+    configState.billingCheckoutUrl = checkoutUrl;
+    configState.billingCheckoutEmbed = checkoutEmbed;
+  } catch (error) {
+    adminState.billing.status = 'error';
+    adminState.billing.message = error instanceof Error ? error.message : 'Onbekende fout';
+  } finally {
+    adminState.billing.saving = false;
+    renderApp();
+  }
+};
+
 const formatNumber = (value, decimals = 0) => {
   if (!Number.isFinite(value)) return '0';
   const fixed = value.toFixed(decimals);
@@ -1014,6 +2291,83 @@ const formatOptionalCurrency = (value, decimals = 2, suffix = '') =>
   Number.isFinite(value) ? `${formatCurrency(value, decimals)}${suffix}` : '--';
 const formatPercent = (value, decimals = 1) => `${formatNumber(value * 100, decimals)}%`;
 const safeDivide = (numerator, denominator) => (denominator ? numerator / denominator : 0);
+const MONTH_LABELS_NL = ['Jan', 'Feb', 'Mrt', 'Apr', 'Mei', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec'];
+const toMonthKey = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+const buildMonthBuckets = (start, end) => {
+  const buckets = [];
+  const cursor = new Date(start.getFullYear(), start.getMonth(), 1);
+  const last = new Date(end.getFullYear(), end.getMonth(), 1);
+  while (cursor <= last) {
+    buckets.push({
+      key: toMonthKey(cursor),
+      label: MONTH_LABELS_NL[cursor.getMonth()],
+      quotes: 0,
+      won: 0
+    });
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  return buckets;
+};
+const getSalesRange = (range) => {
+  if (range?.start && range?.end) {
+    const start = new Date(`${range.start}T00:00:00Z`);
+    const end = new Date(`${range.end}T23:59:59Z`);
+    return { start, end };
+  }
+  const now = new Date();
+  const end = new Date(now);
+  const start = new Date(now);
+  start.setMonth(start.getMonth() - (SALES_RANGE_MONTHS - 1));
+  start.setDate(1);
+  start.setHours(0, 0, 0, 0);
+  return { start, end };
+};
+const parseDate = (value) => {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+const parseStatusChangeAt = (raw, fallback) => {
+  if (raw && typeof raw === 'object') {
+    return (
+      parseDate(raw.lastStatusChangeAt) ||
+      parseDate(raw.last_status_change_at) ||
+      parseDate(raw.statusChangeAt) ||
+      parseDate(raw.status_change_at) ||
+      parseDate(raw.lastStatusChangedAt) ||
+      parseDate(raw.last_status_changed_at) ||
+      parseDate(fallback)
+    );
+  }
+  return parseDate(fallback);
+};
+const diffDays = (later, earlier) => {
+  if (!later || !earlier) return null;
+  return (later.getTime() - earlier.getTime()) / (1000 * 60 * 60 * 24);
+};
+const formatDays = (value, decimals = 1) =>
+  Number.isFinite(value) ? `${formatNumber(value, decimals)} dagen` : '--';
+const normalizeStatus = (value) => String(value || '').trim().toLowerCase();
+const isWonStatus = (status) => status.includes('won');
+const isLostStatus = (status) =>
+  !isWonStatus(status) &&
+  (status.includes('lost') ||
+    status.includes('declined') ||
+    status.includes('rejected') ||
+    status.includes('cancel') ||
+    status.includes('closed'));
+const formatFullName = (first, last, fallback = 'Onbekend') => {
+  const parts = [first, last].map((value) => (value || '').trim()).filter(Boolean);
+  return parts.length ? parts.join(' ') : fallback;
+};
+const buildInitials = (name) => {
+  if (!name) return '--';
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '--';
+  const first = parts[0]?.[0] || '';
+  const last = parts.length > 1 ? parts[parts.length - 1]?.[0] || '' : '';
+  return `${first}${last}`.toUpperCase();
+};
 const META_SOURCE_BY_LANG = {
   nl: 'Meta - Calculator',
   fr: 'Meta - FR Calculator'
@@ -1038,15 +2392,137 @@ const classifyMetaAdset = (value) => {
   // Default to NL when no FR signal is found (NL adsets often omit "NL").
   return 'nl';
 };
+
+const getLayoutRoot = () => {
+  const layout = configState.dashboardLayout;
+  if (!layout || typeof layout !== 'object' || Array.isArray(layout)) return null;
+  return layout;
+};
+
+const getLayoutBehavior = () => {
+  const layout = getLayoutRoot();
+  if (!layout) return null;
+  const behavior = layout.behavior || layout.options || layout.config;
+  if (!behavior || typeof behavior !== 'object' || Array.isArray(behavior)) return null;
+  return behavior;
+};
+
+const normalizeBehaviorKey = (value) =>
+  String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '_');
+
+const resolveSourceBreakdownVariant = () => {
+  const behavior = getLayoutBehavior();
+  const sourceCfg =
+    behavior?.source_breakdown && typeof behavior.source_breakdown === 'object' && !Array.isArray(behavior.source_breakdown)
+      ? behavior.source_breakdown
+      : null;
+
+  const raw =
+    behavior?.source_breakdown_variant ??
+    behavior?.sourceBreakdownVariant ??
+    sourceCfg?.variant ??
+    sourceCfg?.mode ??
+    '';
+
+  const key = normalizeBehaviorKey(raw);
+  if (key === 'deals' || key === 'deal') return 'deals';
+  if (key === 'default' || key === 'standard') return 'default';
+
+  // Legacy fallback: Belivert used a deals-focused breakdown layout.
+  if (resolveBrandTheme() === 'belivert') return 'deals';
+
+  return 'default';
+};
+
+const resolveSourceBreakdownCostDenominator = () => {
+  const behavior = getLayoutBehavior();
+  const sourceCfg =
+    behavior?.source_breakdown && typeof behavior.source_breakdown === 'object' && !Array.isArray(behavior.source_breakdown)
+      ? behavior.source_breakdown
+      : null;
+
+  const raw =
+    behavior?.source_breakdown_cost_denominator ??
+    behavior?.sourceBreakdownCostDenominator ??
+    sourceCfg?.cost_denominator ??
+    sourceCfg?.costDenominator ??
+    sourceCfg?.denominator ??
+    '';
+
+  const key = normalizeBehaviorKey(raw);
+  if (key === 'deals' || key === 'deal') return 'deals';
+  if (key === 'appointments' || key === 'appointment' || key === 'total') return 'appointments';
+  if (key === 'confirmed' || key === 'confirmed_appointments' || key === 'confirmedappointments') return 'confirmed';
+
+  return resolveSourceBreakdownVariant() === 'deals' ? 'deals' : 'confirmed';
+};
+
+const resolveHookPerformanceSourceBucketFilter = () => {
+  const behavior = getLayoutBehavior();
+  const hookCfg =
+    behavior?.hook_performance && typeof behavior.hook_performance === 'object' && !Array.isArray(behavior.hook_performance)
+      ? behavior.hook_performance
+      : behavior?.hookPerformance && typeof behavior.hookPerformance === 'object' && !Array.isArray(behavior.hookPerformance)
+        ? behavior.hookPerformance
+        : null;
+
+  const raw =
+    behavior?.hook_source_bucket_filter ??
+    behavior?.hookSourceBucketFilter ??
+    hookCfg?.source_bucket_filter ??
+    hookCfg?.sourceBucketFilter ??
+    hookCfg?.bucket ??
+    hookCfg?.filter_bucket ??
+    '';
+  const filter = normalizeSourceLabel(raw);
+  if (filter) return filter;
+
+  // Legacy fallback: Belivert focused hook performance on Meta only.
+  if (resolveBrandTheme() === 'belivert') return 'Facebook Ads';
+
+  return null;
+};
+
+const resolveAppointmentProvider = () => {
+  const behavior = getLayoutBehavior();
+  const raw =
+    behavior?.appointments_provider ??
+    behavior?.appointmentsProvider ??
+    behavior?.appointment_provider ??
+    behavior?.appointmentProvider ??
+    behavior?.appointments ??
+    behavior?.appointmentSource ??
+    '';
+  const key = normalizeBehaviorKey(raw);
+
+  if (key.includes('teamleader')) return 'teamleader_meetings';
+  if (key.includes('ghl') || key.includes('highlevel')) return 'ghl';
+
+  // Legacy fallback: Belivert used Teamleader meetings as appointments.
+  if (resolveBrandTheme() === 'belivert') return 'teamleader_meetings';
+
+  return 'ghl';
+};
+
 const applySourceSpendToSourceRows = (rows, spendBySource) => {
   if (!Array.isArray(rows)) return rows;
 
+  const denominatorKind = resolveSourceBreakdownCostDenominator();
+
   return rows.map((row) => {
     const spend = Number(spendBySource?.[row.source] ?? 0);
-    const confirmed = Number(row.rawConfirmedAppointments ?? row.rawAppointments ?? 0);
-    if (spend <= 0 || confirmed <= 0) return { ...row, cost: '--' };
-    const costPerAppointment = spend / confirmed;
-    return { ...row, cost: formatOptionalCurrency(costPerAppointment, 2) };
+    const denominator =
+      denominatorKind === 'deals'
+        ? Number(row.rawDeals ?? 0)
+        : denominatorKind === 'appointments'
+          ? Number(row.rawAppointments ?? 0)
+          : Number(row.rawConfirmedAppointments ?? row.rawAppointments ?? 0);
+
+    if (spend <= 0 || denominator <= 0) return { ...row, cost: '--' };
+    return { ...row, cost: formatOptionalCurrency(spend / denominator, 2) };
   });
 };
 const MAPPING_PLATFORMS = {
@@ -1055,6 +2531,157 @@ const MAPPING_PLATFORMS = {
 };
 const normalizeMappingPlatform = (value) => String(value ?? '').trim().toLowerCase();
 const normalizeSourceLabel = (value) => String(value ?? '').trim();
+
+const sanitizeSourceNormalizationRules = (value) => {
+  if (!Array.isArray(value)) return null;
+
+  const cleaned = value
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return null;
+      const bucket = normalizeSourceLabel(entry.bucket);
+      if (!bucket) return null;
+
+      let patterns = entry.patterns;
+      if (typeof patterns === 'string') {
+        patterns = patterns
+          .split(',')
+          .map((token) => token.trim())
+          .filter(Boolean);
+      }
+
+      if (!Array.isArray(patterns)) patterns = [];
+
+      const normalizedPatterns = patterns
+        .map((pattern) => normalizeSourceLabel(pattern).toLowerCase())
+        .filter(Boolean);
+
+      if (!normalizedPatterns.length) return null;
+      return { bucket, patterns: normalizedPatterns };
+    })
+    .filter(Boolean);
+
+  return cleaned.length ? cleaned : null;
+};
+
+const sanitizeCostPerLeadBySource = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const cleaned = {};
+  Object.entries(value).forEach(([key, raw]) => {
+    const source = normalizeSourceLabel(key);
+    if (!source) return;
+    const num = typeof raw === 'number' ? raw : Number(String(raw ?? '').replace(',', '.'));
+    if (!Number.isFinite(num) || num < 0) return;
+    cleaned[source] = num;
+  });
+  return cleaned;
+};
+
+let sourceNormalizationRulesRef = null;
+let sourceNormalizationRulesCache = [];
+const getSourceNormalizationRules = () => {
+  const raw = configState.sourceNormalizationRules;
+  if (raw !== sourceNormalizationRulesRef) {
+    sourceNormalizationRulesRef = raw;
+    sourceNormalizationRulesCache = sanitizeSourceNormalizationRules(raw) || [];
+  }
+  return sourceNormalizationRulesCache;
+};
+
+const DEFAULT_UNKNOWN_SOURCE_TOKENS = new Set([
+  'onbekend',
+  'unknown',
+  'n/a',
+  'na',
+  'none',
+  '(none)',
+  'not set',
+  'undefined',
+  'null'
+]);
+
+const resolveSourceBucketingConfig = () => {
+  const behavior = getLayoutBehavior();
+  const cfg =
+    behavior?.source_bucketing && typeof behavior.source_bucketing === 'object' && !Array.isArray(behavior.source_bucketing)
+      ? behavior.source_bucketing
+      : behavior?.sourceBucketing && typeof behavior.sourceBucketing === 'object' && !Array.isArray(behavior.sourceBucketing)
+        ? behavior.sourceBucketing
+        : null;
+
+  const rules = getSourceNormalizationRules();
+  const enabled = rules.length > 0 && cfg?.enabled !== false;
+
+  const unmatchedKey = normalizeBehaviorKey(cfg?.unmatched ?? cfg?.unmatched_mode ?? cfg?.unmatchedMode ?? '');
+  const unmatchedMode = unmatchedKey === 'keep' || unmatchedKey === 'passthrough' ? 'keep' : 'fallback';
+
+  const fallbackBucket = normalizeSourceLabel(cfg?.fallback_bucket ?? cfg?.fallbackBucket ?? cfg?.fallback ?? '') || 'Overig';
+
+  const hasOrganicBucket = rules.some((rule) => normalizeSourceLabel(rule?.bucket).toLowerCase() === 'organic');
+  const emptyBucket =
+    normalizeSourceLabel(cfg?.empty_bucket ?? cfg?.emptyBucket ?? cfg?.empty ?? '') ||
+    (hasOrganicBucket ? 'Organic' : fallbackBucket || 'Onbekend');
+
+  const unknownTokensRaw = cfg?.unknown_tokens ?? cfg?.unknownTokens;
+  const unknownTokens = new Set(
+    Array.isArray(unknownTokensRaw)
+      ? unknownTokensRaw.map((token) => normalizeSourceLabel(token).toLowerCase()).filter(Boolean)
+      : Array.from(DEFAULT_UNKNOWN_SOURCE_TOKENS)
+  );
+
+  const orderRaw = cfg?.order ?? cfg?.bucket_order ?? cfg?.bucketOrder;
+  const order = Array.isArray(orderRaw) ? orderRaw.map((value) => normalizeSourceLabel(value)).filter(Boolean) : [];
+
+  return { enabled, rules, unmatchedMode, fallbackBucket, emptyBucket, unknownTokens, order };
+};
+
+const isSourceBucketingEnabled = () => resolveSourceBucketingConfig().enabled;
+
+const mapSourceToBucketLabel = (value) => {
+  const cfg = resolveSourceBucketingConfig();
+  const normalized = normalizeSourceLabel(normalizeSourceValue(value));
+  if (!cfg.enabled) return normalized;
+
+  if (!normalized) return cfg.emptyBucket || 'Onbekend';
+
+  const lowered = normalized.toLowerCase();
+  if (cfg.unknownTokens.has(lowered)) return cfg.fallbackBucket;
+
+  for (const rule of cfg.rules) {
+    const bucket = normalizeSourceLabel(rule?.bucket);
+    if (!bucket) continue;
+    const patterns = Array.isArray(rule?.patterns) ? rule.patterns : [];
+    for (const pattern of patterns) {
+      if (pattern && lowered.includes(pattern)) return bucket;
+    }
+  }
+
+  return cfg.unmatchedMode === 'keep' ? normalized : cfg.fallbackBucket;
+};
+
+const getSourceBreakdownOrder = () => {
+  const cfg = resolveSourceBucketingConfig();
+  if (!cfg.enabled) return SOURCE_ORDER;
+
+  const order = [];
+  const add = (value) => {
+    const label = normalizeSourceLabel(value);
+    if (!label) return;
+    if (order.includes(label)) return;
+    order.push(label);
+  };
+
+  if (cfg.order.length) {
+    cfg.order.forEach(add);
+  } else {
+    cfg.rules.forEach((rule) => add(rule?.bucket));
+  }
+
+  // Ensure empty + fallback buckets are present for a stable breakdown table.
+  add(cfg.emptyBucket);
+  if (cfg.unmatchedMode !== 'keep') add(cfg.fallbackBucket);
+
+  return order;
+};
 const buildMappingKey = (platform, campaignId, adsetId) => {
   const normalized = normalizeMappingPlatform(platform);
   if (normalized === MAPPING_PLATFORMS.google) {
@@ -1077,6 +2704,7 @@ const buildSourceOptions = (rows) => {
   (rows ?? []).forEach((row) => {
     if (row?.source) options.add(row.source);
   });
+  getSourceBreakdownOrder().forEach((source) => options.add(source));
   options.add(META_SOURCE_BY_LANG.nl);
   options.add(META_SOURCE_BY_LANG.fr);
   options.add(GOOGLE_SOURCE_LABEL);
@@ -1142,6 +2770,178 @@ const applyStatusFilter = (query, patterns) => {
   return query.or(filter);
 };
 
+const useTeamleaderAppointments = () => resolveAppointmentProvider() === 'teamleader_meetings';
+
+const fetchTeamleaderMeetingsBatch = async (activeLocationId, startIso, endIso, from = null, to = null) => {
+  let query = supabase
+    .from('teamleader_meetings')
+    .select('id,scheduled_at,customer_type,customer_id,title,description')
+    .eq('location_id', activeLocationId)
+    .gte('scheduled_at', startIso)
+    .lt('scheduled_at', endIso)
+    .order('scheduled_at', { ascending: false });
+  if (Number.isFinite(from) && Number.isFinite(to)) {
+    query = query.range(from, to);
+  }
+  const { data, error } = await withTimeout(
+    query,
+    12000,
+    'Supabase query timeout (teamleader meetings).'
+  );
+  if (error) throw error;
+  return Array.isArray(data) ? data : [];
+};
+
+const hydrateTeamleaderMeetingCustomers = async (activeLocationId, meetings) => {
+  if (!Array.isArray(meetings) || meetings.length === 0) return [];
+
+  const contactIds = new Set();
+  const companyIds = new Set();
+  meetings.forEach((row) => {
+    const id = toTrimmedText(row?.customer_id);
+    const type = toTrimmedText(row?.customer_type);
+    if (!id || !type) return;
+    if (type === 'contact') contactIds.add(id);
+    if (type === 'company') companyIds.add(id);
+  });
+
+  const contactsById = new Map();
+  const companiesById = new Map();
+  const chunkSize = 100;
+
+  const contactIdList = Array.from(contactIds);
+  for (let i = 0; i < contactIdList.length; i += chunkSize) {
+    const chunk = contactIdList.slice(i, i + chunkSize);
+    const { data, error } = await withTimeout(
+      supabase
+        .from('teamleader_contacts')
+        .select('id,first_name,last_name,email')
+        .eq('location_id', activeLocationId)
+        .in('id', chunk),
+      12000,
+      'Supabase query timeout (teamleader contacts).'
+    );
+    if (error) throw error;
+    (data || []).forEach((row) => {
+      const id = toTrimmedText(row?.id);
+      if (id) contactsById.set(id, row);
+    });
+  }
+
+  const companyIdList = Array.from(companyIds);
+  for (let i = 0; i < companyIdList.length; i += chunkSize) {
+    const chunk = companyIdList.slice(i, i + chunkSize);
+    const { data, error } = await withTimeout(
+      supabase
+        .from('teamleader_companies')
+        .select('id,name,email')
+        .eq('location_id', activeLocationId)
+        .in('id', chunk),
+      12000,
+      'Supabase query timeout (teamleader companies).'
+    );
+    if (error) throw error;
+    (data || []).forEach((row) => {
+      const id = toTrimmedText(row?.id);
+      if (id) companiesById.set(id, row);
+    });
+  }
+
+  return meetings.map((row) => {
+    const type = toTrimmedText(row?.customer_type);
+    const customerId = toTrimmedText(row?.customer_id);
+    let contactEmail = null;
+    let contactName = null;
+
+    if (type === 'contact' && customerId) {
+      const contact = contactsById.get(customerId);
+      contactEmail = toTrimmedText(contact?.email);
+      contactName = formatFullName(contact?.first_name, contact?.last_name, contactEmail || 'Onbekend');
+    } else if (type === 'company' && customerId) {
+      const company = companiesById.get(customerId);
+      contactEmail = toTrimmedText(company?.email);
+      contactName = toTrimmedText(company?.name) || contactEmail || 'Onbekend';
+    }
+
+    return {
+      ...row,
+      contact_email: contactEmail,
+      contact_name: contactName
+    };
+  });
+};
+
+const buildTeamleaderAppointmentRows = async (activeLocationId, startIso, endIso) => {
+  const meetings = [];
+  const pageSize = 1000;
+  let from = 0;
+  while (true) {
+    const batch = await fetchTeamleaderMeetingsBatch(activeLocationId, startIso, endIso, from, from + pageSize - 1);
+    if (!batch.length) break;
+    meetings.push(...batch);
+    if (batch.length < pageSize) break;
+    from += pageSize;
+  }
+
+  const hydrated = await hydrateTeamleaderMeetingCustomers(activeLocationId, meetings);
+  return hydrated.map((row) => ({
+    id: row?.id ?? '',
+    start_time: row?.scheduled_at ?? null,
+    contact_id: null,
+    contact_name: row?.contact_name ?? null,
+    contact_email: row?.contact_email ?? null,
+    source: null,
+    appointment_status: 'confirmed',
+    appointment_status_raw: null
+  }));
+};
+
+const fetchOpportunitiesByEmails = async (activeLocationId, emails, select, message) => {
+  const rows = [];
+  const unique = Array.from(new Set((emails || []).map((email) => normalizeEmailValue(email)).filter(Boolean)));
+  if (unique.length === 0) return rows;
+  const chunks = chunkValues(unique, 100);
+  for (const chunk of chunks) {
+    const { data, error } = await withTimeout(
+      supabase
+        .from('opportunities_view')
+        .select(select)
+        .eq('location_id', activeLocationId)
+        .in('contact_email', chunk)
+        .order('created_at', { ascending: false }),
+      12000,
+      message || 'Supabase query timeout (opportunities by email).'
+    );
+    if (error) throw error;
+    (data || []).forEach((row) => rows.push(row));
+  }
+  return rows;
+};
+
+const fetchContactsByEmailLookup = async (activeLocationId, emails) => {
+  const byEmail = new Map();
+  const unique = Array.from(new Set((emails || []).map((email) => normalizeEmailValue(email)).filter(Boolean)));
+  if (unique.length === 0) return { byEmail };
+  const chunks = chunkValues(unique, 100);
+  for (const chunk of chunks) {
+    const { data, error } = await withTimeout(
+      supabase
+        .from('contacts_view')
+        .select('id,email,contact_name,first_name,last_name,custom_fields,source_guess')
+        .eq('location_id', activeLocationId)
+        .in('email', chunk),
+      12000,
+      'Supabase query timeout (contacts by email).'
+    );
+    if (error) throw error;
+    (data || []).forEach((row) => {
+      const emailNorm = normalizeEmailValue(row?.email);
+      if (emailNorm && !byEmail.has(emailNorm)) byEmail.set(emailNorm, row);
+    });
+  }
+  return { byEmail };
+};
+
 const fetchOpportunityCount = async (range) => {
   if (!supabase) return null;
 
@@ -1181,6 +2981,27 @@ const fetchAppointmentCounts = async (range) => {
   const activeLocationId = configState.locationId || ghlLocationId;
   if (!activeLocationId) {
     throw new Error('Location ID ontbreekt. Voeg deze toe via de setup (dashboard_config).');
+  }
+
+  if (useTeamleaderAppointments()) {
+    const { count, error } = await withTimeout(
+      supabase
+        .from('teamleader_meetings')
+        .select('id', { count: 'exact', head: true })
+        .eq('location_id', activeLocationId)
+        .gte('scheduled_at', startIso)
+        .lt('scheduled_at', endIso),
+      12000,
+      'Supabase query timeout (teamleader meetings total).'
+    );
+    if (error) throw error;
+    const total = count ?? 0;
+    return {
+      total,
+      cancelled: 0,
+      confirmed: total,
+      noShow: 0
+    };
   }
 
   const buildQuery = (patterns) => {
@@ -1227,6 +3048,722 @@ const fetchLatestSyncTimestamp = async () => {
   return data?.updated_at ?? null;
 };
 
+const toTrimmedText = (value) => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return null;
+};
+
+const normalizeBillingUrl = (value) => {
+  const text = toTrimmedText(value);
+  if (!text) return null;
+  if (text.startsWith('/') && !text.startsWith('//')) return text;
+  try {
+    const parsed = new URL(text);
+    if (parsed.protocol !== 'https:') return null;
+    return parsed.toString();
+  } catch (_error) {
+    return null;
+  }
+};
+
+const resolveBillingUrl = (value) => {
+  const normalized = normalizeBillingUrl(value);
+  if (!normalized) return null;
+  if (normalized.startsWith('/')) {
+    try {
+      return new URL(normalized, window.location.origin).toString();
+    } catch (_error) {
+      return null;
+    }
+  }
+  return normalized;
+};
+
+// Mirrors public.normalize_source() in SQL.
+const normalizeSourceValue = (value) => {
+  const text = toTrimmedText(value);
+  if (!text) return null;
+  const lowered = text.toLowerCase();
+  if (lowered === 'meta - calculator' || lowered === 'meta ads - calculator') return 'Meta - Calculator';
+  return text;
+};
+
+const normalizeEmailValue = (value) => {
+  const text = toTrimmedText(value);
+  if (!text) return null;
+  return text.toLowerCase();
+};
+
+const isWonOrClosedStatus = (status) => {
+  const text = toTrimmedText(status);
+  if (!text) return false;
+  const lowered = text.toLowerCase();
+  return lowered === 'won' || lowered.includes('won') || lowered.startsWith('closed');
+};
+
+const isAppointmentConfirmedStatus = (status, statusRaw) => {
+  const combined = `${toTrimmedText(status) ?? ''} ${toTrimmedText(statusRaw) ?? ''}`.toLowerCase();
+  return combined.includes('confirm');
+};
+
+const extractCustomFieldValue = (customFields, fieldId) => {
+  const targetId = toTrimmedText(fieldId);
+  if (!targetId) return null;
+  if (!customFields) return null;
+
+  if (typeof customFields === 'object' && !Array.isArray(customFields)) {
+    return toTrimmedText(customFields[targetId]);
+  }
+
+  if (!Array.isArray(customFields)) return null;
+
+  const match = customFields.find((cf) => {
+    if (!cf || typeof cf !== 'object') return false;
+    const id = toTrimmedText(cf.id ?? cf.fieldId ?? cf.field_id);
+    return id === targetId;
+  });
+
+  if (!match || typeof match !== 'object') return null;
+
+  // Different providers/versions use different keys.
+  return toTrimmedText(
+    match.value ??
+      match.fieldValue ??
+      match.field_value ??
+      match.text ??
+      match.fieldValueString ??
+      match.field_value_string ??
+      match.fieldValueNumber ??
+      match.field_value_number ??
+      match.fieldValueBoolean ??
+      match.field_value_boolean ??
+      match.fieldValueDate ??
+      match.fieldValueDateTime
+  );
+};
+
+// Mirrors public.extract_url_param() and public.normalize_hook_value() in SQL.
+const extractUrlParamValue = (url, key) => {
+  const text = toTrimmedText(url);
+  const token = toTrimmedText(key);
+  if (!text || !token) return null;
+  const pattern = new RegExp(`(?:\\?|&)${token}=([^&]+)`);
+  const match = text.match(pattern);
+  const raw = match && match[1] ? match[1] : null;
+  if (!raw) return null;
+  try {
+    return decodeURIComponent(raw);
+  } catch (_error) {
+    return raw;
+  }
+};
+
+const normalizeHookValue = (value, source) => {
+  const raw = toTrimmedText(value);
+  const fallbackSource = toTrimmedText(source) || 'Onbekend';
+  if (!raw || raw.toLowerCase() === 'onbekend') return fallbackSource;
+
+  const lowered = raw.toLowerCase();
+  const looksLikeUrl =
+    lowered.startsWith('http') ||
+    lowered.includes('gclid=') ||
+    lowered.includes('gad_campaignid=') ||
+    lowered.includes('fbclid=');
+
+  if (!looksLikeUrl) return raw;
+
+  return (
+    extractUrlParamValue(raw, 'utm_campaign') ||
+    (() => {
+      const campaignId = extractUrlParamValue(raw, 'gad_campaignid');
+      return campaignId ? `Google Campagne ${campaignId}` : null;
+    })() ||
+    (extractUrlParamValue(raw, 'gclid') ? 'Google - woning prijsberekening' : null) ||
+    (extractUrlParamValue(raw, 'fbclid') ? 'Meta - Calculator' : null) ||
+    raw
+  );
+};
+
+const resolveHookFields = ({
+  customFields,
+  contactCustomFields,
+  hookFieldId,
+  campaignFieldId,
+  source
+}) => {
+  const hookRaw =
+    extractCustomFieldValue(customFields, hookFieldId) ||
+    extractCustomFieldValue(contactCustomFields, hookFieldId) ||
+    extractCustomFieldValue(customFields, campaignFieldId) ||
+    extractCustomFieldValue(contactCustomFields, campaignFieldId) ||
+    'Onbekend';
+
+  const campaignRaw =
+    extractCustomFieldValue(customFields, campaignFieldId) ||
+    extractCustomFieldValue(contactCustomFields, campaignFieldId) ||
+    'Onbekend';
+
+  return {
+    hook: normalizeHookValue(hookRaw, source),
+    campaign: normalizeHookValue(campaignRaw, source)
+  };
+};
+
+const firstText = (...candidates) => {
+  for (const candidate of candidates) {
+    const text = toTrimmedText(candidate);
+    if (text) return text;
+  }
+  return null;
+};
+
+const extractLostReasonRaw = (opportunityRaw, lostReasonFieldId, contactRaw) => {
+  const opp = opportunityRaw && typeof opportunityRaw === 'object' ? opportunityRaw : {};
+  const contact = contactRaw && typeof contactRaw === 'object' ? contactRaw : {};
+  const oppCustomFields = opp.customFields ?? opp.custom_fields;
+  const contactCustomFields = contact.customFields ?? contact.custom_fields;
+  const lostReasonId = toTrimmedText(lostReasonFieldId);
+
+  return firstText(
+    lostReasonId ? extractCustomFieldValue(oppCustomFields, lostReasonId) : null,
+    lostReasonId ? extractCustomFieldValue(contactCustomFields, lostReasonId) : null,
+    opp.lostReason,
+    opp.lost_reason,
+    opp.lostReasonName,
+    opp.lost_reason_name,
+    opp.lostReasonId,
+    opp.lost_reason_id,
+    opp.reason,
+    opp.closedReason,
+    opp.closed_reason,
+    opp.statusChangeReason,
+    opp.status_change_reason,
+    opp.disposition,
+    opp.outcome,
+    opp.leadStatus,
+    opp.status?.reason,
+    opp.lostReason?.name,
+    opp.lostReason?.label,
+    opp.lostReason?.reason,
+    opp.lost_reason?.name,
+    opp.lost_reason?.label
+  );
+};
+
+const fetchSourceBreakdownComputed = async (range, activeLocationId) => {
+  const startIso = toUtcStart(range.start);
+  const endIso = toUtcEndExclusive(range.end);
+  const bucketingConfig = resolveSourceBucketingConfig();
+  const defaultSource = bucketingConfig.enabled ? bucketingConfig.emptyBucket || 'Onbekend' : 'Onbekend';
+  const normalizeSourceOptional = (value) => {
+    const normalized = normalizeSourceValue(value);
+    if (!normalized) return null;
+    return mapSourceToBucketLabel(normalized);
+  };
+
+  const useTeamleader = useTeamleaderAppointments();
+
+  const opportunities = await fetchAllRows(() =>
+    supabase
+      .from('opportunities_view')
+      .select('id,contact_id,contact_email,source_guess,status,created_at')
+      .eq('location_id', activeLocationId)
+      .gte('created_at', startIso)
+      .lt('created_at', endIso)
+  );
+
+  const leadContactIds = new Set();
+  const leadEmails = new Set();
+  const leadsBySource = new Map();
+  const dealsBySource = new Map();
+
+  opportunities.forEach((row) => {
+    const source = normalizeSourceOptional(row?.source_guess) || defaultSource;
+    const prevLeads = leadsBySource.get(source) || 0;
+    leadsBySource.set(source, prevLeads + 1);
+
+    if (isWonOrClosedStatus(row?.status)) {
+      const prevDeals = dealsBySource.get(source) || 0;
+      dealsBySource.set(source, prevDeals + 1);
+    }
+
+    const contactId = toTrimmedText(row?.contact_id);
+    if (contactId) leadContactIds.add(contactId);
+
+    const emailNorm = normalizeEmailValue(row?.contact_email);
+    if (emailNorm) leadEmails.add(emailNorm);
+  });
+
+  const appointments = useTeamleader
+    ? await buildTeamleaderAppointmentRows(activeLocationId, startIso, endIso)
+    : await fetchAllRows(() =>
+        supabase
+          .from('appointments_view')
+          .select('id,contact_id,contact_email,source,appointment_status,appointment_status_raw,start_time')
+          .eq('location_id', activeLocationId)
+          .gte('start_time', startIso)
+          .lt('start_time', endIso)
+      );
+
+  const appointmentContactIds = Array.from(
+    new Set(appointments.map((row) => toTrimmedText(row?.contact_id)).filter(Boolean))
+  );
+  const appointmentEmails = Array.from(
+    new Set(appointments.map((row) => normalizeEmailValue(row?.contact_email)).filter(Boolean))
+  );
+
+  let opportunitiesForAppointments = [];
+  if (useTeamleader) {
+    if (appointmentEmails.length) {
+      opportunitiesForAppointments = await fetchOpportunitiesByEmails(
+        activeLocationId,
+        appointmentEmails,
+        'contact_id,contact_email,source_guess,created_at',
+        'Supabase query timeout (appointment source lookup).'
+      );
+    }
+  } else if (appointmentContactIds.length) {
+    opportunitiesForAppointments = await fetchAllRows(() =>
+      supabase
+        .from('opportunities_view')
+        .select('contact_id,contact_email,source_guess,created_at')
+        .eq('location_id', activeLocationId)
+        .in('contact_id', appointmentContactIds)
+        .order('created_at', { ascending: false })
+    );
+  }
+
+  const sourceByContactId = new Map();
+  const sourceByEmail = new Map();
+  opportunitiesForAppointments.forEach((row) => {
+    const source = normalizeSourceOptional(row?.source_guess);
+    if (!source) return;
+
+    const contactId = toTrimmedText(row?.contact_id);
+    if (contactId && !sourceByContactId.has(contactId)) {
+      sourceByContactId.set(contactId, source);
+    }
+
+    const emailNorm = normalizeEmailValue(row?.contact_email);
+    if (emailNorm && !sourceByEmail.has(emailNorm)) {
+      sourceByEmail.set(emailNorm, source);
+    }
+  });
+  if (useTeamleader && appointmentEmails.length) {
+    const { byEmail: contactsByEmail } = await fetchContactsByEmailLookup(activeLocationId, appointmentEmails);
+    contactsByEmail.forEach((row, email) => {
+      const source = normalizeSourceOptional(row?.source_guess);
+      if (source && !sourceByEmail.has(email)) {
+        sourceByEmail.set(email, source);
+      }
+    });
+  }
+
+  const apptAgg = new Map();
+  appointments.forEach((row) => {
+    const contactId = toTrimmedText(row?.contact_id);
+    const emailNorm = normalizeEmailValue(row?.contact_email);
+
+    const source =
+      normalizeSourceOptional(row?.source) ||
+      (contactId ? sourceByContactId.get(contactId) : null) ||
+      (emailNorm ? sourceByEmail.get(emailNorm) : null) ||
+      defaultSource;
+
+    const existing = apptAgg.get(source) || { appointments: 0, confirmed: 0, withoutLead: 0 };
+    existing.appointments += 1;
+    if (isAppointmentConfirmedStatus(row?.appointment_status, row?.appointment_status_raw)) {
+      existing.confirmed += 1;
+    }
+
+    const leadInRange =
+      (contactId && leadContactIds.has(contactId)) || (emailNorm && leadEmails.has(emailNorm));
+    if (!leadInRange) existing.withoutLead += 1;
+    apptAgg.set(source, existing);
+  });
+
+  const sources = new Set([
+    ...Array.from(leadsBySource.keys()),
+    ...Array.from(dealsBySource.keys()),
+    ...Array.from(apptAgg.keys())
+  ]);
+
+  const rows = Array.from(sources).map((source) => {
+    const appts = apptAgg.get(source);
+    return {
+      source,
+      leads: leadsBySource.get(source) || 0,
+      appointments: appts?.appointments || 0,
+      appointments_confirmed: appts?.confirmed || 0,
+      appointments_without_lead_in_range: appts?.withoutLead || 0,
+      deals: dealsBySource.get(source) || 0
+    };
+  });
+
+  if (bucketingConfig.enabled) {
+    const rowsBySource = new Map(rows.map((row) => [row.source, row]));
+    const preferredOrder = getSourceBreakdownOrder();
+    const extras = Array.from(rowsBySource.keys()).filter((source) => !preferredOrder.includes(source));
+    extras.sort((a, b) => {
+      const leadDiff = (rowsBySource.get(b)?.leads ?? 0) - (rowsBySource.get(a)?.leads ?? 0);
+      if (leadDiff) return leadDiff;
+      return String(a ?? '').localeCompare(String(b ?? ''));
+    });
+    const orderedSources = [...preferredOrder, ...extras];
+
+    return orderedSources.map((source) => ({
+      source,
+      leads: rowsBySource.get(source)?.leads || 0,
+      appointments: rowsBySource.get(source)?.appointments || 0,
+      appointments_confirmed: rowsBySource.get(source)?.appointments_confirmed || 0,
+      appointments_without_lead_in_range: rowsBySource.get(source)?.appointments_without_lead_in_range || 0,
+      deals: rowsBySource.get(source)?.deals || 0
+    }));
+  }
+
+  rows.sort((a, b) => {
+    const leadDiff = (b.leads ?? 0) - (a.leads ?? 0);
+    if (leadDiff) return leadDiff;
+    const apptDiff = (b.appointments ?? 0) - (a.appointments ?? 0);
+    if (apptDiff) return apptDiff;
+    return String(a.source ?? '').localeCompare(String(b.source ?? ''));
+  });
+
+  return rows;
+};
+
+const fetchContactsCustomFieldsLookup = async (activeLocationId, contactIds) => {
+  const byId = new Map();
+  const byEmail = new Map();
+  const ids = Array.from(new Set((contactIds || []).map((id) => toTrimmedText(id)).filter(Boolean)));
+  if (!ids.length) return { byId, byEmail };
+
+  const chunkSize = 100;
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize);
+    const { data, error } = await withTimeout(
+      supabase
+        .from('contacts_view')
+        .select('id,email,source_guess,custom_fields')
+        .eq('location_id', activeLocationId)
+        .in('id', chunk),
+      12000,
+      'Supabase query timeout (contacts custom fields).'
+    );
+    if (error) throw error;
+    (data || []).forEach((row) => {
+      const id = toTrimmedText(row?.id);
+      if (!id) return;
+      byId.set(id, row);
+      const emailNorm = normalizeEmailValue(row?.email);
+      if (emailNorm && !byEmail.has(emailNorm)) byEmail.set(emailNorm, row);
+    });
+  }
+
+  return { byId, byEmail };
+};
+
+const fetchHookPerformanceComputed = async (range, activeLocationId) => {
+  const hookFieldId = toTrimmedText(configState.hookFieldId);
+  const campaignFieldId = toTrimmedText(configState.campaignFieldId);
+  if (!hookFieldId && !campaignFieldId) return [];
+
+  const filterBucket = resolveHookPerformanceSourceBucketFilter();
+  const defaultSource = getDefaultDrilldownSource();
+  const useTeamleader = useTeamleaderAppointments();
+  const startIso = toUtcStart(range.start);
+  const endIso = toUtcEndExclusive(range.end);
+
+  const opportunities = await fetchAllRows(() =>
+    supabase
+      .from('opportunities_view')
+      .select('id,contact_id,contact_email,source_guess,custom_fields,created_at')
+      .eq('location_id', activeLocationId)
+      .gte('created_at', startIso)
+      .lt('created_at', endIso)
+  );
+
+  const appointments = useTeamleader
+    ? await buildTeamleaderAppointmentRows(activeLocationId, startIso, endIso)
+    : await fetchAllRows(() =>
+        supabase
+          .from('appointments_view')
+          .select('id,contact_id,contact_email,source,appointment_status,appointment_status_raw,custom_fields,start_time')
+          .eq('location_id', activeLocationId)
+          .gte('start_time', startIso)
+          .lt('start_time', endIso)
+      );
+
+  const appointmentContactIds = Array.from(
+    new Set(appointments.map((row) => toTrimmedText(row?.contact_id)).filter(Boolean))
+  );
+  const appointmentEmails = Array.from(
+    new Set(appointments.map((row) => normalizeEmailValue(row?.contact_email)).filter(Boolean))
+  );
+  let contactsByEmailLookup = null;
+  if (useTeamleader && appointmentEmails.length) {
+    const { byEmail } = await fetchContactsByEmailLookup(activeLocationId, appointmentEmails);
+    contactsByEmailLookup = byEmail;
+  }
+
+  let opportunitiesForAppointments = [];
+  if (useTeamleader) {
+    if (appointmentEmails.length) {
+      opportunitiesForAppointments = await fetchOpportunitiesByEmails(
+        activeLocationId,
+        appointmentEmails,
+        'contact_id,contact_email,source_guess,custom_fields,created_at',
+        'Supabase query timeout (appointment source lookup).'
+      );
+    }
+  } else if (appointmentContactIds.length) {
+    opportunitiesForAppointments = await fetchAllRows(
+      () =>
+        supabase
+          .from('opportunities_view')
+          .select('contact_id,contact_email,source_guess,created_at')
+          .eq('location_id', activeLocationId)
+          .in('contact_id', appointmentContactIds)
+          .order('created_at', { ascending: false }),
+      500
+    );
+  }
+
+  const rawSourceByContactId = new Map();
+  const rawSourceByEmail = new Map();
+  const opportunityByEmail = new Map();
+  opportunitiesForAppointments.forEach((row) => {
+    const rawSource = normalizeSourceValue(row?.source_guess);
+    if (!rawSource) return;
+
+    const contactId = toTrimmedText(row?.contact_id);
+    if (contactId && !rawSourceByContactId.has(contactId)) {
+      rawSourceByContactId.set(contactId, rawSource);
+    }
+
+    const emailNorm = normalizeEmailValue(row?.contact_email);
+    if (emailNorm && !rawSourceByEmail.has(emailNorm)) {
+      rawSourceByEmail.set(emailNorm, rawSource);
+    }
+    if (emailNorm && !opportunityByEmail.has(emailNorm)) {
+      opportunityByEmail.set(emailNorm, row);
+    }
+  });
+
+  const toBucketSource = (rawSource) => {
+    const bucket = mapSourceToBucketLabel(rawSource);
+    return bucket || defaultSource;
+  };
+
+  const metaOpportunities = [];
+  const metaAppointments = [];
+  const contactIds = new Set();
+
+  opportunities.forEach((row) => {
+    const rawSource = normalizeSourceValue(row?.source_guess);
+    const bucketSource = toBucketSource(rawSource);
+    if (filterBucket && bucketSource !== filterBucket) return;
+
+    metaOpportunities.push({ row, rawSource, bucketSource });
+
+    const contactId = toTrimmedText(row?.contact_id);
+    if (contactId) contactIds.add(contactId);
+  });
+
+  appointments.forEach((row) => {
+    if (!isAppointmentConfirmedStatus(row?.appointment_status, row?.appointment_status_raw)) return;
+
+    const contactId = toTrimmedText(row?.contact_id);
+    const emailNorm = normalizeEmailValue(row?.contact_email);
+    const contactFromEmail = emailNorm && contactsByEmailLookup ? contactsByEmailLookup.get(emailNorm) : null;
+    const contactIdFromEmail = contactFromEmail ? toTrimmedText(contactFromEmail.id) : null;
+    const opportunity = emailNorm ? opportunityByEmail.get(emailNorm) : null;
+    const effectiveContactId = contactId || toTrimmedText(opportunity?.contact_id) || contactIdFromEmail;
+    const rawSource =
+      normalizeSourceValue(row?.source) ||
+      (effectiveContactId ? rawSourceByContactId.get(effectiveContactId) : null) ||
+      (emailNorm ? rawSourceByEmail.get(emailNorm) : null) ||
+      normalizeSourceValue(opportunity?.source_guess) ||
+      normalizeSourceValue(contactFromEmail?.source_guess);
+    const bucketSource = toBucketSource(rawSource);
+    if (filterBucket && bucketSource !== filterBucket) return;
+
+    metaAppointments.push({ row, rawSource, bucketSource, opportunity });
+
+    if (effectiveContactId) contactIds.add(effectiveContactId);
+  });
+
+  const { byId: contactsById, byEmail: contactsByEmailBase } = await fetchContactsCustomFieldsLookup(
+    activeLocationId,
+    Array.from(contactIds)
+  );
+  let contactsByEmail = contactsByEmailBase;
+  if (useTeamleader && appointmentEmails.length) {
+    const contactsByEmailDirect =
+      contactsByEmailLookup || (await fetchContactsByEmailLookup(activeLocationId, appointmentEmails)).byEmail;
+    const merged = new Map(contactsByEmailBase);
+    contactsByEmailDirect.forEach((value, key) => {
+      if (!merged.has(key)) merged.set(key, value);
+    });
+    contactsByEmail = merged;
+  }
+
+  const aggregated = new Map();
+  const ensureEntry = (hook, campaign, source) => {
+    const key = `${hook}|||${campaign}|||${source}`;
+    const current = aggregated.get(key) || { hook, campaign, source, leads: 0, appointments: 0 };
+    aggregated.set(key, current);
+    return current;
+  };
+
+  metaOpportunities.forEach(({ row, rawSource, bucketSource }) => {
+    const contactId = toTrimmedText(row?.contact_id);
+    const emailNorm = normalizeEmailValue(row?.contact_email);
+    const contact =
+      (contactId ? contactsById.get(contactId) : null) || (emailNorm ? contactsByEmail.get(emailNorm) : null);
+    const fallbackSource = rawSource || bucketSource || defaultSource;
+    const { hook, campaign } = resolveHookFields({
+      customFields: row?.custom_fields,
+      contactCustomFields: contact?.custom_fields,
+      hookFieldId,
+      campaignFieldId,
+      source: fallbackSource
+    });
+    const entry = ensureEntry(hook, campaign, bucketSource);
+    entry.leads += 1;
+  });
+
+  metaAppointments.forEach(({ row, rawSource, bucketSource, opportunity }) => {
+    const contactId = toTrimmedText(row?.contact_id) || toTrimmedText(opportunity?.contact_id);
+    const emailNorm = normalizeEmailValue(row?.contact_email);
+    const contact =
+      (contactId ? contactsById.get(contactId) : null) || (emailNorm ? contactsByEmail.get(emailNorm) : null);
+    const fallbackSource = rawSource || bucketSource || defaultSource;
+    const { hook, campaign } = resolveHookFields({
+      customFields: row?.custom_fields || opportunity?.custom_fields,
+      contactCustomFields: contact?.custom_fields,
+      hookFieldId,
+      campaignFieldId,
+      source: fallbackSource
+    });
+    const entry = ensureEntry(hook, campaign, bucketSource);
+    entry.appointments += 1;
+  });
+
+  const rows = Array.from(aggregated.values());
+  rows.sort((a, b) => {
+    const leadDiff = (b.leads ?? 0) - (a.leads ?? 0);
+    if (leadDiff) return leadDiff;
+    const apptDiff = (b.appointments ?? 0) - (a.appointments ?? 0);
+    if (apptDiff) return apptDiff;
+    return String(a.hook ?? '').localeCompare(String(b.hook ?? ''));
+  });
+
+  return rows;
+};
+
+const fetchLostReasonsComputed = async (range, activeLocationId) => {
+  const startIso = toUtcStart(range.start);
+  const endIso = toUtcEndExclusive(range.end);
+  const lostReasonFieldId = toTrimmedText(configState.lostReasonFieldId);
+  const rangeStart = parseDate(startIso);
+  const rangeEnd = parseDate(endIso);
+
+  const lookupRows = await supabase
+    .from('lost_reason_lookup')
+    .select('reason_id,reason_name')
+    .eq('location_id', activeLocationId)
+    .then(({ data, error }) => {
+      if (error) throw error;
+      return data || [];
+    });
+
+  const lookupById = new Map(
+    lookupRows
+      .map((row) => [toTrimmedText(row?.reason_id), toTrimmedText(row?.reason_name)])
+      .filter(([id, name]) => id && name)
+  );
+
+  const { data: overrideRows, error: overrideError } = await supabase
+    .from('lost_reason_overrides')
+    .select('reason_id,reason_name')
+    .eq('location_id', activeLocationId);
+  if (overrideError) {
+    const message = overrideError.message ?? String(overrideError);
+    if (!message.includes('does not exist')) throw overrideError;
+  } else {
+    (overrideRows || [])
+      .map((row) => [toTrimmedText(row?.reason_id), toTrimmedText(row?.reason_name)])
+      .filter(([id, name]) => id && name)
+      .forEach(([id, name]) => lookupById.set(id, name));
+  }
+
+  const opportunities = await fetchAllRows(
+    () =>
+      supabase
+        .from('opportunities')
+        .select('id,status,contact_id,raw_data,updated_at')
+        .eq('location_id', activeLocationId)
+        .gte('updated_at', startIso),
+    500
+  );
+
+  let contactsById = null;
+  if (lostReasonFieldId) {
+    const contactIds = Array.from(
+      new Set(opportunities.map((row) => toTrimmedText(row?.contact_id)).filter(Boolean))
+    );
+    contactsById = new Map();
+    const chunkSize = 100;
+    for (let i = 0; i < contactIds.length; i += chunkSize) {
+      const chunk = contactIds.slice(i, i + chunkSize);
+      // contacts PK is (id, location_id), so include location filter.
+      const { data, error } = await supabase
+        .from('contacts')
+        .select('id,raw_data')
+        .eq('location_id', activeLocationId)
+        .in('id', chunk);
+      if (error) throw error;
+      (data || []).forEach((row) => {
+        const id = toTrimmedText(row?.id);
+        if (id) contactsById.set(id, row?.raw_data || null);
+      });
+    }
+  }
+
+  const counts = new Map();
+
+  opportunities.forEach((row) => {
+    const status = normalizeStatus(row?.status);
+    if (!isLostStatus(status)) return;
+    const raw = row?.raw_data || null;
+    const contactRaw = contactsById ? contactsById.get(toTrimmedText(row?.contact_id) || '') : null;
+    const statusChangedAt = parseStatusChangeAt(raw, row?.updated_at);
+    if (!statusChangedAt || (rangeStart && statusChangedAt < rangeStart) || (rangeEnd && statusChangedAt >= rangeEnd)) {
+      return;
+    }
+    const reasonRaw = extractLostReasonRaw(raw, lostReasonFieldId, contactRaw);
+    if (!reasonRaw) return;
+
+    const label = lookupById.get(reasonRaw) || reasonRaw;
+    counts.set(label, (counts.get(label) || 0) + 1);
+  });
+
+  const rows = Array.from(counts.entries()).map(([reason, total]) => ({ reason, total }));
+  rows.sort((a, b) => {
+    const diff = (b.total ?? 0) - (a.total ?? 0);
+    if (diff) return diff;
+    return String(a.reason ?? '').localeCompare(String(b.reason ?? ''));
+  });
+
+  return rows;
+};
+
 const fetchSourceBreakdown = async (range) => {
   if (!supabase) return null;
   const activeLocationId = configState.locationId || ghlLocationId;
@@ -1234,21 +3771,9 @@ const fetchSourceBreakdown = async (range) => {
     throw new Error('Location ID ontbreekt. Voeg deze toe via de setup (dashboard_config).');
   }
 
-  const startIso = toUtcStart(range.start);
-  const endIso = toUtcEndExclusive(range.end);
-
-  const { data, error } = await withTimeout(
-    supabase.rpc('get_source_breakdown', {
-      p_location_id: activeLocationId,
-      p_start: startIso,
-      p_end: endIso
-    }),
-    12000,
-    'Supabase query timeout (source breakdown).'
-  );
-
-  if (error) throw error;
-  return data ?? [];
+  // The RPC version is convenient but can hit low statement_timeout limits on larger datasets.
+  // Compute in the client using indexed table queries instead.
+  return fetchSourceBreakdownComputed(range, activeLocationId);
 };
 
 const fetchHookPerformance = async (range) => {
@@ -1259,21 +3784,8 @@ const fetchHookPerformance = async (range) => {
     throw new Error('Location ID ontbreekt. Voeg deze toe via de setup (dashboard_config).');
   }
 
-  const startIso = toUtcStart(range.start);
-  const endIso = toUtcEndExclusive(range.end);
-
-  const { data, error } = await withTimeout(
-    supabase.rpc('get_hook_performance', {
-      p_location_id: activeLocationId,
-      p_start: startIso,
-      p_end: endIso
-    }),
-    12000,
-    'Supabase query timeout (hook performance).'
-  );
-
-  if (error) throw error;
-  return data ?? [];
+  // Compute in the client using indexed table queries: the RPC can hit low statement_timeout limits.
+  return fetchHookPerformanceComputed(range, activeLocationId);
 };
 
 const fetchLostReasons = async (range) => {
@@ -1283,21 +3795,8 @@ const fetchLostReasons = async (range) => {
     throw new Error('Location ID ontbreekt. Voeg deze toe via de setup (dashboard_config).');
   }
 
-  const startIso = toUtcStart(range.start);
-  const endIso = toUtcEndExclusive(range.end);
-
-  const { data, error } = await withTimeout(
-    supabase.rpc('get_lost_reasons', {
-      p_location_id: activeLocationId,
-      p_start: startIso,
-      p_end: endIso
-    }),
-    12000,
-    'Supabase query timeout (lost reasons).'
-  );
-
-  if (error) throw error;
-  return data ?? [];
+  // The RPC version can hit low statement_timeout limits. Compute in the client.
+  return fetchLostReasonsComputed(range, activeLocationId);
 };
 
 const fetchFinanceSummary = async (range) => {
@@ -1331,6 +3830,7 @@ const fetchSpendBySource = async (range) => {
   if (!activeLocationId) {
     throw new Error('Location ID ontbreekt. Voeg deze toe via de setup (dashboard_config).');
   }
+  const bucketingEnabled = isSourceBucketingEnabled();
 
   const startDate = range.start;
   const endDate = toDateEndExclusive(range.end);
@@ -1376,7 +3876,7 @@ const fetchSpendBySource = async (range) => {
   });
 
   const addSpend = (label, amount) => {
-    const key = normalizeSourceLabel(label);
+    const key = mapSourceToBucketLabel(label);
     if (!key) return;
     totals[key] = (totals[key] ?? 0) + amount;
   };
@@ -1445,10 +3945,1175 @@ const fetchSpendBySource = async (range) => {
     });
   }
 
+  if (bucketingEnabled) {
+    const metaBucketLabel = normalizeSourceLabel(mapSourceToBucketLabel(META_SOURCE_BY_LANG.nl));
+    const googleBucketLabel = normalizeSourceLabel(mapSourceToBucketLabel(GOOGLE_SOURCE_LABEL));
+
+    const { data: externalRows, error: externalError } = await withTimeout(
+      supabase
+        .from('marketing_spend_daily')
+        .select('source, spend')
+        .eq('location_id', activeLocationId)
+        .gte('date', startDate)
+        .lt('date', endDate),
+      12000,
+      'Supabase query timeout (marketing spend external).'
+    );
+    if (externalError) throw externalError;
+
+    (externalRows ?? []).forEach((row) => {
+      const bucket = normalizeSourceLabel(mapSourceToBucketLabel(row?.source));
+      if (bucket && (bucket === metaBucketLabel || bucket === googleBucketLabel)) return;
+      addSpend(row?.source, Number(row?.spend ?? 0));
+    });
+
+    getSourceBreakdownOrder().forEach((source) => {
+      if (!Object.prototype.hasOwnProperty.call(totals, source)) totals[source] = 0;
+    });
+  }
+
   return totals;
 };
 
-const fetchDrilldownRecords = async ({ kind, source, range }) => {
+const resolveSpendSourceLabel = (value) => {
+  const raw = normalizeSourceLabel(value);
+  if (!raw) return getDefaultDrilldownSource();
+  return mapSourceToBucketLabel(raw);
+};
+
+const formatMetaEntityLabel = (label, id, fallbackPrefix) => {
+  const name = toTrimmedText(label);
+  if (name) return name;
+  const trimmedId = toTrimmedText(id);
+  if (!trimmedId) return 'Onbekend';
+  const shortId = trimmedId.length > 8 ? `${trimmedId.slice(0, 6)}...` : trimmedId;
+  return `${fallbackPrefix} ${shortId}`;
+};
+
+const fetchFinanceCampaignDrilldownRecords = async ({ activeLocationId, startIso, endIso, source }) => {
+  if (!supabase) return null;
+  const startDate = startIso.slice(0, 10);
+  const endDate = endIso.slice(0, 10);
+
+  const { data, error } = await withTimeout(
+    supabase
+      .from('marketing_spend_campaign_daily')
+      .select('date, source, spend, leads, campaign_id, campaign_name')
+      .eq('location_id', activeLocationId)
+      .gte('date', startDate)
+      .lt('date', endDate),
+    12000,
+    'Supabase query timeout (marketing spend campaign drilldown).'
+  );
+  if (error) throw error;
+
+  const grouped = new Map();
+  const useFallback = !data || data.length === 0;
+
+  if (!useFallback) {
+    (data ?? []).forEach((row) => {
+      const label = resolveSpendSourceLabel(row?.source);
+      if (source && label !== source) return;
+      const campaignId = toTrimmedText(row?.campaign_id);
+      const key = `${label}|${campaignId || 'campaign'}`;
+      const spend = Number(row?.spend ?? 0);
+      const leads = Number(row?.leads ?? 0);
+      const current = grouped.get(key) || {
+        source: label,
+        campaign_id: campaignId,
+        campaign_name: row?.campaign_name ?? null,
+        spend: 0,
+        leads: 0
+      };
+      current.spend += spend;
+      current.leads += leads;
+      grouped.set(key, current);
+    });
+  } else {
+    const { data: fallbackRows, error: fallbackError } = await withTimeout(
+      supabase
+        .from('marketing_spend_adset_daily')
+        .select('date, source, spend, leads, campaign_id, campaign_name')
+        .eq('location_id', activeLocationId)
+        .gte('date', startDate)
+        .lt('date', endDate),
+      12000,
+      'Supabase query timeout (marketing spend campaign fallback).'
+    );
+    if (fallbackError) throw fallbackError;
+
+    (fallbackRows ?? []).forEach((row) => {
+      const label = resolveSpendSourceLabel(row?.source);
+      if (source && label !== source) return;
+      const campaignId = toTrimmedText(row?.campaign_id);
+      const key = `${label}|${campaignId || 'campaign'}`;
+      const spend = Number(row?.spend ?? 0);
+      const leads = Number(row?.leads ?? 0);
+      const current = grouped.get(key) || {
+        source: label,
+        campaign_id: campaignId,
+        campaign_name: row?.campaign_name ?? null,
+        spend: 0,
+        leads: 0
+      };
+      current.spend += spend;
+      current.leads += leads;
+      grouped.set(key, current);
+    });
+  }
+
+  return Array.from(grouped.values()).sort((a, b) => {
+    const spendDiff = Number(b.spend ?? 0) - Number(a.spend ?? 0);
+    if (spendDiff !== 0) return spendDiff;
+    return Number(b.leads ?? 0) - Number(a.leads ?? 0);
+  });
+};
+
+const fetchFinanceAdsetDrilldownRecords = async ({ activeLocationId, startIso, endIso, source }) => {
+  if (!supabase) return null;
+  const startDate = startIso.slice(0, 10);
+  const endDate = endIso.slice(0, 10);
+
+  const { data, error } = await withTimeout(
+    supabase
+      .from('marketing_spend_adset_daily')
+      .select('date, source, spend, leads, campaign_id, campaign_name, adset_id, adset_name')
+      .eq('location_id', activeLocationId)
+      .gte('date', startDate)
+      .lt('date', endDate),
+    12000,
+    'Supabase query timeout (marketing spend adset drilldown).'
+  );
+  if (error) throw error;
+
+  const grouped = new Map();
+  (data ?? []).forEach((row) => {
+    const label = resolveSpendSourceLabel(row?.source);
+    if (source && label !== source) return;
+    const adsetId = toTrimmedText(row?.adset_id);
+    const campaignId = toTrimmedText(row?.campaign_id);
+    const key = `${label}|${campaignId || 'campaign'}|${adsetId || 'adset'}`;
+    const spend = Number(row?.spend ?? 0);
+    const leads = Number(row?.leads ?? 0);
+    const current = grouped.get(key) || {
+      source: label,
+      campaign_id: campaignId,
+      campaign_name: row?.campaign_name ?? null,
+      adset_id: adsetId,
+      adset_name: row?.adset_name ?? null,
+      spend: 0,
+      leads: 0
+    };
+    current.spend += spend;
+    current.leads += leads;
+    grouped.set(key, current);
+  });
+
+  return Array.from(grouped.values()).sort((a, b) => {
+    const spendDiff = Number(b.spend ?? 0) - Number(a.spend ?? 0);
+    if (spendDiff !== 0) return spendDiff;
+    return Number(b.leads ?? 0) - Number(a.leads ?? 0);
+  });
+};
+
+const fetchFinanceAdDrilldownRecords = async ({ activeLocationId, startIso, endIso, source }) => {
+  if (!supabase) return null;
+  const startDate = startIso.slice(0, 10);
+  const endDate = endIso.slice(0, 10);
+
+  const { data, error } = await withTimeout(
+    supabase
+      .from('marketing_spend_ad_daily')
+      .select('date, source, spend, leads, campaign_id, campaign_name, adset_id, adset_name, ad_id, ad_name')
+      .eq('location_id', activeLocationId)
+      .gte('date', startDate)
+      .lt('date', endDate),
+    12000,
+    'Supabase query timeout (marketing spend ad drilldown).'
+  );
+  if (error) throw error;
+
+  const grouped = new Map();
+  (data ?? []).forEach((row) => {
+    const label = resolveSpendSourceLabel(row?.source);
+    if (source && label !== source) return;
+    const adId = toTrimmedText(row?.ad_id);
+    const adsetId = toTrimmedText(row?.adset_id);
+    const campaignId = toTrimmedText(row?.campaign_id);
+    const key = `${label}|${campaignId || 'campaign'}|${adsetId || 'adset'}|${adId || 'ad'}`;
+    const spend = Number(row?.spend ?? 0);
+    const leads = Number(row?.leads ?? 0);
+    const current = grouped.get(key) || {
+      source: label,
+      campaign_id: campaignId,
+      campaign_name: row?.campaign_name ?? null,
+      adset_id: adsetId,
+      adset_name: row?.adset_name ?? null,
+      ad_id: adId,
+      ad_name: row?.ad_name ?? null,
+      spend: 0,
+      leads: 0
+    };
+    current.spend += spend;
+    current.leads += leads;
+    grouped.set(key, current);
+  });
+
+  return Array.from(grouped.values()).sort((a, b) => {
+    const spendDiff = Number(b.spend ?? 0) - Number(a.spend ?? 0);
+    if (spendDiff !== 0) return spendDiff;
+    return Number(b.leads ?? 0) - Number(a.leads ?? 0);
+  });
+};
+
+const fetchFinanceDrilldownRecords = async ({ activeLocationId, startIso, endIso, source, view = 'daily' }) => {
+  if (view === 'adset') {
+    return fetchFinanceAdsetDrilldownRecords({ activeLocationId, startIso, endIso, source });
+  }
+  if (view === 'campaign') {
+    return fetchFinanceCampaignDrilldownRecords({ activeLocationId, startIso, endIso, source });
+  }
+  if (view === 'ad') {
+    return fetchFinanceAdDrilldownRecords({ activeLocationId, startIso, endIso, source });
+  }
+  if (!supabase) return null;
+  const startDate = startIso.slice(0, 10);
+  const endDate = endIso.slice(0, 10);
+
+  const { data, error } = await withTimeout(
+    supabase
+      .from('marketing_spend_daily')
+      .select('date, source, spend, leads')
+      .eq('location_id', activeLocationId)
+      .gte('date', startDate)
+      .lt('date', endDate),
+    12000,
+    'Supabase query timeout (marketing spend drilldown).'
+  );
+  if (error) throw error;
+
+  const grouped = new Map();
+  (data ?? []).forEach((row) => {
+    const label = resolveSpendSourceLabel(row?.source);
+    if (source && label !== source) return;
+    const date = row?.date ?? '';
+    if (!date) return;
+    const key = `${date}|${label}`;
+    const spend = Number(row?.spend ?? 0);
+    const leads = Number(row?.leads ?? 0);
+    const current = grouped.get(key) || { date, source: label, spend: 0, leads: 0 };
+    current.spend += spend;
+    current.leads += leads;
+    grouped.set(key, current);
+  });
+
+  return Array.from(grouped.values()).sort((a, b) => (a.date < b.date ? 1 : -1));
+};
+
+const clampLimit = (value, fallback = 200) => {
+  const raw = Number(value ?? fallback);
+  if (!Number.isFinite(raw)) return Math.min(Math.max(fallback, 1), 500);
+  return Math.min(Math.max(Math.floor(raw), 1), 500);
+};
+
+const getDefaultDrilldownSource = () => {
+  const cfg = resolveSourceBucketingConfig();
+  if (cfg.enabled) return cfg.emptyBucket || 'Onbekend';
+  return 'Onbekend';
+};
+
+const normalizeDrilldownSource = (value) => {
+  const normalized = normalizeSourceValue(value);
+  if (!normalized) return null;
+  return mapSourceToBucketLabel(normalized);
+};
+
+const fetchOpportunityDrilldownRecordsComputed = async ({
+  activeLocationId,
+  startIso,
+  endIso,
+  kind,
+  source,
+  limit
+}) => {
+  const wantedSource = source ? String(source) : null;
+  const effectiveLimit = clampLimit(limit, 200);
+  const pageSize = 1000;
+  const maxScan = 15000;
+
+  const rows = [];
+  let from = 0;
+
+  while (rows.length < effectiveLimit && from < maxScan) {
+    const { data, error } = await withTimeout(
+      supabase
+        .from('opportunities_view')
+        .select('id,created_at,contact_id,contact_name,contact_email,source_guess,status')
+        .eq('location_id', activeLocationId)
+        .gte('created_at', startIso)
+        .lt('created_at', endIso)
+        .order('created_at', { ascending: false })
+        .range(from, from + pageSize - 1),
+      12000,
+      'Supabase query timeout (opportunities drilldown).'
+    );
+    if (error) throw error;
+    const batch = Array.isArray(data) ? data : [];
+    if (!batch.length) break;
+
+    for (const row of batch) {
+      if (kind === 'deals' && !isWonOrClosedStatus(row?.status)) continue;
+
+      const recordSource = normalizeDrilldownSource(row?.source_guess) || getDefaultDrilldownSource();
+      if (wantedSource && recordSource !== wantedSource) continue;
+
+      rows.push({
+        record_id: row?.id ?? '',
+        record_type: kind === 'deals' ? 'deal' : 'lead',
+        occurred_at: row?.created_at ?? null,
+        contact_id: row?.contact_id ?? null,
+        contact_name: row?.contact_name ?? null,
+        contact_email: row?.contact_email ?? null,
+        source: recordSource,
+        status: row?.status ?? null
+      });
+
+      if (rows.length >= effectiveLimit) break;
+    }
+
+    if (batch.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+};
+
+const fetchAppointmentDrilldownRecordsComputed = async ({
+  activeLocationId,
+  startIso,
+  endIso,
+  kind,
+  source,
+  limit
+}) => {
+  const useTeamleader = useTeamleaderAppointments();
+  const wantedSource = source ? String(source) : null;
+  const effectiveLimit = clampLimit(limit, 200);
+  const pageSize = 1000;
+  const maxScan = 20000;
+
+  if (useTeamleader) {
+    if (kind === 'appointments_cancelled' || kind === 'appointments_no_show') return [];
+
+    const rows = [];
+    const leadEmails = new Set();
+    let leadInRangeLoaded = false;
+
+    const ensureLeadInRangeEmails = async () => {
+      if (leadInRangeLoaded) return;
+      const { data, error } = await withTimeout(
+        supabase
+          .from('opportunities_view')
+          .select('contact_email')
+          .eq('location_id', activeLocationId)
+          .gte('created_at', startIso)
+          .lt('created_at', endIso),
+        12000,
+        'Supabase query timeout (lead-in-range lookup).'
+      );
+      if (error) throw error;
+      (data ?? []).forEach((row) => {
+        const emailNorm = normalizeEmailValue(row?.contact_email);
+        if (emailNorm) leadEmails.add(emailNorm);
+      });
+      leadInRangeLoaded = true;
+    };
+
+    let from = 0;
+    while (rows.length < effectiveLimit && from < maxScan) {
+      const batch = await fetchTeamleaderMeetingsBatch(activeLocationId, startIso, endIso, from, from + pageSize - 1);
+      if (!batch.length) break;
+
+      const hydrated = await hydrateTeamleaderMeetingCustomers(activeLocationId, batch);
+      const batchEmails = Array.from(
+        new Set(hydrated.map((row) => normalizeEmailValue(row?.contact_email)).filter(Boolean))
+      );
+
+      const opportunitiesForAppointments = await fetchOpportunitiesByEmails(
+        activeLocationId,
+        batchEmails,
+        'contact_email,source_guess,created_at',
+        'Supabase query timeout (appointment source lookup).'
+      );
+      const sourceByEmail = new Map();
+      opportunitiesForAppointments.forEach((row) => {
+        const emailNorm = normalizeEmailValue(row?.contact_email);
+        const mapped = normalizeDrilldownSource(row?.source_guess);
+        if (emailNorm && mapped && !sourceByEmail.has(emailNorm)) {
+          sourceByEmail.set(emailNorm, mapped);
+        }
+      });
+
+      if (kind === 'appointments_without_lead_in_range') {
+        await ensureLeadInRangeEmails();
+      }
+
+      const { byEmail: contactsByEmail } = await fetchContactsByEmailLookup(activeLocationId, batchEmails);
+
+      for (const row of hydrated) {
+        const emailNorm = normalizeEmailValue(row?.contact_email);
+        const contactFromEmail = emailNorm ? contactsByEmail.get(emailNorm) : null;
+        const contactSource = contactFromEmail
+          ? normalizeDrilldownSource(contactFromEmail?.source_guess)
+          : null;
+        const derivedSource =
+          (emailNorm ? sourceByEmail.get(emailNorm) : null) ||
+          contactSource ||
+          getDefaultDrilldownSource();
+        if (wantedSource && derivedSource !== wantedSource) continue;
+
+        if (kind === 'appointments_without_lead_in_range') {
+          if (emailNorm && leadEmails.has(emailNorm)) continue;
+        }
+
+        const contact = contactFromEmail;
+        const contactName =
+          row?.contact_name ||
+          contact?.contact_name ||
+          formatFullName(contact?.first_name, contact?.last_name, row?.contact_email || 'Onbekend');
+
+        rows.push({
+          record_id: row?.id ?? '',
+          record_type: 'appointment',
+          occurred_at: row?.scheduled_at ?? null,
+          contact_id: contact?.id ?? null,
+          contact_name: contactName,
+          contact_email: row?.contact_email ?? null,
+          source: derivedSource,
+          status: 'confirmed'
+        });
+
+        if (rows.length >= effectiveLimit) break;
+      }
+
+      if (batch.length < pageSize) break;
+      from += pageSize;
+    }
+
+    return rows;
+  }
+
+  const rows = [];
+  const sourceByContactId = new Map();
+  const sourceByEmail = new Map();
+  const leadContactIds = new Set();
+  const leadEmails = new Set();
+  let leadInRangeLoaded = false;
+
+  const statusMatches = (row, patterns) => {
+    const combined = `${toTrimmedText(row?.appointment_status) ?? ''} ${toTrimmedText(row?.appointment_status_raw) ?? ''}`.toLowerCase();
+    return patterns.some((pattern) => combined.includes(pattern));
+  };
+
+  const shouldIncludeStatus = (row) => {
+    if (kind === 'appointments_cancelled') return statusMatches(row, APPOINTMENT_STATUS_FILTERS.cancelled);
+    if (kind === 'appointments_confirmed') return statusMatches(row, APPOINTMENT_STATUS_FILTERS.confirmed);
+    if (kind === 'appointments_no_show') return statusMatches(row, APPOINTMENT_STATUS_FILTERS.noShow);
+    return true;
+  };
+
+  // For "zonder lead", we need to know which contacts had an opportunity in the range.
+  const ensureLeadInRangeSets = async (contactIds) => {
+    if (leadInRangeLoaded) return;
+    if (!Array.isArray(contactIds) || contactIds.length === 0) {
+      leadInRangeLoaded = true;
+      return;
+    }
+
+    const unique = Array.from(new Set(contactIds.filter(Boolean)));
+    const chunks = chunkValues(unique, 100);
+    for (const chunk of chunks) {
+      const { data, error } = await withTimeout(
+        supabase
+          .from('opportunities_view')
+          .select('contact_id,contact_email,created_at')
+          .eq('location_id', activeLocationId)
+          .gte('created_at', startIso)
+          .lt('created_at', endIso)
+          .in('contact_id', chunk),
+        12000,
+        'Supabase query timeout (lead-in-range lookup).'
+      );
+      if (error) throw error;
+      (data ?? []).forEach((row) => {
+        const contactId = toTrimmedText(row?.contact_id);
+        if (contactId) leadContactIds.add(contactId);
+        const emailNorm = normalizeEmailValue(row?.contact_email);
+        if (emailNorm) leadEmails.add(emailNorm);
+      });
+    }
+
+    leadInRangeLoaded = true;
+  };
+
+  const hydrateSourceMaps = async (contactIds) => {
+    const unique = Array.from(new Set(contactIds.filter(Boolean))).filter((id) => !sourceByContactId.has(id));
+    if (!unique.length) return;
+
+    const chunks = chunkValues(unique, 100);
+    for (const chunk of chunks) {
+      const { data, error } = await withTimeout(
+        supabase
+          .from('opportunities_view')
+          .select('contact_id,contact_email,source_guess,created_at')
+          .eq('location_id', activeLocationId)
+          .in('contact_id', chunk)
+          .order('created_at', { ascending: false }),
+        12000,
+        'Supabase query timeout (appointment source lookup).'
+      );
+      if (error) throw error;
+      (data ?? []).forEach((row) => {
+        const mapped = normalizeDrilldownSource(row?.source_guess);
+        if (!mapped) return;
+
+        const contactId = toTrimmedText(row?.contact_id);
+        if (contactId && !sourceByContactId.has(contactId)) {
+          sourceByContactId.set(contactId, mapped);
+        }
+
+        const emailNorm = normalizeEmailValue(row?.contact_email);
+        if (emailNorm && !sourceByEmail.has(emailNorm)) {
+          sourceByEmail.set(emailNorm, mapped);
+        }
+      });
+    }
+  };
+
+  let from = 0;
+  while (rows.length < effectiveLimit && from < maxScan) {
+    const { data, error } = await withTimeout(
+      supabase
+        .from('appointments_view')
+        .select('id,start_time,contact_id,contact_name,contact_email,source,appointment_status,appointment_status_raw')
+        .eq('location_id', activeLocationId)
+        .gte('start_time', startIso)
+        .lt('start_time', endIso)
+        .order('start_time', { ascending: false })
+        .range(from, from + pageSize - 1),
+      12000,
+      'Supabase query timeout (appointments drilldown).'
+    );
+    if (error) throw error;
+    const batch = Array.isArray(data) ? data : [];
+    if (!batch.length) break;
+
+    const contactIds = batch.map((row) => toTrimmedText(row?.contact_id)).filter(Boolean);
+    await hydrateSourceMaps(contactIds);
+    if (kind === 'appointments_without_lead_in_range') {
+      await ensureLeadInRangeSets(contactIds);
+    }
+
+    for (const row of batch) {
+      if (!shouldIncludeStatus(row)) continue;
+
+      const contactId = toTrimmedText(row?.contact_id);
+      const emailNorm = normalizeEmailValue(row?.contact_email);
+
+      const derivedSource =
+        normalizeDrilldownSource(row?.source) ||
+        (contactId ? sourceByContactId.get(contactId) : null) ||
+        (emailNorm ? sourceByEmail.get(emailNorm) : null) ||
+        getDefaultDrilldownSource();
+
+      if (wantedSource && derivedSource !== wantedSource) continue;
+
+      if (kind === 'appointments_without_lead_in_range') {
+        const leadInRange = (contactId && leadContactIds.has(contactId)) || (emailNorm && leadEmails.has(emailNorm));
+        if (leadInRange) continue;
+      }
+
+      rows.push({
+        record_id: row?.id ?? '',
+        record_type: 'appointment',
+        occurred_at: row?.start_time ?? null,
+        contact_id: row?.contact_id ?? null,
+        contact_name: row?.contact_name ?? null,
+        contact_email: row?.contact_email ?? null,
+        source: derivedSource,
+        status: row?.appointment_status ?? row?.appointment_status_raw ?? null
+      });
+
+      if (rows.length >= effectiveLimit) break;
+    }
+
+    if (batch.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+};
+
+const fetchSourceRecordsComputed = async ({
+  activeLocationId,
+  startIso,
+  endIso,
+  kind,
+  source,
+  limit
+}) => {
+  if (kind === 'leads' || kind === 'deals') {
+    return fetchOpportunityDrilldownRecordsComputed({ activeLocationId, startIso, endIso, kind, source, limit });
+  }
+
+  if (String(kind || '').startsWith('appointments')) {
+    return fetchAppointmentDrilldownRecordsComputed({ activeLocationId, startIso, endIso, kind, source, limit });
+  }
+
+  return [];
+};
+
+const fetchLostReasonDrilldownRecordsComputed = async ({
+  activeLocationId,
+  startIso,
+  endIso,
+  reasonLabel,
+  limit
+}) => {
+  const wantedReason = reasonLabel ? String(reasonLabel) : null;
+  const effectiveLimit = clampLimit(limit, 200);
+  const pageSize = 1000;
+  const maxScan = 15000;
+  const rangeStart = parseDate(startIso);
+  const rangeEnd = parseDate(endIso);
+  const lostReasonFieldId = toTrimmedText(configState.lostReasonFieldId);
+
+  const lookupRows = await supabase
+    .from('lost_reason_lookup')
+    .select('reason_id,reason_name')
+    .eq('location_id', activeLocationId)
+    .then(({ data, error }) => {
+      if (error) throw error;
+      return data || [];
+    });
+
+  const lookupById = new Map(
+    lookupRows
+      .map((row) => [toTrimmedText(row?.reason_id), toTrimmedText(row?.reason_name)])
+      .filter(([id, name]) => id && name)
+  );
+
+  const { data: overrideRows, error: overrideError } = await supabase
+    .from('lost_reason_overrides')
+    .select('reason_id,reason_name')
+    .eq('location_id', activeLocationId);
+  if (overrideError) {
+    const message = overrideError.message ?? String(overrideError);
+    if (!message.includes('does not exist')) throw overrideError;
+  } else {
+    (overrideRows || [])
+      .map((row) => [toTrimmedText(row?.reason_id), toTrimmedText(row?.reason_name)])
+      .filter(([id, name]) => id && name)
+      .forEach(([id, name]) => lookupById.set(id, name));
+  }
+
+  const rows = [];
+  const contactsById = new Map();
+
+  const hydrateContacts = async (contactIds) => {
+    if (!lostReasonFieldId) return;
+    const unique = Array.from(new Set(contactIds.filter(Boolean))).filter((id) => !contactsById.has(id));
+    if (!unique.length) return;
+    const chunkSize = 100;
+    for (let i = 0; i < unique.length; i += chunkSize) {
+      const chunk = unique.slice(i, i + chunkSize);
+      const { data, error } = await withTimeout(
+        supabase
+          .from('contacts_view')
+          .select('id,custom_fields')
+          .eq('location_id', activeLocationId)
+          .in('id', chunk),
+        12000,
+        'Supabase query timeout (lost reason drilldown contacts).'
+      );
+      if (error) throw error;
+      (data || []).forEach((row) => {
+        const id = toTrimmedText(row?.id);
+        if (id) contactsById.set(id, row);
+      });
+    }
+  };
+
+  let from = 0;
+  while (rows.length < effectiveLimit && from < maxScan) {
+    const { data, error } = await withTimeout(
+      supabase
+        .from('opportunities_view')
+        .select('id,updated_at,contact_id,contact_name,contact_email,source_guess,status,raw_data,custom_fields')
+        .eq('location_id', activeLocationId)
+        .gte('updated_at', startIso)
+        .order('updated_at', { ascending: false })
+        .range(from, from + pageSize - 1),
+      12000,
+      'Supabase query timeout (lost reason drilldown opportunities).'
+    );
+    if (error) throw error;
+    const batch = Array.isArray(data) ? data : [];
+    if (!batch.length) break;
+
+    const batchContactIds = batch.map((row) => toTrimmedText(row?.contact_id)).filter(Boolean);
+    await hydrateContacts(batchContactIds);
+
+    for (const row of batch) {
+      const status = normalizeStatus(row?.status);
+      if (!isLostStatus(status)) continue;
+
+      const raw = row?.raw_data || null;
+      const statusChangedAt = parseStatusChangeAt(raw, row?.updated_at);
+      if (
+        !statusChangedAt ||
+        (rangeStart && statusChangedAt < rangeStart) ||
+        (rangeEnd && statusChangedAt >= rangeEnd)
+      ) {
+        continue;
+      }
+
+      const contactRaw = contactsById ? contactsById.get(toTrimmedText(row?.contact_id) || '') : null;
+      const reasonRaw = extractLostReasonRaw(raw, lostReasonFieldId, contactRaw);
+      if (!reasonRaw) continue;
+      const label = lookupById.get(reasonRaw) || reasonRaw;
+      if (wantedReason && label !== wantedReason) continue;
+
+      const recordSource =
+        normalizeDrilldownSource(row?.source_guess) || getDefaultDrilldownSource();
+
+      rows.push({
+        record_id: row?.id ?? '',
+        record_type: 'lead',
+        occurred_at: statusChangedAt.toISOString(),
+        contact_id: row?.contact_id ?? null,
+        contact_name: row?.contact_name ?? null,
+        contact_email: row?.contact_email ?? null,
+        source: recordSource,
+        status: row?.status ?? null
+      });
+
+      if (rows.length >= effectiveLimit) break;
+    }
+
+    if (batch.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+};
+
+const fetchHookOpportunityDrilldownRecordsComputed = async ({
+  activeLocationId,
+  startIso,
+  endIso,
+  hookLabel,
+  limit
+}) => {
+  const hookFieldId = toTrimmedText(configState.hookFieldId);
+  const campaignFieldId = toTrimmedText(configState.campaignFieldId);
+  if (!hookFieldId && !campaignFieldId) return [];
+
+  const filterBucket = resolveHookPerformanceSourceBucketFilter();
+  const wantedHook = hookLabel ? String(hookLabel) : null;
+  const effectiveLimit = clampLimit(limit, 200);
+  const defaultSource = getDefaultDrilldownSource();
+  const pageSize = 1000;
+  const maxScan = 15000;
+  const toBucketSource = (rawSource) => {
+    const bucket = mapSourceToBucketLabel(rawSource);
+    return bucket || defaultSource;
+  };
+
+  const rows = [];
+  const contactsById = new Map();
+  const contactsByEmail = new Map();
+
+  const hydrateContacts = async (contactIds) => {
+    const unique = Array.from(new Set(contactIds.filter(Boolean))).filter((id) => !contactsById.has(id));
+    if (!unique.length) return;
+    const chunkSize = 100;
+    for (let i = 0; i < unique.length; i += chunkSize) {
+      const chunk = unique.slice(i, i + chunkSize);
+      const { data, error } = await withTimeout(
+        supabase
+          .from('contacts_view')
+          .select('id,email,custom_fields')
+          .eq('location_id', activeLocationId)
+          .in('id', chunk),
+        12000,
+        'Supabase query timeout (hook drilldown contacts).'
+      );
+      if (error) throw error;
+      (data || []).forEach((row) => {
+        const id = toTrimmedText(row?.id);
+        if (!id) return;
+        contactsById.set(id, row);
+        const emailNorm = normalizeEmailValue(row?.email);
+        if (emailNorm && !contactsByEmail.has(emailNorm)) contactsByEmail.set(emailNorm, row);
+      });
+    }
+  };
+
+  let from = 0;
+  while (rows.length < effectiveLimit && from < maxScan) {
+    const { data, error } = await withTimeout(
+      supabase
+        .from('opportunities_view')
+        .select('id,created_at,contact_id,contact_name,contact_email,source_guess,status,custom_fields')
+        .eq('location_id', activeLocationId)
+        .gte('created_at', startIso)
+        .lt('created_at', endIso)
+        .order('created_at', { ascending: false })
+        .range(from, from + pageSize - 1),
+      12000,
+      'Supabase query timeout (hook drilldown opportunities).'
+    );
+    if (error) throw error;
+    const batch = Array.isArray(data) ? data : [];
+    if (!batch.length) break;
+
+    const batchContactIds = batch.map((row) => toTrimmedText(row?.contact_id)).filter(Boolean);
+    await hydrateContacts(batchContactIds);
+
+    for (const row of batch) {
+      const rawSource = normalizeSourceValue(row?.source_guess);
+      const recordSource = toBucketSource(rawSource);
+      if (filterBucket && recordSource !== filterBucket) continue;
+      const contactId = toTrimmedText(row?.contact_id);
+      const emailNorm = normalizeEmailValue(row?.contact_email);
+      const contact = (contactId ? contactsById.get(contactId) : null) || (emailNorm ? contactsByEmail.get(emailNorm) : null);
+      const fallbackSource = rawSource || recordSource || defaultSource;
+      const { hook, campaign } = resolveHookFields({
+        customFields: row?.custom_fields,
+        contactCustomFields: contact?.custom_fields,
+        hookFieldId,
+        campaignFieldId,
+        source: fallbackSource
+      });
+
+      if (
+        wantedHook &&
+        hook !== wantedHook &&
+        campaign !== wantedHook &&
+        recordSource !== wantedHook
+      ) {
+        continue;
+      }
+
+      rows.push({
+        record_id: row?.id ?? '',
+        record_type: 'lead',
+        occurred_at: row?.created_at ?? null,
+        contact_id: row?.contact_id ?? null,
+        contact_name: row?.contact_name ?? null,
+        contact_email: row?.contact_email ?? null,
+        source: recordSource,
+        status: row?.status ?? null
+      });
+
+      if (rows.length >= effectiveLimit) break;
+    }
+
+    if (batch.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+};
+
+const fetchHookAppointmentDrilldownRecordsComputed = async ({
+  activeLocationId,
+  startIso,
+  endIso,
+  hookLabel,
+  limit
+}) => {
+  const hookFieldId = toTrimmedText(configState.hookFieldId);
+  const campaignFieldId = toTrimmedText(configState.campaignFieldId);
+  if (!hookFieldId && !campaignFieldId) return [];
+
+  const filterBucket = resolveHookPerformanceSourceBucketFilter();
+  const wantedHook = hookLabel ? String(hookLabel) : null;
+  const effectiveLimit = clampLimit(limit, 200);
+  const defaultSource = getDefaultDrilldownSource();
+  const pageSize = 1000;
+  const maxScan = 20000;
+  const useTeamleader = useTeamleaderAppointments();
+  const toBucketSource = (rawSource) => {
+    const bucket = mapSourceToBucketLabel(rawSource);
+    return bucket || defaultSource;
+  };
+
+  if (useTeamleader) {
+    const rows = [];
+    let from = 0;
+
+    while (rows.length < effectiveLimit && from < maxScan) {
+      const batch = await fetchTeamleaderMeetingsBatch(activeLocationId, startIso, endIso, from, from + pageSize - 1);
+      if (!batch.length) break;
+
+      const hydrated = await hydrateTeamleaderMeetingCustomers(activeLocationId, batch);
+      const batchEmails = Array.from(
+        new Set(hydrated.map((row) => normalizeEmailValue(row?.contact_email)).filter(Boolean))
+      );
+
+      const opportunitiesForAppointments = await fetchOpportunitiesByEmails(
+        activeLocationId,
+        batchEmails,
+        'contact_id,contact_email,source_guess,custom_fields,created_at',
+        'Supabase query timeout (appointment source lookup).'
+      );
+      const opportunityByEmail = new Map();
+      opportunitiesForAppointments.forEach((row) => {
+        const emailNorm = normalizeEmailValue(row?.contact_email);
+        if (emailNorm && !opportunityByEmail.has(emailNorm)) {
+          opportunityByEmail.set(emailNorm, row);
+        }
+      });
+
+      const contactIds = Array.from(
+        new Set(
+          opportunitiesForAppointments
+            .map((row) => toTrimmedText(row?.contact_id))
+            .filter(Boolean)
+        )
+      );
+      const { byId: contactsById, byEmail: contactsByEmailBase } = await fetchContactsCustomFieldsLookup(
+        activeLocationId,
+        contactIds
+      );
+      const { byEmail: contactsByEmailDirect } = await fetchContactsByEmailLookup(activeLocationId, batchEmails);
+      const contactsByEmail = new Map(contactsByEmailBase);
+      contactsByEmailDirect.forEach((value, key) => {
+        if (!contactsByEmail.has(key)) contactsByEmail.set(key, value);
+      });
+
+      for (const row of hydrated) {
+        const emailNorm = normalizeEmailValue(row?.contact_email);
+        const opportunity = emailNorm ? opportunityByEmail.get(emailNorm) : null;
+        const contactFromEmail = emailNorm ? contactsByEmail.get(emailNorm) : null;
+        const rawSource =
+          normalizeSourceValue(opportunity?.source_guess) ||
+          normalizeSourceValue(contactFromEmail?.source_guess);
+        const bucketSource = toBucketSource(rawSource);
+        if (filterBucket && bucketSource !== filterBucket) continue;
+
+        const contactId = toTrimmedText(opportunity?.contact_id) || toTrimmedText(contactFromEmail?.id);
+        const contact = (contactId ? contactsById.get(contactId) : null) || contactFromEmail;
+        const fallbackSource = rawSource || bucketSource || defaultSource;
+        const { hook, campaign } = resolveHookFields({
+          customFields: opportunity?.custom_fields,
+          contactCustomFields: contact?.custom_fields,
+          hookFieldId,
+          campaignFieldId,
+          source: fallbackSource
+        });
+
+        if (wantedHook && hook !== wantedHook && campaign !== wantedHook && bucketSource !== wantedHook) {
+          continue;
+        }
+
+        const contactName =
+          row?.contact_name ||
+          contact?.contact_name ||
+          formatFullName(contact?.first_name, contact?.last_name, row?.contact_email || 'Onbekend');
+
+        rows.push({
+          record_id: row?.id ?? '',
+          record_type: 'appointment',
+          occurred_at: row?.scheduled_at ?? null,
+          contact_id: contactId || contact?.id || null,
+          contact_name: contactName,
+          contact_email: row?.contact_email ?? null,
+          source: bucketSource,
+          status: 'confirmed'
+        });
+
+        if (rows.length >= effectiveLimit) break;
+      }
+
+      if (batch.length < pageSize) break;
+      from += pageSize;
+    }
+
+    return rows;
+  }
+
+  const rows = [];
+  const contactsById = new Map();
+  const contactsByEmail = new Map();
+  const rawSourceByContactId = new Map();
+  const rawSourceByEmail = new Map();
+
+  const hydrateContacts = async (contactIds) => {
+    const unique = Array.from(new Set(contactIds.filter(Boolean))).filter((id) => !contactsById.has(id));
+    if (!unique.length) return;
+    const chunkSize = 100;
+    for (let i = 0; i < unique.length; i += chunkSize) {
+      const chunk = unique.slice(i, i + chunkSize);
+      const { data, error } = await withTimeout(
+        supabase
+          .from('contacts_view')
+          .select('id,email,custom_fields')
+          .eq('location_id', activeLocationId)
+          .in('id', chunk),
+        12000,
+        'Supabase query timeout (hook drilldown contacts).'
+      );
+      if (error) throw error;
+      (data || []).forEach((row) => {
+        const id = toTrimmedText(row?.id);
+        if (!id) return;
+        contactsById.set(id, row);
+        const emailNorm = normalizeEmailValue(row?.email);
+        if (emailNorm && !contactsByEmail.has(emailNorm)) contactsByEmail.set(emailNorm, row);
+      });
+    }
+  };
+
+  const hydrateSourceMaps = async (contactIds) => {
+    const unique = Array.from(new Set(contactIds.filter(Boolean))).filter((id) => !rawSourceByContactId.has(id));
+    if (!unique.length) return;
+    const chunks = chunkValues(unique, 100);
+    for (const chunk of chunks) {
+      const { data, error } = await withTimeout(
+        supabase
+          .from('opportunities_view')
+          .select('contact_id,contact_email,source_guess,created_at')
+          .eq('location_id', activeLocationId)
+          .in('contact_id', chunk)
+          .order('created_at', { ascending: false }),
+        12000,
+        'Supabase query timeout (hook drilldown appointment source).'
+      );
+      if (error) throw error;
+      (data ?? []).forEach((row) => {
+        const rawSource = normalizeSourceValue(row?.source_guess);
+        if (!rawSource) return;
+
+        const contactId = toTrimmedText(row?.contact_id);
+        if (contactId && !rawSourceByContactId.has(contactId)) {
+          rawSourceByContactId.set(contactId, rawSource);
+        }
+
+        const emailNorm = normalizeEmailValue(row?.contact_email);
+        if (emailNorm && !rawSourceByEmail.has(emailNorm)) {
+          rawSourceByEmail.set(emailNorm, rawSource);
+        }
+      });
+    }
+  };
+
+  let from = 0;
+  while (rows.length < effectiveLimit && from < maxScan) {
+    const { data, error } = await withTimeout(
+      supabase
+        .from('appointments_view')
+        .select('id,start_time,contact_id,contact_name,contact_email,source,appointment_status,appointment_status_raw,custom_fields')
+        .eq('location_id', activeLocationId)
+        .gte('start_time', startIso)
+        .lt('start_time', endIso)
+        .order('start_time', { ascending: false })
+        .range(from, from + pageSize - 1),
+      12000,
+      'Supabase query timeout (hook drilldown appointments).'
+    );
+    if (error) throw error;
+    const batch = Array.isArray(data) ? data : [];
+    if (!batch.length) break;
+
+    const batchContactIds = batch.map((row) => toTrimmedText(row?.contact_id)).filter(Boolean);
+    await hydrateContacts(batchContactIds);
+    await hydrateSourceMaps(batchContactIds);
+
+    for (const row of batch) {
+      if (!isAppointmentConfirmedStatus(row?.appointment_status, row?.appointment_status_raw)) continue;
+
+      const contactId = toTrimmedText(row?.contact_id);
+      const emailNorm = normalizeEmailValue(row?.contact_email);
+      const contact = (contactId ? contactsById.get(contactId) : null) || (emailNorm ? contactsByEmail.get(emailNorm) : null);
+
+      const rawSource =
+        normalizeSourceValue(row?.source) ||
+        (contactId ? rawSourceByContactId.get(contactId) : null) ||
+        (emailNorm ? rawSourceByEmail.get(emailNorm) : null);
+
+      const recordSource = toBucketSource(rawSource);
+      if (filterBucket && recordSource !== filterBucket) continue;
+      const fallbackSource = rawSource || recordSource || defaultSource;
+
+      const { hook, campaign } = resolveHookFields({
+        customFields: row?.custom_fields,
+        contactCustomFields: contact?.custom_fields,
+        hookFieldId,
+        campaignFieldId,
+        source: fallbackSource
+      });
+
+      if (
+        wantedHook &&
+        hook !== wantedHook &&
+        campaign !== wantedHook &&
+        recordSource !== wantedHook
+      ) {
+        continue;
+      }
+
+      rows.push({
+        record_id: row?.id ?? '',
+        record_type: 'appointment',
+        occurred_at: row?.start_time ?? null,
+        contact_id: row?.contact_id ?? null,
+        contact_name: row?.contact_name ?? null,
+        contact_email: row?.contact_email ?? null,
+        source: recordSource,
+        status: row?.appointment_status ?? row?.appointment_status_raw ?? null
+      });
+
+      if (rows.length >= effectiveLimit) break;
+    }
+
+    if (batch.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+};
+
+const fetchHookDrilldownRecordsComputed = async ({
+  activeLocationId,
+  startIso,
+  endIso,
+  kind,
+  hook,
+  limit
+}) => {
+  const effectiveLimit = clampLimit(limit, 200);
+  if (kind === 'leads') {
+    return fetchHookOpportunityDrilldownRecordsComputed({
+      activeLocationId,
+      startIso,
+      endIso,
+      hookLabel: hook,
+      limit: effectiveLimit
+    });
+  }
+  return fetchHookAppointmentDrilldownRecordsComputed({
+    activeLocationId,
+    startIso,
+    endIso,
+    hookLabel: hook,
+    limit: effectiveLimit
+  });
+};
+
+const fetchDrilldownRecords = async ({ kind, source, range, view }) => {
   if (!supabase) return null;
   const activeLocationId = configState.locationId || ghlLocationId;
   if (!activeLocationId) {
@@ -1460,55 +5125,44 @@ const fetchDrilldownRecords = async ({ kind, source, range }) => {
 
   if (kind === 'hook_leads' || kind === 'hook_appointments') {
     const hookKind = kind === 'hook_leads' ? 'leads' : 'appointments';
-    const { data, error } = await withTimeout(
-      supabase.rpc('get_hook_records', {
-        p_location_id: activeLocationId,
-        p_start: startIso,
-        p_end: endIso,
-        p_kind: hookKind,
-        p_hook: source || null,
-        p_limit: 200
-      }),
-      12000,
-      'Supabase query timeout (hook records).'
-    );
-
-    if (error) throw error;
-    return data ?? [];
+    return fetchHookDrilldownRecordsComputed({
+      activeLocationId,
+      startIso,
+      endIso,
+      kind: hookKind,
+      hook: source || null,
+      limit: 200
+    });
   }
 
   if (kind === 'lost_reason_leads') {
-    const { data, error } = await withTimeout(
-      supabase.rpc('get_lost_reason_records', {
-        p_location_id: activeLocationId,
-        p_start: startIso,
-        p_end: endIso,
-        p_reason: source || null,
-        p_limit: 200
-      }),
-      12000,
-      'Supabase query timeout (lost reason records).'
-    );
-
-    if (error) throw error;
-    return data ?? [];
+    return fetchLostReasonDrilldownRecordsComputed({
+      activeLocationId,
+      startIso,
+      endIso,
+      reasonLabel: source || null,
+      limit: 200
+    });
   }
 
-  const { data, error } = await withTimeout(
-    supabase.rpc('get_source_records', {
-      p_location_id: activeLocationId,
-      p_start: startIso,
-      p_end: endIso,
-      p_kind: kind,
-      p_source: source || null,
-      p_limit: 200
-    }),
-    12000,
-    'Supabase query timeout (records).'
-  );
+  if (kind === 'finance_spend') {
+    return fetchFinanceDrilldownRecords({
+      activeLocationId,
+      startIso,
+      endIso,
+      source: source || null,
+      view
+    });
+  }
 
-  if (error) throw error;
-  return data ?? [];
+  return fetchSourceRecordsComputed({
+    activeLocationId,
+    startIso,
+    endIso,
+    kind,
+    source: source || null,
+    limit: 200
+  });
 };
 
 const normalizeEmail = (value) => {
@@ -1527,7 +5181,13 @@ const chunkValues = (values, size = 100) => {
 const hydrateDrilldownContacts = async (rows) => {
   if (!supabase || !Array.isArray(rows) || rows.length === 0) return rows;
 
-  const missing = rows.filter((row) => !row?.contact_name || !row?.contact_email);
+  // Fill missing contact meta + recover contact_id from email so drilldowns can link back to GHL.
+  const missing = rows.filter((row) => {
+    if (!row) return false;
+    if (!row.contact_name || !row.contact_email) return true;
+    if (!row.contact_id && row.contact_email) return true;
+    return false;
+  });
   if (!missing.length) return rows;
 
   const ids = Array.from(new Set(missing.map((row) => row?.contact_id).filter(Boolean)));
@@ -1551,11 +5211,12 @@ const hydrateDrilldownContacts = async (rows) => {
           contact?.contact_name ||
           [contact?.first_name, contact?.last_name].filter(Boolean).join(' ').trim();
         const email = normalizeEmail(contact?.email);
+        const record = { id: contact?.id ?? null, name: contactName, email: contact?.email ?? null };
         if (contact?.id) {
-          contactById.set(contact.id, { name: contactName, email: contact?.email });
+          contactById.set(contact.id, record);
         }
         if (email) {
-          contactByEmail.set(email, { name: contactName, email: contact?.email });
+          contactByEmail.set(email, record);
         }
       });
     }
@@ -1581,17 +5242,20 @@ const hydrateDrilldownContacts = async (rows) => {
     if (!fallback) return row;
     return {
       ...row,
+      contact_id: row.contact_id || fallback.id || row.contact_id,
       contact_name: row.contact_name || fallback.name || row.contact_name,
       contact_email: row.contact_email || fallback.email || row.contact_email
     };
   });
 };
 
+const isFinanceDrilldown = (kind) => kind === 'finance_spend';
+
 const buildDrilldownTitle = (kind, source, label) => {
   const base = label || DRILLDOWN_LABELS[kind] || 'Records';
   if (!source) return base;
   if (kind?.startsWith('hook_') || kind?.startsWith('lost_reason_')) return base;
-  return `${base} · ${source}`;
+  return `${base} | ${source}`;
 };
 
 const getDrilldownFilterLabel = (kind, source) => {
@@ -1622,6 +5286,9 @@ const openDrilldown = async ({ kind, source, label, range }) => {
   drilldownState.status = 'loading';
   drilldownState.kind = kind;
   drilldownState.source = source || null;
+  if (isFinanceDrilldown(kind)) {
+    drilldownState.financeView = 'daily';
+  }
   drilldownState.title = buildDrilldownTitle(kind, source, label);
   drilldownState.errorMessage = '';
   drilldownState.rows = [];
@@ -1629,8 +5296,9 @@ const openDrilldown = async ({ kind, source, label, range }) => {
   renderApp();
 
   try {
-    const rows = await fetchDrilldownRecords({ kind, source, range });
-    const hydratedRows = await hydrateDrilldownContacts(Array.isArray(rows) ? rows : []);
+    const rows = await fetchDrilldownRecords({ kind, source, range, view: drilldownState.financeView });
+    const baseRows = Array.isArray(rows) ? rows : [];
+    const hydratedRows = isFinanceDrilldown(kind) ? baseRows : await hydrateDrilldownContacts(baseRows);
     drilldownState.status = 'ready';
     drilldownState.rows = Array.isArray(hydratedRows) ? hydratedRows : [];
   } catch (error) {
@@ -2023,6 +5691,1146 @@ const ensureLatestSync = async () => {
   scheduleRender();
 };
 
+const fetchAllRows = async (buildQuery, pageSize = 1000) => {
+  const rows = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await buildQuery().range(from, from + pageSize - 1);
+    if (error) throw error;
+    if (!Array.isArray(data) || data.length === 0) break;
+    rows.push(...data);
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+  return rows;
+};
+
+const extractLossReason = (deal, lostReasonById) => {
+  const raw = deal?.raw_data;
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    // Teamleader stores the lost reason as an id reference (and optional remark).
+    const remark = raw.lost_reason?.remark ?? raw.lostReason?.remark;
+    if (typeof remark === 'string' && remark.trim()) return remark.trim();
+
+    const reasonId =
+      raw.lost_reason?.reason?.id ??
+      raw.lostReason?.reason?.id ??
+      raw.lost_reason_id ??
+      raw.lostReasonId ??
+      raw.lost_reason?.id ??
+      raw.lostReason?.id;
+    if (typeof reasonId === 'string' && reasonId.trim()) {
+      const name = lostReasonById?.get(reasonId.trim());
+      if (typeof name === 'string' && name.trim()) return name.trim();
+    }
+
+    const directKeys = [
+      'lostReason',
+      'lost_reason',
+      'lostReasonName',
+      'lost_reason_name',
+      'reason',
+      'closedReason',
+      'closed_reason',
+      'statusChangeReason',
+      'status_change_reason',
+      'disposition',
+      'outcome'
+    ];
+    for (const key of directKeys) {
+      const value = raw[key];
+      if (typeof value === 'string' && value.trim()) return value.trim();
+      if (value && typeof value === 'object') {
+        const nested = value.name || value.label || value.reason;
+        if (typeof nested === 'string' && nested.trim()) return nested.trim();
+      }
+    }
+    const nestedStatus = raw.status?.reason;
+    if (typeof nestedStatus === 'string' && nestedStatus.trim()) return nestedStatus.trim();
+  }
+  return null;
+};
+
+const buildSalesMetrics = (
+  activeRange,
+  deals,
+  users,
+  companies,
+  contacts,
+  phases,
+  spendRows,
+  lostReasonsLookupRows,
+  monthlyTargetDeals,
+  monthlyTargetsByMonth,
+  appointmentsSupported = true,
+  quotesFromPhaseId = null
+) => {
+  const now = new Date();
+  const range = getSalesRange(activeRange);
+  const monthBuckets = buildMonthBuckets(range.start, range.end);
+  const monthMap = new Map(monthBuckets.map((bucket) => [bucket.key, bucket]));
+  const lostReasonById = new Map(
+    (lostReasonsLookupRows || [])
+      .filter((row) => row && row.id && row.name)
+      .map((row) => [String(row.id), String(row.name)])
+  );
+
+  const companyMap = new Map(
+    (companies || []).map((company) => [
+      company.id,
+      {
+        name: company.name || 'Onbekend',
+        email: company.email || null
+      }
+    ])
+  );
+  const contactMap = new Map(
+    (contacts || []).map((contact) => [
+      contact.id,
+      {
+        name: formatFullName(contact.first_name, contact.last_name, contact.email || contact.phone || 'Contact'),
+        email: contact.email || null
+      }
+    ])
+  );
+  const userMap = new Map(
+    (users || []).map((user) => [
+      user.id,
+      formatFullName(user.first_name, user.last_name, user.email || user.phone || 'Onbekend')
+    ])
+  );
+  const phaseMap = new Map((phases || []).map((phase) => [phase.id, phase]));
+
+  const normalizedQuotesFromPhaseId = typeof quotesFromPhaseId === 'string' ? quotesFromPhaseId.trim() : '';
+  const normalizeSortOrder = (value) => {
+    const raw = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(raw)) return null;
+    return Math.max(0, Math.round(raw));
+  };
+  const normalizeProbability = (value) => {
+    const raw = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(raw)) return null;
+    const normalized = raw > 1 ? raw / 100 : raw;
+    return Math.max(0, Math.min(1, normalized));
+  };
+  const quoteThresholdPhase = normalizedQuotesFromPhaseId ? phaseMap.get(normalizedQuotesFromPhaseId) : null;
+  const quoteThresholdSortOrder = quoteThresholdPhase ? normalizeSortOrder(quoteThresholdPhase.sort_order) : null;
+  const quoteThresholdProbability = quoteThresholdPhase ? normalizeProbability(quoteThresholdPhase.probability) : null;
+  const isQuoteDeal = (deal) => {
+    if (!normalizedQuotesFromPhaseId) return true;
+    const phaseId = String(deal?.phase_id ?? '');
+    const phase = phaseMap.get(phaseId);
+    if (!phase) return phaseId === normalizedQuotesFromPhaseId;
+    const sortOrder = normalizeSortOrder(phase.sort_order);
+    if (quoteThresholdSortOrder !== null && sortOrder !== null) {
+      return sortOrder >= quoteThresholdSortOrder;
+    }
+    const probability = normalizeProbability(phase.probability);
+    if (quoteThresholdProbability !== null && probability !== null) {
+      return probability >= quoteThresholdProbability;
+    }
+    return phaseId === normalizedQuotesFromPhaseId;
+  };
+
+  let allDealsInRangeCount = 0;
+  const dealsInRange = [];
+  const wonDeals = [];
+  const lostDeals = [];
+  const openDeals = [];
+  const quoteDurations = [];
+  const cycleDurations = [];
+  const records = [];
+
+  (deals || []).forEach((deal) => {
+    const createdAt = parseDate(deal.created_at);
+    if (!createdAt) return;
+    if (createdAt < range.start || createdAt > range.end) return;
+
+    allDealsInRangeCount += 1;
+    if (!isQuoteDeal(deal)) return;
+
+    dealsInRange.push(deal);
+    const status = normalizeStatus(deal.status);
+    const won = isWonStatus(status);
+    const lost = isLostStatus(status);
+
+    if (won) wonDeals.push(deal);
+    if (lost) lostDeals.push(deal);
+    if (!won && !lost) openDeals.push(deal);
+
+    let customerName = deal.title || 'Onbekend';
+    let customerEmail = '';
+    if (deal.customer_type === 'company' && companyMap.has(deal.customer_id)) {
+      const company = companyMap.get(deal.customer_id);
+      customerName = company.name || customerName;
+      customerEmail = company.email || '';
+    } else if (deal.customer_type === 'contact' && contactMap.has(deal.customer_id)) {
+      const contact = contactMap.get(deal.customer_id);
+      customerName = contact.name || customerName;
+      customerEmail = contact.email || '';
+    }
+
+    const phase = phaseMap.get(deal.phase_id);
+    const phaseLabel = phase?.name || '';
+    const statusType = won ? 'won' : lost ? 'lost' : 'open';
+    const sellerId = deal.responsible_user_id || null;
+    const sellerName = sellerId ? userMap.get(sellerId) || 'Onbekend' : null;
+    const lossReason = lost ? (extractLossReason(deal, lostReasonById) || 'Onbekend') : null;
+    records.push({
+      record_id: deal.id,
+      record_type: 'deal',
+      occurred_at: deal.created_at,
+      contact_name: customerName,
+      contact_email: customerEmail,
+      source: phaseLabel || deal.customer_type || 'Deal',
+      status: deal.status || 'Onbekend',
+      statusType,
+      monthKey: toMonthKey(createdAt),
+      seller_id: sellerId,
+      seller_name: sellerName,
+      loss_reason: lossReason ? String(lossReason).trim() : null,
+      record_url: buildTeamleaderDealUrl(deal.id, deal.raw_data)
+    });
+
+    const updatedAt = parseDate(deal.updated_at);
+    const quoteDays = diffDays(updatedAt, createdAt);
+    if (Number.isFinite(quoteDays) && quoteDays >= 0) quoteDurations.push(quoteDays);
+
+    if (won) {
+      const closedAt = parseDate(deal.closed_at) || updatedAt;
+      const cycleDays = diffDays(closedAt, createdAt);
+      if (Number.isFinite(cycleDays) && cycleDays >= 0) cycleDurations.push(cycleDays);
+    }
+
+    const createdKey = toMonthKey(createdAt);
+    const createdBucket = monthMap.get(createdKey);
+    if (createdBucket) createdBucket.quotes += 1;
+
+    if (won) {
+      const closedAt = parseDate(deal.closed_at) || updatedAt || createdAt;
+      if (closedAt) {
+        const closedKey = toMonthKey(closedAt);
+        const closedBucket = monthMap.get(closedKey);
+        if (closedBucket) closedBucket.won += 1;
+      }
+    }
+  });
+
+  const openValue = openDeals.reduce((sum, deal) => sum + (Number(deal.estimated_value) || 0), 0);
+  const approvalRate = safeDivide(wonDeals.length, dealsInRange.length);
+  const rejectionRate = safeDivide(lostDeals.length, dealsInRange.length);
+  const dealRatio = approvalRate;
+  const avgQuoteTimeDays = quoteDurations.length
+    ? quoteDurations.reduce((sum, value) => sum + value, 0) / quoteDurations.length
+    : null;
+  const avgSalesCycleDays = cycleDurations.length
+    ? cycleDurations.reduce((sum, value) => sum + value, 0) / cycleDurations.length
+    : null;
+
+  const thisMonthKey = toMonthKey(new Date());
+  const dealsThisMonth = dealsInRange.filter((deal) => {
+    const createdAt = parseDate(deal.created_at);
+    return createdAt && toMonthKey(createdAt) === thisMonthKey;
+  }).length;
+  const defaultTargetDeals =
+    Number.isFinite(monthlyTargetDeals) && monthlyTargetDeals > 0 ? monthlyTargetDeals : SALES_TARGET_MONTHLY_DEALS;
+  const monthOverrideRaw =
+    monthlyTargetsByMonth && typeof monthlyTargetsByMonth === 'object'
+      ? monthlyTargetsByMonth[thisMonthKey]
+      : null;
+  const monthOverride = typeof monthOverrideRaw === 'number' ? monthOverrideRaw : Number(monthOverrideRaw);
+  const targetDeals =
+    Number.isFinite(monthOverride) && monthOverride > 0 ? monthOverride : defaultTargetDeals;
+  const targetPercent = safeDivide(dealsThisMonth, targetDeals);
+  const remainingPercent = Math.max(0, 1 - targetPercent);
+
+  const spendTotal = (spendRows || []).reduce((sum, row) => sum + (Number(row.spend) || 0), 0);
+  const costPerCustomer = wonDeals.length ? spendTotal / wonDeals.length : null;
+
+  const lossReasonCounts = {};
+  lostDeals.forEach((deal) => {
+    const reason = extractLossReason(deal, lostReasonById) || 'Onbekend';
+    const key = String(reason).trim() || 'Onbekend';
+    lossReasonCounts[key] = (lossReasonCounts[key] || 0) + 1;
+  });
+  const lossReasons = Object.entries(lossReasonCounts)
+    .map(([label, count]) => ({ label, count, percent: safeDivide(count, lostDeals.length) }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5);
+
+  const openDealRows = openDeals
+    .map((deal) => {
+      const phase = phaseMap.get(deal.phase_id);
+      let probability = Number(phase?.probability);
+      if (Number.isFinite(probability) && probability > 1) probability /= 100;
+      const probabilityValue = Number.isFinite(probability) ? probability : null;
+      let probabilityLabel = 'Onbekend';
+      let probabilityTone = 'bg-muted text-muted-foreground';
+      if (Number.isFinite(probabilityValue)) {
+        if (probabilityValue >= 0.7) {
+          probabilityLabel = 'Hoog';
+          probabilityTone = 'bg-green-100 text-green-800';
+        } else if (probabilityValue >= 0.4) {
+          probabilityLabel = 'Medium';
+          probabilityTone = 'bg-yellow-100 text-yellow-800';
+        } else {
+          probabilityLabel = 'Laag';
+          probabilityTone = 'bg-red-100 text-red-800';
+        }
+      }
+
+      let customerName = deal.title || 'Onbekend';
+      if (deal.customer_type === 'company' && companyMap.has(deal.customer_id)) {
+        customerName = companyMap.get(deal.customer_id).name || customerName;
+      } else if (deal.customer_type === 'contact' && contactMap.has(deal.customer_id)) {
+        customerName = contactMap.get(deal.customer_id).name || customerName;
+      }
+
+      const createdAt = parseDate(deal.created_at);
+      const daysOpen = createdAt ? Math.max(0, Math.round(diffDays(now, createdAt))) : null;
+      return {
+        id: deal.id,
+        customerName,
+        value: Number(deal.estimated_value) || 0,
+        daysOpen,
+        probabilityLabel,
+        probabilityTone
+      };
+    })
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 6);
+
+  const sellerMap = new Map();
+  dealsInRange.forEach((deal) => {
+    const key = deal.responsible_user_id || 'unknown';
+    if (!sellerMap.has(key)) {
+      const name = key === 'unknown' ? 'Onbekend' : userMap.get(key) || 'Onbekend';
+      sellerMap.set(key, {
+        id: key,
+        name,
+        initials: buildInitials(name),
+        appointments: 0,
+        appointmentsPending: 0,
+        deals: 0,
+        won: 0,
+        lost: 0,
+        cycleSum: 0,
+        cycleCount: 0,
+        revenue: 0
+      });
+    }
+    const seller = sellerMap.get(key);
+    seller.deals += 1;
+
+    if (appointmentsSupported) {
+      const hadAppointmentPhase = deal?.had_appointment_phase;
+      if (hadAppointmentPhase === true) {
+        seller.appointments += 1;
+      } else if (hadAppointmentPhase === null || hadAppointmentPhase === undefined) {
+        seller.appointmentsPending += 1;
+      }
+    }
+
+    const status = normalizeStatus(deal.status);
+    const won = isWonStatus(status);
+    const lost = isLostStatus(status);
+    if (won) {
+      seller.won += 1;
+      seller.revenue += Number(deal.estimated_value) || 0;
+      const createdAt = parseDate(deal.created_at);
+      const closedAt = parseDate(deal.closed_at) || parseDate(deal.updated_at);
+      const cycle = diffDays(closedAt, createdAt);
+      if (Number.isFinite(cycle) && cycle >= 0) {
+        seller.cycleSum += cycle;
+        seller.cycleCount += 1;
+      }
+    } else if (lost) {
+      seller.lost += 1;
+    }
+  });
+
+  const sellers = Array.from(sellerMap.values())
+    .map((seller) => ({
+      ...seller,
+      conversion: safeDivide(seller.won, seller.deals),
+      avgCycle: seller.cycleCount ? seller.cycleSum / seller.cycleCount : null
+    }))
+    .sort((a, b) => b.won - a.won || b.revenue - a.revenue)
+    .slice(0, 10);
+
+  const totalRevenue = wonDeals.reduce((sum, deal) => sum + (Number(deal.estimated_value) || 0), 0);
+  const summary = {
+    wonDeals: wonDeals.length,
+    revenue: totalRevenue,
+    conversion: approvalRate,
+    avgCycleDays: avgSalesCycleDays
+  };
+
+  return {
+    range,
+    appointmentsSupported,
+    totals: {
+      allDeals: allDealsInRangeCount,
+      quotes: dealsInRange.length,
+      won: wonDeals.length,
+      lost: lostDeals.length,
+      open: openDeals.length,
+      openValue,
+      avgQuoteTimeDays,
+      avgSalesCycleDays,
+      approvalRate,
+      rejectionRate,
+      dealRatio,
+      costPerCustomer
+    },
+    target: {
+      current: dealsThisMonth,
+      target: targetDeals,
+      percent: targetPercent,
+      remainingPercent
+    },
+    monthly: monthBuckets,
+    lossReasons,
+    openDeals: openDealRows,
+    records,
+    sellers,
+    summary,
+    funnel: {
+      appointments: allDealsInRangeCount,
+      quotes: dealsInRange.length,
+      approved: wonDeals.length,
+      rejected: lostDeals.length
+    }
+  };
+};
+
+const updateSalesStatus = (status, message) => {
+  const overlay = document.querySelector('[data-sales-loading-overlay]');
+  const content = document.querySelector('[data-sales-loading-content]');
+  const isBlocking = status === 'loading' || status === 'idle' || status === 'error';
+  if (overlay) overlay.classList.toggle('hidden', !isBlocking);
+  if (content) {
+    content.classList.toggle('opacity-0', isBlocking);
+    content.classList.toggle('pointer-events-none', isBlocking);
+    content.classList.toggle('select-none', isBlocking);
+  }
+
+  if (overlay) {
+    const spinner = overlay.querySelector('[data-sales-loading-spinner]');
+    if (spinner) spinner.classList.toggle('hidden', status === 'error');
+    const overlayMessage = overlay.querySelector('[data-sales-loading-message]');
+    if (overlayMessage) overlayMessage.textContent = message || overlayMessage.textContent;
+    const panel = overlay.querySelector('[data-sales-loading-panel]');
+    if (panel) {
+      panel.classList.toggle('border-border/60', status !== 'error');
+      panel.classList.toggle('border-destructive/30', status === 'error');
+    }
+  }
+
+  const badge = document.querySelector('[data-sales-status]');
+  if (badge) {
+    const label = badge.querySelector('[data-sales-status-label]');
+    const dot = badge.querySelector('[data-sales-status-dot]');
+    if (label) label.textContent = message || label.textContent;
+
+    const badgeStatusClass =
+      status === 'ready'
+        ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-700'
+        : status === 'loading' || status === 'idle'
+          ? 'bg-amber-500/10 border-amber-500/20 text-amber-600'
+          : status === 'error'
+            ? 'bg-destructive/10 border-destructive/20 text-destructive'
+            : 'bg-muted/60 border-border text-muted-foreground';
+    badge.className = `hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full border ${badgeStatusClass}`;
+
+    if (dot) {
+      dot.className = `w-2 h-2 rounded-full ${
+        status === 'ready'
+          ? 'bg-emerald-500'
+        : status === 'loading'
+            ? 'bg-amber-500'
+            : status === 'error'
+              ? 'bg-destructive'
+              : 'bg-muted-foreground/60'
+      }`;
+    }
+  }
+};
+
+const buildTrendMarkup = (monthly) => {
+  if (!Array.isArray(monthly) || monthly.length === 0) {
+    return '<div class="text-sm text-muted-foreground">Geen trenddata beschikbaar.</div>';
+  }
+
+  const normalized = monthly.map((entry, index) => ({
+    key: typeof entry?.key === 'string' ? entry.key : String(index),
+    label: typeof entry?.label === 'string' && entry.label.trim() ? entry.label.trim() : `M${index + 1}`,
+    quotes: Math.max(0, Number(entry?.quotes) || 0),
+    won: Math.max(0, Number(entry?.won) || 0)
+  }));
+
+  const totalQuotes = normalized.reduce((sum, entry) => sum + entry.quotes, 0);
+  const totalWon = normalized.reduce((sum, entry) => sum + entry.won, 0);
+  if (totalQuotes === 0 && totalWon === 0) {
+    return '<div class="h-[200px] w-full flex items-center justify-center text-sm text-muted-foreground">Nog geen offertes of deals in deze periode.</div>';
+  }
+
+  const maxValue = Math.max(1, ...normalized.map((entry) => Math.max(entry.quotes, entry.won)));
+  const axisMax = Math.max(15, Math.ceil(maxValue / 15) * 15);
+  const axisTicks = [axisMax, Math.round(axisMax * 0.75), Math.round(axisMax * 0.5), Math.round(axisMax * 0.25), 0];
+
+  const bars = normalized
+    .map((entry) => {
+      const quotesHeight = entry.quotes > 0 ? Math.max(4, Math.round((entry.quotes / axisMax) * 100)) : 0;
+      const wonHeight = entry.won > 0 ? Math.max(4, Math.round((entry.won / axisMax) * 100)) : 0;
+      return `
+        <div class="sales-trend-column" data-sales-trend-key="${escapeHtml(entry.key)}">
+          <div class="sales-trend-column-bars">
+            <span class="sales-trend-column-bar sales-trend-column-bar-quotes" style="height:${quotesHeight}%"></span>
+            <span class="sales-trend-column-bar sales-trend-column-bar-won" style="height:${wonHeight}%"></span>
+          </div>
+          <span class="sales-trend-column-label">${escapeHtml(entry.label)}</span>
+        </div>
+      `;
+    })
+    .join('');
+
+  const axisLabels = axisTicks.map((tick) => `<span class="sales-trend-yaxis-label">${formatNumber(tick)}</span>`).join('');
+  const gridLines = axisTicks
+    .slice(0, -1)
+    .map(
+      (_, index) => `
+        <span class="sales-trend-grid-line" style="bottom:${index * 25}%"></span>
+      `
+    )
+    .join('');
+
+  return `
+    <div class="sales-trend">
+      <div class="sales-trend-yaxis">${axisLabels}</div>
+      <div class="sales-trend-plot">
+        <div class="sales-trend-grid">${gridLines}</div>
+        <div class="sales-trend-columns">${bars}</div>
+      </div>
+    </div>
+  `;
+};
+
+const buildLossReasonsMarkup = (reasons) => {
+  if (!Array.isArray(reasons) || reasons.length === 0) {
+    return '<div class="text-sm text-muted-foreground">Geen verliesredenen gevonden.</div>';
+  }
+  return reasons
+    .map((reason) => {
+      const percent = Math.round((reason.percent || 0) * 100);
+      const reasonLabel = escapeHtml(reason.label);
+      return `
+        <div class="space-y-1">
+          <div class="flex items-center justify-between text-sm">
+            <span class="font-medium">${reasonLabel}</span>
+            <span class="text-muted-foreground" data-sales-drill="lost" data-sales-loss-reason="${reasonLabel}">
+              ${formatNumber(reason.count)} (${percent}%)
+            </span>
+          </div>
+          <div aria-valuemax="100" aria-valuemin="0" role="progressbar" class="relative w-full overflow-hidden rounded-full bg-secondary h-2">
+            <div class="h-full w-full flex-1 bg-primary transition-all" style="transform: translateX(-${100 - percent}%);"></div>
+          </div>
+        </div>
+      `;
+    })
+    .join('');
+};
+
+const buildOpenDealsRows = (deals) => {
+  if (!Array.isArray(deals) || deals.length === 0) {
+    return `
+      <tr class="border-b">
+        <td colspan="4" class="p-4 text-sm text-muted-foreground">Geen open deals gevonden.</td>
+      </tr>
+    `;
+  }
+  return deals
+    .map((deal) => {
+      const days = Number.isFinite(deal.daysOpen) ? deal.daysOpen : '--';
+      const value = Number.isFinite(deal.value) ? formatCurrency(deal.value, 0) : '--';
+      const dealId = escapeHtml(String(deal.id || ''));
+      const dealLabel = escapeHtml(deal.customerName);
+      return `
+        <tr class="border-b transition-colors data-[state=selected]:bg-muted hover:bg-muted/50">
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 font-medium">${dealLabel}</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">
+            <span data-sales-drill="open" data-sales-record-id="${dealId}" data-sales-record-label="${dealLabel}">${value}</span>
+          </td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-center">
+            <span data-sales-drill="open" data-sales-record-id="${dealId}" data-sales-record-label="${dealLabel}">${days}</span>
+          </td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-center">
+            <div class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors ${deal.probabilityTone}">${escapeHtml(deal.probabilityLabel)}</div>
+          </td>
+        </tr>
+      `;
+    })
+    .join('');
+};
+const buildFunnelMarkup = (funnel) => {
+  const appointmentsRaw = Math.max(0, Number(funnel?.appointments) || 0);
+  const quotesRaw = Math.max(0, Number(funnel?.quotes) || 0);
+  const approvedRaw = Math.max(0, Number(funnel?.approved) || 0);
+
+  const appointments = Math.round(appointmentsRaw);
+  const quotes = Math.round(Math.min(quotesRaw, appointments || quotesRaw));
+  const approved = Math.round(Math.min(approvedRaw, quotes || approvedRaw));
+  const base = appointments > 0 ? appointments : Math.max(quotes, approved);
+
+  const clampPercent = (value) => Math.max(0, Math.min(100, value));
+  const toWidthPercent = (value, total) => {
+    if (total <= 0) return 100;
+    if (value <= 0) return 35;
+    return clampPercent(Math.max((value / total) * 100, 35));
+  };
+
+  const appointmentsToQuotesRate = safeDivide(quotes, base);
+  const quotesToDealsRate = safeDivide(approved, quotes);
+  const totalConversionRate = safeDivide(approved, base);
+
+  const lostBeforeQuote = Math.max(base - quotes, 0);
+  const lostBeforeDeal = Math.max(quotes - approved, 0);
+  const lostBeforeQuoteRate = safeDivide(lostBeforeQuote, base);
+  const lostBeforeDealRate = safeDivide(lostBeforeDeal, quotes);
+
+  const quotesWidth = toWidthPercent(quotes, base);
+  const approvedWidth = toWidthPercent(approved, base);
+
+  return `
+    <div class="sales-funnel">
+      <div class="sales-funnel-stack">
+        <div class="sales-funnel-stage-wrap">
+          <div class="sales-funnel-stage sales-funnel-stage-appointments" style="width: 100%;">
+            <div class="sales-funnel-stage-main">
+              <div class="sales-funnel-stage-icon">
+                ${icons.calendar('lucide lucide-calendar w-5 h-5')}
+              </div>
+              <div class="sales-funnel-stage-copy">
+                <p class="sales-funnel-stage-title">Afspraken</p>
+                <p class="sales-funnel-stage-subtitle">Totaal gevoerde gesprekken</p>
+              </div>
+            </div>
+            <div class="sales-funnel-stage-metric">
+              <p class="sales-funnel-stage-value">${formatNumber(appointments)}</p>
+              <p class="sales-funnel-stage-share">${base > 0 ? '100%' : '0%'}</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="sales-funnel-drop">
+          <span class="sales-funnel-drop-arrow sales-funnel-drop-arrow-appointments" aria-hidden="true"></span>
+          <span class="sales-funnel-drop-pill">
+            <span class="sales-funnel-drop-rate">${formatPercent(lostBeforeQuoteRate, 1)}</span>
+            <span class="sales-funnel-drop-loss">(${formatNumber(lostBeforeQuote)} verloren)</span>
+          </span>
+        </div>
+
+        <div class="sales-funnel-stage-wrap">
+          <div class="sales-funnel-stage sales-funnel-stage-quotes" style="width: ${quotesWidth}%;">
+            <div class="sales-funnel-stage-main">
+              <div class="sales-funnel-stage-icon">
+                ${icons.fileText('lucide lucide-file-text w-5 h-5')}
+              </div>
+              <div class="sales-funnel-stage-copy">
+                <p class="sales-funnel-stage-title">Offertes</p>
+                <p class="sales-funnel-stage-subtitle">Verzonden offertes</p>
+              </div>
+            </div>
+            <div class="sales-funnel-stage-metric">
+              <p class="sales-funnel-stage-value" data-sales-drill="all">${formatNumber(quotes)}</p>
+              <p class="sales-funnel-stage-share" data-sales-drill="all">${formatPercent(appointmentsToQuotesRate, 1)} totaal</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="sales-funnel-drop">
+          <span class="sales-funnel-drop-arrow sales-funnel-drop-arrow-quotes" aria-hidden="true"></span>
+          <span class="sales-funnel-drop-pill">
+            <span class="sales-funnel-drop-rate">${formatPercent(lostBeforeDealRate, 1)}</span>
+            <span class="sales-funnel-drop-loss">(${formatNumber(lostBeforeDeal)} verloren)</span>
+          </span>
+        </div>
+
+        <div class="sales-funnel-stage-wrap">
+          <div class="sales-funnel-stage sales-funnel-stage-won" style="width: ${approvedWidth}%;">
+            <div class="sales-funnel-stage-main">
+              <div class="sales-funnel-stage-icon">
+                ${icons.check('lucide lucide-circle-check-big w-5 h-5')}
+              </div>
+              <div class="sales-funnel-stage-copy">
+                <p class="sales-funnel-stage-title">Goedgekeurd</p>
+                <p class="sales-funnel-stage-subtitle">Getekende deals</p>
+              </div>
+            </div>
+            <div class="sales-funnel-stage-metric">
+              <p class="sales-funnel-stage-value" data-sales-drill="won">${formatNumber(approved)}</p>
+              <p class="sales-funnel-stage-share" data-sales-drill="won">${formatPercent(totalConversionRate, 1)} totaal</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sales-funnel-summary">
+        <div class="sales-funnel-summary-card sales-funnel-summary-card-step-1">
+          <p class="sales-funnel-summary-value">${formatPercent(appointmentsToQuotesRate, 1)}</p>
+          <p class="sales-funnel-summary-label">Afspraak -> Offerte</p>
+        </div>
+        <div class="sales-funnel-summary-card sales-funnel-summary-card-step-2">
+          <p class="sales-funnel-summary-value">${formatPercent(quotesToDealsRate, 1)}</p>
+          <p class="sales-funnel-summary-label">Offerte -> Deal</p>
+        </div>
+        <div class="sales-funnel-summary-card sales-funnel-summary-card-total">
+          <p class="sales-funnel-summary-value">${formatPercent(totalConversionRate, 1)}</p>
+          <p class="sales-funnel-summary-label">Totale Conversie</p>
+        </div>
+      </div>
+    </div>
+  `;
+};
+const buildSellerRows = (sellers, options = {}) => {
+  const appointmentsSupported = options.appointmentsSupported !== false;
+  if (!Array.isArray(sellers) || sellers.length === 0) {
+    return `
+      <tr class="border-b">
+        <td colspan="8" class="p-4 text-sm text-muted-foreground">Geen verkopersdata gevonden.</td>
+      </tr>
+    `;
+  }
+  return sellers
+    .map((seller, index) => {
+      const conversion = formatPercent(seller.conversion, 1);
+      const avgCycle = seller.avgCycle ? formatDays(seller.avgCycle, 1) : '--';
+      const revenue = seller.revenue ? formatCurrency(seller.revenue, 0) : '--';
+      const sellerId = escapeHtml(String(seller.id || ''));
+      const sellerName = escapeHtml(seller.name);
+      const sellerAttrs = `data-sales-drill="all" data-sales-seller-id="${sellerId}" data-sales-seller-name="${sellerName}"`;
+      const pendingAppointments = Number(seller.appointmentsPending) || 0;
+      const knownAppointments = formatNumber(seller.appointments || 0);
+      const appointmentLabel = pendingAppointments > 0 ? `${knownAppointments}+` : knownAppointments;
+      const appointmentsCell = !appointmentsSupported
+        ? `
+            <span class="inline-flex items-center justify-center text-xs text-muted-foreground" title="Afspraken zijn niet beschikbaar omdat teamleader_deals.had_appointment_phase ontbreekt (migratie nog niet gedeployed).">
+              --
+            </span>
+          `
+        : pendingAppointments > 0
+          ? `
+              <div class="inline-flex items-center justify-center gap-2" title="Afspraken worden nog berekend voor ${pendingAppointments} deal(s). Teamleader phase history wordt op de achtergrond gesynct.">
+                <span class="font-medium" ${sellerAttrs}>${appointmentLabel}</span>
+                <span class="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                  <span class="inline-block h-4 w-4 rounded-full border-2 border-muted-foreground/20 border-t-primary animate-spin"></span>
+                  <span>nog ${formatNumber(pendingAppointments)}</span>
+                </span>
+              </div>
+            `
+          : `<span class="font-medium" ${sellerAttrs}>${appointmentLabel}</span>`;
+      return `
+        <tr class="border-b transition-colors data-[state=selected]:bg-muted hover:bg-muted/50">
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0">${index + 1}</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0">
+            <div class="flex items-center gap-3">
+              <div class="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                <span class="text-sm font-semibold text-primary">${escapeHtml(seller.initials)}</span>
+              </div>
+              <span class="font-medium">${sellerName}</span>
+            </div>
+          </td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-center">${appointmentsCell}</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-center"><span ${sellerAttrs}>${formatNumber(seller.deals)}</span></td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-center">
+            <span class="font-semibold text-primary" ${sellerAttrs}>${formatNumber(seller.won)}</span>
+          </td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-center">
+            <div class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors border-transparent hover:bg-secondary/80 bg-muted text-foreground" ${sellerAttrs}>${conversion}</div>
+          </td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-center">
+            <span class="text-sm text-muted-foreground" ${sellerAttrs}>${avgCycle}</span>
+          </td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right font-semibold"><span ${sellerAttrs}>${revenue}</span></td>
+        </tr>
+      `;
+    })
+    .join('');
+};
+const SALES_DRILLDOWN_CONFIG = {
+  quotes_created: { filter: 'all', label: 'Offertes' },
+  quotes_subtext: { filter: 'all', label: 'Offertes' },
+  avg_quote_time: { filter: 'all', label: 'Deals' },
+  approved_quotes: { filter: 'won', label: 'Goedgekeurde deals' },
+  approval_rate: { filter: 'won', label: 'Goedgekeurde deals' },
+  deal_ratio: { filter: 'won', label: 'Goedgekeurde deals' },
+  avg_sales_cycle: { filter: 'won', label: 'Goedgekeurde deals' },
+  open_quotes: { filter: 'open', label: 'Open deals' },
+  open_value: { filter: 'open', label: 'Open deals' },
+  rejected_quotes: { filter: 'lost', label: 'Afgekeurde deals' },
+  rejection_rate: { filter: 'lost', label: 'Afgekeurde deals' },
+  cost_per_customer: { filter: 'won', label: 'Goedgekeurde deals' },
+  open_total_value: { filter: 'open', label: 'Open deals' },
+  deals_this_month: { filter: 'month', label: 'Deals deze maand' },
+  deals_target: { filter: 'month', label: 'Deals deze maand' },
+  deals_target_percent: { filter: 'month', label: 'Deals deze maand' },
+  deals_target_remaining: { filter: 'month', label: 'Deals deze maand' },
+  deals_target_progress: { filter: 'month', label: 'Deals deze maand' },
+  summary_won_deals: { filter: 'won', label: 'Goedgekeurde deals' },
+  summary_revenue: { filter: 'won', label: 'Goedgekeurde deals' },
+  summary_conversion: { filter: 'all', label: 'Deals' },
+  summary_cycle: { filter: 'won', label: 'Goedgekeurde deals' },
+  seller_count: { filter: 'all', label: 'Deals' }
+};
+
+const SALES_FILTER_LABELS = {
+  all: 'Deals',
+  won: 'Goedgekeurde deals',
+  lost: 'Afgekeurde deals',
+  open: 'Open deals',
+  month: 'Deals deze maand'
+};
+
+const normalizeSalesKey = (value) => (value ? String(value).trim().toLowerCase() : '');
+
+const getSalesRecordsForFilter = (records, filter, options = {}) => {
+  if (!Array.isArray(records)) return [];
+
+  let rows = records;
+  const effectiveFilter = filter || 'all';
+
+  if (effectiveFilter === 'month') {
+    const monthKey = toMonthKey(new Date());
+    rows = rows.filter((record) => record.monthKey === monthKey);
+  } else if (effectiveFilter !== 'all') {
+    rows = rows.filter((record) => record.statusType === effectiveFilter);
+  }
+
+  if (options.sellerId) {
+    const sellerId = String(options.sellerId);
+    rows = rows.filter((record) => String(record.seller_id || '') === sellerId);
+  }
+
+  if (options.recordId) {
+    const recordId = String(options.recordId);
+    rows = rows.filter((record) => String(record.record_id || '') === recordId);
+  }
+
+  if (options.lossReason) {
+    const target = normalizeSalesKey(options.lossReason);
+    rows = rows.filter((record) => normalizeSalesKey(record.loss_reason) === target);
+  }
+
+  return rows;
+};
+
+const openSalesDrilldownByFilter = (filter, options = {}) => {
+  if (!salesState.data?.records) return;
+  const effectiveFilter = filter || 'all';
+  const rows = getSalesRecordsForFilter(salesState.data.records, effectiveFilter, options);
+
+  let title = options.label || SALES_FILTER_LABELS[effectiveFilter] || 'Deals';
+  if (options.recordLabel) {
+    title = `Deal - ${options.recordLabel}`;
+  } else if (options.sellerName) {
+    title = `Deals - ${options.sellerName}`;
+  } else if (options.lossReason) {
+    title = `Verliesreden - ${options.lossReason}`;
+  }
+
+  drilldownState.open = true;
+  drilldownState.status = 'ready';
+  drilldownState.kind = `sales_${effectiveFilter}`;
+  drilldownState.source = null;
+  drilldownState.title = title;
+  drilldownState.errorMessage = '';
+  drilldownState.rows = rows;
+  drilldownState.range = { ...dateRange };
+  renderApp();
+};
+
+const openSalesDrilldown = (key) => {
+  const config = SALES_DRILLDOWN_CONFIG[key] || { filter: 'all', label: 'Deals' };
+  openSalesDrilldownByFilter(config.filter, { label: config.label });
+};
+
+const bindSalesClicks = () => {
+  const elements = document.querySelectorAll('[data-sales-kpi], [data-sales-drill]');
+  if (!elements.length) return;
+  elements.forEach((element) => {
+    if (element.dataset.salesClickBound === 'true') return;
+    element.dataset.salesClickBound = 'true';
+    element.classList.add('cursor-pointer', 'transition-colors', 'hover:underline');
+    element.addEventListener('click', () => {
+      const filter = element.getAttribute('data-sales-drill');
+      if (filter) {
+        openSalesDrilldownByFilter(filter, {
+          label: element.getAttribute('data-sales-drill-label'),
+          sellerId: element.getAttribute('data-sales-seller-id'),
+          sellerName: element.getAttribute('data-sales-seller-name'),
+          recordId: element.getAttribute('data-sales-record-id'),
+          recordLabel: element.getAttribute('data-sales-record-label'),
+          lossReason: element.getAttribute('data-sales-loss-reason')
+        });
+        return;
+      }
+
+      const key = element.getAttribute('data-sales-kpi');
+      if (!key) return;
+      openSalesDrilldown(key);
+    });
+  });
+};
+
+const applySalesData = (data) => {
+  if (!data) return;
+
+  const setKpi = (key, value) => {
+    const element = document.querySelector(`[data-sales-kpi="${key}"]`);
+    if (element) element.textContent = value;
+  };
+
+  setKpi('quotes_created', formatNumber(data.totals.quotes));
+  setKpi('quotes_subtext', `Van ${formatNumber(data.totals.allDeals)} deals`);
+  setKpi('avg_quote_time', formatDays(data.totals.avgQuoteTimeDays));
+  setKpi('approved_quotes', formatNumber(data.totals.won));
+  setKpi('approval_rate', `${formatPercent(data.totals.approvalRate, 1)} approval rate`);
+  setKpi('deal_ratio', formatPercent(data.totals.dealRatio, 1));
+  setKpi('avg_sales_cycle', formatDays(data.totals.avgSalesCycleDays));
+  setKpi('open_quotes', formatNumber(data.totals.open));
+  setKpi('open_value', data.totals.openValue ? `${formatCurrency(data.totals.openValue, 0)} waarde` : '--');
+  setKpi('rejected_quotes', formatNumber(data.totals.lost));
+  setKpi('rejection_rate', `${formatPercent(data.totals.rejectionRate, 1)} rejection rate`);
+  setKpi(
+    'cost_per_customer',
+    Number.isFinite(data.totals.costPerCustomer) ? formatCurrency(data.totals.costPerCustomer, 0) : '--'
+  );
+  setKpi('open_total_value', data.totals.openValue ? `${formatCurrency(data.totals.openValue, 0)} totaal` : '--');
+
+  setKpi('deals_this_month', formatNumber(data.target.current));
+  setKpi('deals_target', formatNumber(data.target.target));
+  setKpi('deals_target_percent', formatPercent(data.target.percent, 0));
+  setKpi('deals_target_remaining', `${formatNumber(data.target.remainingPercent * 100, 0)}% te gaan`);
+
+  const progress = document.querySelector('[data-sales-kpi="deals_target_progress"]');
+  if (progress) {
+    progress.style.transform = `translateX(-${formatNumber(data.target.remainingPercent * 100, 0)}%)`;
+  }
+
+  const trend = document.querySelector('[data-sales-trend]');
+  if (trend) trend.innerHTML = buildTrendMarkup(data.monthly);
+
+  const reasons = document.querySelector('[data-sales-loss-reasons]');
+  if (reasons) reasons.innerHTML = buildLossReasonsMarkup(data.lossReasons);
+
+  const openDeals = document.querySelector('[data-sales-open-deals]');
+  if (openDeals) openDeals.innerHTML = buildOpenDealsRows(data.openDeals);
+
+  const funnel = document.querySelector('[data-sales-funnel]');
+  if (funnel) funnel.innerHTML = buildFunnelMarkup(data.funnel);
+
+  const sellers = document.querySelector('[data-sales-seller-rows]');
+  if (sellers) sellers.innerHTML = buildSellerRows(data.sellers, { appointmentsSupported: data.appointmentsSupported });
+  setKpi('seller_count', `${formatNumber(data.sellers.length)} verkopers`);
+
+  setKpi('summary_won_deals', formatNumber(data.summary.wonDeals));
+  setKpi('summary_revenue', data.summary.revenue ? formatCurrency(data.summary.revenue, 0) : '--');
+  setKpi('summary_conversion', formatPercent(data.summary.conversion, 1));
+  setKpi('summary_cycle', data.summary.avgCycleDays ? `${formatNumber(data.summary.avgCycleDays, 1)} d` : '--');
+
+  bindSalesClicks();
+  updateSalesStatus(data.totals.allDeals > 0 ? 'ready' : 'empty', data.totals.allDeals > 0 ? 'Live data' : 'Nog geen data');
+};
+
+const renderSalesDateControls = () => {
+  const controls = document.querySelector('[data-sales-date-controls]');
+  if (!controls) return;
+
+  const startLabel = controls.querySelector('[data-sales-date-start]');
+  const endLabel = controls.querySelector('[data-sales-date-end]');
+  if (startLabel) startLabel.textContent = formatDisplayDate(dateRange.start);
+  if (endLabel) endLabel.textContent = formatDisplayDate(dateRange.end);
+
+  const startButton = controls.querySelector('[data-date-trigger="start"]');
+  const endButton = controls.querySelector('[data-date-trigger="end"]');
+  if (startButton) {
+    startButton.classList.toggle('active', pickerState.open && pickerState.selecting === 'start');
+  }
+  if (endButton) {
+    endButton.classList.toggle('active', pickerState.open && pickerState.selecting === 'end');
+  }
+
+  const pickerContainer = controls.querySelector('[data-sales-date-picker]');
+  if (pickerContainer) {
+    pickerContainer.innerHTML = renderDatePicker(dateRange);
+  }
+};
+
+const ensureSalesData = async () => {
+  if (!supabase) return;
+  const activeLocationId = configState.locationId || ghlLocationId;
+  if (!activeLocationId) {
+    if (configState.status === 'idle') {
+      loadLocationConfig();
+    }
+    if (configState.status === 'loading') {
+      updateSalesStatus('loading', 'Dashboard config laden...');
+    } else if (configState.status === 'error') {
+      updateSalesStatus('error', configState.errorMessage || 'Location ID ontbreekt.');
+    }
+    return;
+  }
+
+  const key = buildRangeKey(dateRange);
+  if (salesState.rangeKey === key && salesState.status === 'ready') {
+    applySalesData(salesState.data);
+    return;
+  }
+  if (salesState.inFlight) return;
+
+  if (salesState.rangeKey !== key) {
+    salesState.status = 'idle';
+    salesState.data = null;
+  }
+
+  salesState.status = 'loading';
+  salesState.inFlight = true;
+  salesState.errorMessage = '';
+  salesState.rangeKey = key;
+  updateSalesStatus('loading', 'Syncen...');
+
+  const range = getSalesRange(dateRange);
+  const startIso = range.start.toISOString();
+  const endIso = range.end.toISOString();
+  const spendStart = range.start.toISOString().slice(0, 10);
+  const spendEnd = range.end.toISOString().slice(0, 10);
+
+  try {
+    const dealsSelectBase =
+      'id,title,location_id,created_at,updated_at,closed_at,status,customer_type,customer_id,responsible_user_id,phase_id,estimated_value,estimated_value_currency,raw_data';
+    const dealsSelectWithAppointments = `${dealsSelectBase},had_appointment_phase`;
+    let appointmentsSupported = true;
+
+    const buildDealsQuery = (selectClause) => () =>
+      supabase
+        .from('teamleader_deals')
+        .select(selectClause)
+        .eq('location_id', activeLocationId)
+        .gte('created_at', startIso)
+        .lte('created_at', endIso);
+
+    const dealsPromise = (async () => {
+      try {
+        return await fetchAllRows(buildDealsQuery(dealsSelectWithAppointments));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes('had_appointment_phase') && message.includes('does not exist')) {
+          console.warn('teamleader_deals.had_appointment_phase ontbreekt nog; fallback zonder afsprakenveld.');
+          appointmentsSupported = false;
+          return await fetchAllRows(buildDealsQuery(dealsSelectBase));
+        }
+        throw error;
+      }
+    })();
+
+    const buildUsersQuery = () =>
+      supabase
+        .from('teamleader_users')
+        .select('id,first_name,last_name,email,phone')
+        .eq('location_id', activeLocationId);
+
+    const buildCompaniesQuery = () =>
+      supabase.from('teamleader_companies').select('id,name,email').eq('location_id', activeLocationId);
+
+    const buildContactsQuery = () =>
+      supabase
+        .from('teamleader_contacts')
+        .select('id,first_name,last_name,email,phone')
+        .eq('location_id', activeLocationId);
+
+    const buildPhasesQuery = (selectClause) => () =>
+      supabase
+        .from('teamleader_deal_phases')
+        .select(selectClause)
+        .eq('location_id', activeLocationId);
+
+    const phasesPromise = (async () => {
+      try {
+        return await fetchAllRows(buildPhasesQuery('id,name,probability,sort_order'));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes('sort_order') && message.includes('does not exist')) {
+          console.warn('teamleader_deal_phases.sort_order ontbreekt nog; fallback op probability-gebaseerde fasefiltering.');
+          return await fetchAllRows(buildPhasesQuery('id,name,probability'));
+        }
+        throw error;
+      }
+    })();
+
+      const [
+        deals,
+        users,
+        companies,
+        contacts,
+        phases,
+        spendRows,
+        lostReasonsLookup
+      ] = await Promise.all([
+        dealsPromise,
+        fetchAllRows(buildUsersQuery),
+        fetchAllRows(buildCompaniesQuery),
+        fetchAllRows(buildContactsQuery),
+        phasesPromise,
+        supabase
+          .from('marketing_spend_daily')
+          .select('spend,date')
+          .eq('location_id', activeLocationId)
+          .gte('date', spendStart)
+          .lte('date', spendEnd)
+          .then(({ data, error }) => {
+            if (error) throw error;
+            return data || [];
+          }),
+        supabase
+          .from('teamleader_lost_reasons')
+          .select('id,name')
+          .eq('location_id', activeLocationId)
+          .then(({ data, error }) => {
+            if (error) {
+              console.warn('Unable to load Teamleader lost reasons lookup', error);
+              return [];
+            }
+            return data || [];
+          })
+      ]);
+
+    const data = buildSalesMetrics(
+      dateRange,
+      deals,
+      users,
+      companies,
+      contacts,
+      phases,
+      spendRows,
+      lostReasonsLookup,
+      configState.salesMonthlyDealsTarget,
+      configState.salesMonthlyDealsTargets,
+      appointmentsSupported,
+      configState.salesQuotesFromPhaseId
+    );
+    salesState.status = 'ready';
+    salesState.data = data;
+    salesState.inFlight = false;
+    applySalesData(data);
+  } catch (error) {
+    salesState.status = 'error';
+    salesState.errorMessage = error instanceof Error ? error.message : 'Onbekende fout';
+    salesState.inFlight = false;
+    updateSalesStatus('error', 'Fout bij sync');
+    console.error('Sales sync failed', error);
+  }
+};
+
 const MONTHS_SHORT = ['jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
 const MONTHS_LONG = [
   'januari',
@@ -2304,13 +7112,247 @@ const renderDebugPanel = (range) => {
 };
 
 const renderAdminModal = () => {
-  if (!adminModeEnabled) return '';
+  if (!settingsEnabled) return '';
 
   const loggedIn = Boolean(authSession);
   const userEmail = authSession?.user?.email || '';
+  const adminAccessEnabled = isAdminAccessEnabled();
+  const kpiOnlyMode = settingsModeEnabled && !adminAccessEnabled;
+  const canManageKpi = loggedIn || kpiOnlyMode;
+  const modalTitle = settingsButtonLabel;
+  const modalSubtitle = adminAccessEnabled
+    ? 'Beheer GHL integratie, kostattributie en KPI targets.'
+    : 'Stel Sales KPI targets in voor dit dashboard.';
+  const signOutButtonMarkup = loggedIn
+    ? '<button type="button" class="admin-ghost" data-admin-signout>Uitloggen</button>'
+    : '';
   const adminBusy = adminState.loading || adminState.status === 'saving';
   const mappingBusy = adminState.mapping.loading || adminState.mapping.saving;
   const mappingStatusClass = adminState.mapping.status === 'error' ? 'error' : 'success';
+  const kpiBusy = adminState.kpi.loading || adminState.kpi.saving;
+  const kpiStatusClass = adminState.kpi.status === 'error' ? 'error' : 'success';
+  const sourcesBusy = adminState.sources.loading || adminState.sources.saving;
+  const sourcesStatusClass = adminState.sources.status === 'error' ? 'error' : 'success';
+  const lostBusy = adminState.lostReasons.loading || adminState.lostReasons.saving;
+  const lostStatusClass = adminState.lostReasons.status === 'error' ? 'error' : 'success';
+  const leadCostBusy = adminState.leadCost.loading || adminState.leadCost.saving;
+  const leadCostStatusClass = adminState.leadCost.status === 'error' ? 'error' : 'success';
+  const sourceBucketingCfg = resolveSourceBucketingConfig();
+  const sourcesFallbackBucket = normalizeSourceLabel(sourceBucketingCfg.fallbackBucket) || 'Overig';
+  const sourcesEmptyBucket = normalizeSourceLabel(sourceBucketingCfg.emptyBucket) || 'Onbekend';
+  const sourcesSubtitle = `Koppel raw sources aan vaste kanalen. Lege source telt als ${escapeHtml(sourcesEmptyBucket)}. ${
+    sourceBucketingCfg.unmatchedMode === 'keep'
+      ? 'Alles wat niet matcht blijft zijn eigen source.'
+      : `Alles wat niet matcht valt onder ${escapeHtml(sourcesFallbackBucket)}.`
+  }`;
+  const sourcesRules = Array.isArray(adminState.sources.rules) ? adminState.sources.rules : [];
+  const sourcesRulesRowsMarkup = sourcesRules.length
+    ? sourcesRules
+        .map((rule, idx) => {
+          const bucket = normalizeSourceLabel(rule?.bucket);
+          const patterns = Array.isArray(rule?.patterns) ? rule.patterns.join(', ') : '';
+          return `
+            <tr>
+              <td>
+                <input type="text" class="admin-input admin-mapping-input" value="${escapeHtml(bucket)}" placeholder="Kanaal" data-source-rule-bucket="${idx}" ${sourcesBusy ? 'disabled' : ''} />
+              </td>
+              <td>
+                <input type="text" class="admin-input admin-mapping-input" value="${escapeHtml(patterns)}" placeholder="keywords, komma-gescheiden" data-source-rule-patterns="${idx}" ${sourcesBusy ? 'disabled' : ''} />
+              </td>
+            </tr>
+          `;
+        })
+        .join('')
+    : '<tr><td colspan="2" class="admin-mapping-empty">Geen regels gevonden.</td></tr>';
+  const sourcesSamples = Array.isArray(adminState.sources.samples) ? adminState.sources.samples : [];
+  const sourcesSamplesRowsMarkup = sourcesSamples.length
+    ? sourcesSamples
+        .map((row) => {
+          const raw = escapeHtml(row?.raw ?? '');
+          const count = formatNumber(row?.count ?? 0);
+          const bucketRaw = normalizeSourceLabel(row?.bucket);
+          const bucket = escapeHtml(bucketRaw);
+          const bucketDisplay = bucket || '--';
+          const highlightFallback =
+            sourceBucketingCfg.unmatchedMode !== 'keep' && bucketRaw && bucketRaw === sourcesFallbackBucket;
+          const bucketMarkup = highlightFallback ? `<span class="text-destructive">${bucketDisplay}</span>` : bucketDisplay;
+          return `
+            <tr>
+              <td>${raw || '--'}</td>
+              <td class="admin-mapping-muted">${count}</td>
+              <td>${bucketMarkup}</td>
+            </tr>
+          `;
+        })
+        .join('')
+    : '<tr><td colspan="3" class="admin-mapping-empty">Nog geen samples geladen.</td></tr>';
+  const monthlyDealsTargetValue =
+    adminState.kpi.monthlyDealsTarget ||
+    String(
+      Number.isFinite(configState.salesMonthlyDealsTarget) && configState.salesMonthlyDealsTarget > 0
+        ? Math.round(configState.salesMonthlyDealsTarget)
+        : SALES_TARGET_MONTHLY_DEALS
+    );
+  const kpiYearRaw = Number(adminState.kpi.year);
+  const kpiYear = Number.isFinite(kpiYearRaw) ? kpiYearRaw : new Date().getFullYear();
+  const monthOverrides =
+    adminState.kpi.monthlyDealsTargets &&
+    typeof adminState.kpi.monthlyDealsTargets === 'object' &&
+    !Array.isArray(adminState.kpi.monthlyDealsTargets)
+      ? adminState.kpi.monthlyDealsTargets
+      : {};
+  const monthRowsMarkup = Array.from({ length: 12 })
+    .map((_, idx) => {
+      const month = idx + 1;
+      const monthKey = `${kpiYear}-${pad2(month)}`;
+      const label = `${MONTH_LABELS_NL[idx]} ${kpiYear}`;
+      const value = monthOverrides[monthKey] ?? '';
+      return `
+        <tr>
+          <td>${escapeHtml(label)}</td>
+          <td>
+            <input
+              type="number"
+              class="admin-input admin-mapping-input"
+              value="${escapeHtml(String(value))}"
+              placeholder="${escapeHtml(monthlyDealsTargetValue)}"
+              min="1"
+              step="1"
+              data-kpi-month="${escapeHtml(monthKey)}"
+              ${kpiBusy ? 'disabled' : ''}
+            />
+          </td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  const quotesFromPhaseIdValue = String(
+    adminState.kpi.quotesFromPhaseId ?? configState.salesQuotesFromPhaseId ?? ''
+  ).trim();
+  const lostReasonFieldIdValue = String(
+    adminState.kpi.lostReasonFieldId ?? configState.lostReasonFieldId ?? ''
+  ).trim();
+  const normalizeProbability = (value) => {
+    const raw = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(raw)) return null;
+    const normalized = raw > 1 ? raw / 100 : raw;
+    return Math.max(0, Math.min(1, normalized));
+  };
+  const normalizeSortOrder = (value) => {
+    const raw = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(raw)) return null;
+    return Math.max(0, Math.round(raw));
+  };
+  const quotePhaseRows = (Array.isArray(adminState.kpi.quotesPhaseOptions) ? adminState.kpi.quotesPhaseOptions : [])
+    .filter((row) => row && row.id && row.name)
+    .map((row) => {
+      const id = String(row.id);
+      const name = String(row.name);
+      const prob = normalizeProbability(row.probability);
+      const sortOrder = normalizeSortOrder(row.sort_order);
+      return { id, name, prob, sortOrder };
+    })
+    .sort((a, b) => {
+      if (a.sortOrder !== null && b.sortOrder !== null && a.sortOrder !== b.sortOrder) {
+        return a.sortOrder - b.sortOrder;
+      }
+      const aProb = a.prob ?? 2;
+      const bProb = b.prob ?? 2;
+      if (aProb !== bProb) return aProb - bProb;
+      return a.name.localeCompare(b.name);
+    });
+  const quotePhaseOptionsMarkup = [
+    `<option value=""${quotesFromPhaseIdValue ? '' : ' selected'}>Alle deals (geen fase-filter)</option>`,
+    ...quotePhaseRows.map((row) => {
+      const orderLabel = row.sortOrder !== null ? `#${row.sortOrder + 1}` : null;
+      const probLabel = row.prob !== null ? `${Math.round(row.prob * 100)}%` : null;
+      const suffixParts = [orderLabel, probLabel].filter(Boolean);
+      const suffix = suffixParts.length ? ` (${suffixParts.join(' · ')})` : '';
+      const label = `${row.name}${suffix}`;
+      const selected = row.id === quotesFromPhaseIdValue ? ' selected' : '';
+      return `<option value="${escapeHtml(row.id)}"${selected}>${escapeHtml(label)}</option>`;
+    })
+  ].join('');
+
+  const lostReasonEntries = Array.isArray(adminState.lostReasons.entries) ? adminState.lostReasons.entries : [];
+  const lostReasonLabelOptions = Array.isArray(adminState.lostReasons.labelOptions) ? adminState.lostReasons.labelOptions : [];
+  const lostReasonLabelOptionsMarkup = lostReasonLabelOptions
+    .map((option) => `<option value="${escapeHtml(option)}"></option>`)
+    .join('');
+  const lostReasonLabelOptionsList = lostReasonLabelOptionsMarkup
+    ? `<datalist id="lost-reason-label-options">${lostReasonLabelOptionsMarkup}</datalist>`
+    : '';
+  const lostReasonLabelHintMarkup = lostReasonLabelOptionsList
+    ? ''
+    : '<div class="admin-meta">Geen label suggesties gevonden. Klik \"Haal labels op\" (of update je GHL token scopes) en vul anders de labels manueel in.</div>';
+  const lostReasonRowsMarkup = lostReasonEntries.length
+    ? lostReasonEntries
+        .map((entry) => {
+          const id = toTrimmedText(entry?.id);
+          const occurrences = formatNumber(entry?.occurrences ?? 0);
+          const name = escapeHtml(entry?.name ?? '');
+          return `
+            <tr>
+              <td class="admin-mapping-muted">${escapeHtml(id || '--')}</td>
+              <td class="admin-mapping-muted">${occurrences}</td>
+              <td>
+                <input
+                  type="text"
+                  class="admin-input admin-mapping-input"
+                  value="${name}"
+                  placeholder="Label (bv. Te duur)"
+                  list="lost-reason-label-options"
+                  data-lost-reason-id="${escapeHtml(id || '')}"
+                  ${lostBusy ? 'disabled' : ''}
+                />
+              </td>
+            </tr>
+          `;
+        })
+        .join('')
+    : '<tr><td colspan="3" class="admin-mapping-empty">Geen lost reasons gevonden in deze periode.</td></tr>';
+
+  const leadCostRows = Array.isArray(adminState.leadCost.rows) ? adminState.leadCost.rows : [];
+  const leadCostRowsMarkup = leadCostRows.length
+    ? leadCostRows
+        .map((row, idx) => {
+          const source = normalizeSourceLabel(row?.source);
+          const cpl = String(row?.cpl ?? '');
+          return `
+            <tr>
+              <td>
+                <input type="text" class="admin-input admin-mapping-input" value="${escapeHtml(source)}" placeholder="Kanaal" list="lead-cost-source-options" data-lead-cost-source="${idx}" ${leadCostBusy ? 'disabled' : ''} />
+              </td>
+              <td>
+                <input type="number" class="admin-input admin-mapping-input" value="${escapeHtml(cpl)}" placeholder="0" min="0" step="0.01" data-lead-cost-cpl="${idx}" ${leadCostBusy ? 'disabled' : ''} />
+              </td>
+            </tr>
+          `;
+        })
+        .join('')
+    : '<tr><td colspan="2" class="admin-mapping-empty">Klik \"+ Kanaal\" om te starten.</td></tr>';
+
+  const leadCostOptionsMarkup = buildSourceOptions(liveState.sourceBreakdown.rows)
+    .map((option) => `<option value="${escapeHtml(option)}"></option>`)
+    .join('');
+  const leadCostOptionsList = leadCostOptionsMarkup
+    ? `<datalist id="lead-cost-source-options">${leadCostOptionsMarkup}</datalist>`
+    : '';
+
+  const savedLeadCost = sanitizeCostPerLeadBySource(configState.costPerLeadBySource) || {};
+  let leadCostMissingSources = [];
+  if (liveState.sourceBreakdown.status === 'ready' && Array.isArray(liveState.sourceBreakdown.rows)) {
+    leadCostMissingSources = (liveState.sourceBreakdown.rows || [])
+      .map((row) => ({ source: normalizeSourceLabel(row?.source), leads: Number(row?.leads ?? 0) }))
+      .filter((entry) => entry.source && entry.leads > 0 && !Object.prototype.hasOwnProperty.call(savedLeadCost, entry.source))
+      .sort((a, b) => (b.leads ?? 0) - (a.leads ?? 0) || a.source.localeCompare(b.source))
+      .map((entry) => entry.source);
+  }
+  const leadCostMissingHintMarkup = leadCostMissingSources.length
+    ? `<div class="admin-meta">Kanalen zonder CPL (in deze periode): ${escapeHtml(leadCostMissingSources.slice(0, 8).join(', '))}${leadCostMissingSources.length > 8 ? '…' : ''}</div>`
+    : '';
+
   const sourceOptionsMarkup = (adminState.mapping.sourceOptions ?? [])
     .map((option) => `<option value="${escapeHtml(option)}"></option>`)
     .join('');
@@ -2379,128 +7421,368 @@ const renderAdminModal = () => {
   return `
     <div class="admin-modal${adminState.open ? ' open' : ''}">
       <div class="admin-overlay" data-admin-close></div>
-      <div class="admin-panel" role="dialog" aria-label="GHL Integratie">
+      <div class="admin-panel" role="dialog" aria-label="${escapeHtml(modalTitle)}">
         <div class="admin-header">
           <div>
-            <h3 class="admin-title">GHL Integratie</h3>
-            <p class="admin-subtitle">Sla Location ID + PIT veilig op in Supabase</p>
+            <h3 class="admin-title">${escapeHtml(modalTitle)}</h3>
+            <p class="admin-subtitle">${escapeHtml(modalSubtitle)}</p>
           </div>
-          <button type="button" class="admin-close" data-admin-close>Sluit</button>
+          <div class="admin-header-actions">
+            ${signOutButtonMarkup}
+            <button type="button" class="admin-close" data-admin-close>Sluit</button>
+          </div>
         </div>
         ${
-          loggedIn
-            ? `<div class="admin-meta">Ingelogd als ${userEmail}</div>
-               ${adminState.loading ? '<div class="admin-meta">Integratie wordt geladen...</div>' : ''}
-               <form class="admin-form" data-admin-form>
-                 <label class="admin-label">
-                   Location ID
-                   <input type="text" class="admin-input" value="${adminState.form.locationId}" placeholder="loc_..." data-admin-location ${adminBusy ? 'disabled' : ''} required />
-                 </label>
-                 <label class="admin-label">
-                   Private Integration Token (PIT)
-                   <input type="password" class="admin-input" value="${adminState.form.token}" placeholder="pit-..." data-admin-token ${adminBusy ? 'disabled' : ''} />
-                 </label>
-                 <label class="admin-checkbox">
-                   <input type="checkbox" ${adminState.form.active ? 'checked' : ''} data-admin-active ${adminBusy ? 'disabled' : ''} />
-                   Actief
-                 </label>
-                 ${
-                   adminState.message
-                     ? `<div class="admin-message ${adminState.status === 'error' ? 'error' : 'success'}">${adminState.message}</div>`
-                     : ''
-                 }
-                 <button type="submit" class="admin-submit" ${adminBusy ? 'disabled' : ''}>
-                   ${adminState.status === 'saving' ? 'Opslaan...' : 'Opslaan'}
-                 </button>
-                 <button type="button" class="admin-ghost" data-admin-signout>Uitloggen</button>
-               </form>
-               <div class="admin-section">
-                 <div class="admin-section-header">
-                   <div>
-                     <h4 class="admin-section-title">Kostattributie</h4>
-                     <p class="admin-section-subtitle">
-                       Koppel Meta campagnes of adsets en Google campagnes aan de juiste Source. Adset mapping overschrijft campagne mapping.
-                       Laat leeg om de NL default te gebruiken. Google zonder mapping krijgt het standaard label.
-                     </p>
-                   </div>
-                   <div class="admin-mapping-toolbar">
-                     <button type="button" class="admin-ghost" data-map-refresh ${mappingBusy ? 'disabled' : ''}>Vernieuw</button>
-                     <button type="button" class="admin-submit" data-map-save ${mappingBusy ? 'disabled' : ''}>
-                       ${adminState.mapping.saving ? 'Opslaan...' : 'Opslaan'}
-                     </button>
-                   </div>
-                 </div>
-                 ${
-                   adminState.mapping.message
-                     ? `<div class="admin-message ${mappingStatusClass}">${adminState.mapping.message}</div>`
-                     : ''
-                 }
-                 ${adminState.mapping.loading ? '<div class="admin-meta">Mapping wordt geladen...</div>' : ''}
-                 <div class="admin-mapping-block">
-                   <h5 class="admin-mapping-title">Meta campagnes</h5>
-                   <div class="admin-mapping-table-wrapper">
-                     <table class="admin-mapping-table">
-                       <thead>
-                         <tr>
-                           <th>Campagne</th>
-                           <th>Source label</th>
-                         </tr>
-                       </thead>
-                       <tbody>${campaignRowsMarkup}</tbody>
-                     </table>
-                   </div>
-                 </div>
-                 <div class="admin-mapping-block">
-                   <h5 class="admin-mapping-title">Meta adsets</h5>
-                   <div class="admin-mapping-table-wrapper">
-                     <table class="admin-mapping-table">
-                       <thead>
-                         <tr>
-                           <th>Campagne</th>
-                           <th>Adset</th>
-                           <th>Default</th>
-                           <th>Source label</th>
-                         </tr>
-                       </thead>
-                       <tbody>${adsetRowsMarkup}</tbody>
-                     </table>
-                   </div>
-                 </div>
-                 <div class="admin-mapping-block">
-                   <h5 class="admin-mapping-title">Google</h5>
-                   <div class="admin-mapping-table-wrapper">
-                     <table class="admin-mapping-table">
-                       <thead>
-                         <tr>
-                           <th>Platform</th>
-                           <th>Source label</th>
-                         </tr>
-                       </thead>
-                       <tbody>
-                         <tr>
-                           <td>Google (sheet)</td>
-                           <td>${renderMappingInput(googleRow, GOOGLE_SOURCE_LABEL)}</td>
-                         </tr>
-                       </tbody>
-                     </table>
-                   </div>
-                 </div>
-                 <div class="admin-mapping-block">
-                   <h5 class="admin-mapping-title">Google campagnes</h5>
-                   <div class="admin-mapping-table-wrapper">
-                     <table class="admin-mapping-table">
-                       <thead>
-                         <tr>
-                           <th>Campagne</th>
-                           <th>Source label</th>
-                         </tr>
-                       </thead>
-                       <tbody>${googleCampaignRowsMarkup}</tbody>
-                     </table>
-                   </div>
-                 </div>
-                 ${sourceOptionsList}
-               </div>`
+          canManageKpi
+            ? `<div class="admin-meta">${
+                loggedIn
+                  ? `Ingelogd als ${escapeHtml(userEmail)}`
+                  : 'Je hoeft niet in te loggen om KPI targets aan te passen.'
+              }</div>
+               ${
+                 adminAccessEnabled && loggedIn && adminState.loading
+                   ? '<div class="admin-meta">Integratie wordt geladen...</div>'
+                   : ''
+               }
+               ${
+                 !adminModeEnabled && !adminAccessEnabled
+                   ? loggedIn
+                     ? '<div class="admin-meta">Wil je integratie-instellingen beheren? <button type="button" class="admin-ghost" data-admin-login-toggle>Admin instellingen</button></div>'
+                     : '<div class="admin-meta">Wil je integratie-instellingen beheren? <button type="button" class="admin-ghost" data-admin-login-toggle>Admin login</button></div>'
+                   : ''
+               }
+               ${
+                 !adminModeEnabled && adminAccessEnabled && loggedIn
+                   ? '<div class="admin-meta">Admin instellingen actief. <button type="button" class="admin-ghost" data-admin-login-cancel>Terug naar instellingen</button></div>'
+                   : ''
+               }
+               ${
+                 adminAccessEnabled && loggedIn
+                   ? `<form class="admin-form" data-admin-form>
+                        <label class="admin-label">
+                          Location ID
+                          <input type="text" class="admin-input" value="${adminState.form.locationId}" placeholder="loc_..." data-admin-location ${adminBusy ? 'disabled' : ''} required />
+                        </label>
+                        <label class="admin-label">
+                          Private Integration Token (PIT)
+                          <input type="password" class="admin-input" value="${adminState.form.token}" placeholder="pit-..." data-admin-token ${adminBusy ? 'disabled' : ''} />
+                        </label>
+                        <label class="admin-checkbox">
+                          <input type="checkbox" ${adminState.form.active ? 'checked' : ''} data-admin-active ${adminBusy ? 'disabled' : ''} />
+                          Actief
+                        </label>
+                        ${
+                          adminState.message
+                            ? `<div class="admin-message ${adminState.status === 'error' ? 'error' : 'success'}">${adminState.message}</div>`
+                            : ''
+                        }
+                        <button type="submit" class="admin-submit" ${adminBusy ? 'disabled' : ''}>
+                          ${adminState.status === 'saving' ? 'Opslaan...' : 'Opslaan'}
+                        </button>
+                      </form>`
+                   : ''
+               }
+                <div class="admin-section">
+                  <div class="admin-section-header">
+                    <div>
+                      <h4 class="admin-section-title">Sales KPI</h4>
+                      <p class="admin-section-subtitle">
+                        Stel je default target in en override per maand. Leeg laten bij een maand = default.
+                      </p>
+                    </div>
+                    <div class="admin-mapping-toolbar">
+                      <button type="button" class="admin-submit" data-kpi-save ${kpiBusy ? 'disabled' : ''}>
+                        ${adminState.kpi.saving ? 'Opslaan...' : 'Opslaan'}
+                      </button>
+                    </div>
+                  </div>
+                  ${
+                    adminState.kpi.message
+                      ? `<div class="admin-message ${kpiStatusClass}">${adminState.kpi.message}</div>`
+                      : ''
+                  }
+                  ${adminState.kpi.loading ? '<div class="admin-meta">KPI wordt geladen...</div>' : ''}
+                   <div class="admin-form">
+                     <label class="admin-label">
+                       Default maandtarget (deals)
+                       <input type="number" class="admin-input" value="${escapeHtml(monthlyDealsTargetValue)}" min="1" step="1" data-kpi-monthly-deals-target ${kpiBusy ? 'disabled' : ''} />
+                     </label>
+                     <div class="admin-meta">Gebruikt in de \"Deals deze maand\" target card.</div>
+                     <label class="admin-label">
+                       Offertes tellen vanaf fase
+                       <select class="admin-input" data-kpi-quotes-from-phase ${kpiBusy ? 'disabled' : ''}>
+                         ${quotePhaseOptionsMarkup}
+                       </select>
+                     </label>
+                      <div class="admin-meta">
+                        Kies de Teamleader fase die overeenkomt met \"Offerte verzonden klant\". Leeg = alle deals tellen als offerte.
+                      </div>
+                      ${quotePhaseRows.length ? '' : '<div class="admin-meta">Geen Teamleader fases gevonden. Run eerst teamleader-sync.</div>'}
+                      <label class="admin-label">
+                        Verliesreden custom field id (optioneel)
+                        <input
+                          type="text"
+                          class="admin-input"
+                          value="${escapeHtml(lostReasonFieldIdValue)}"
+                          placeholder="Custom field id"
+                          data-kpi-lost-reason-field
+                          ${kpiBusy ? 'disabled' : ''}
+                        />
+                      </label>
+                      <div class="admin-meta">
+                        Optioneel: als je in GHL een Opportunity custom field gebruikt voor verliesredenen, plak hier de field id. Zo krijg je labels in plaats van IDs.
+                      </div>
+                    </div>
+                   <div class="admin-mapping-block">
+                    <div class="admin-mapping-toolbar">
+                      <button type="button" class="admin-ghost" data-kpi-year-prev ${kpiBusy ? 'disabled' : ''}>Vorige jaar</button>
+                      <div class="admin-meta">Jaar: ${kpiYear}</div>
+                      <button type="button" class="admin-ghost" data-kpi-year-next ${kpiBusy ? 'disabled' : ''}>Volgende jaar</button>
+                    </div>
+                    <div class="admin-mapping-table-wrapper">
+                      <table class="admin-mapping-table">
+                        <thead>
+                          <tr>
+                            <th>Maand</th>
+                            <th>Deals target (override)</th>
+                          </tr>
+                        </thead>
+                        <tbody>${monthRowsMarkup}</tbody>
+                      </table>
+                    </div>
+                    <div class="admin-meta">Leeg = gebruikt default target (placeholder).</div>
+                  </div>
+                </div>
+                <div class="admin-section">
+                  <div class="admin-section-header">
+                    <div>
+                      <h4 class="admin-section-title">Verliesredenen</h4>
+                      <p class="admin-section-subtitle">
+                        GHL geeft voor lost reasons enkel IDs. Map die IDs naar labels zodat het dashboard leesbaar wordt.
+                      </p>
+                    </div>
+                    <div class="admin-mapping-toolbar">
+                      <button type="button" class="admin-ghost" data-lost-reasons-refresh ${lostBusy ? 'disabled' : ''}>Vernieuw IDs</button>
+                      <button type="button" class="admin-ghost" data-lost-reasons-sync ${lostBusy ? 'disabled' : ''}>Haal labels op</button>
+                      <button type="button" class="admin-submit" data-lost-reasons-save ${lostBusy ? 'disabled' : ''}>
+                        ${adminState.lostReasons.saving ? 'Opslaan...' : 'Opslaan'}
+                      </button>
+                    </div>
+                  </div>
+                  ${
+                    adminState.lostReasons.message
+                      ? `<div class="admin-message ${lostStatusClass}">${escapeHtml(adminState.lostReasons.message)}</div>`
+                      : ''
+                  }
+                  ${adminState.lostReasons.loading ? '<div class="admin-meta">Lost reasons worden geladen...</div>' : ''}
+                  <div class="admin-mapping-block">
+                    <div class="admin-mapping-table-wrapper">
+                      <table class="admin-mapping-table">
+                        <thead>
+                          <tr>
+                            <th>LostReasonId</th>
+                            <th>Aantal</th>
+                            <th>Label</th>
+                          </tr>
+                        </thead>
+                        <tbody>${lostReasonRowsMarkup}</tbody>
+                      </table>
+                    </div>
+                    <div class="admin-meta">Tip: vul enkel labels in voor IDs die je effectief gebruikt. Leeg laten = blijft onbekend.</div>
+                    ${lostReasonLabelHintMarkup}
+                    ${lostReasonLabelOptionsList}
+                  </div>
+                </div>
+                ${
+                  settingsEnabled
+                    ? `<div class="admin-section">
+                        <div class="admin-section-header">
+                          <div>
+                            <h4 class="admin-section-title">Source normalisatie</h4>
+                            <p class="admin-section-subtitle">
+                              ${sourcesSubtitle}
+                            </p>
+                          </div>
+                          <div class="admin-mapping-toolbar">
+                            <button type="button" class="admin-ghost" data-source-rules-add ${sourcesBusy ? 'disabled' : ''}>+ Bucket</button>
+                            <button type="button" class="admin-ghost" data-source-samples-refresh ${adminState.sources.samplesLoading ? 'disabled' : ''}>Vernieuw bronnen</button>
+                            <button type="button" class="admin-submit" data-source-rules-save ${sourcesBusy ? 'disabled' : ''}>
+                              ${adminState.sources.saving ? 'Opslaan...' : 'Opslaan'}
+                            </button>
+                          </div>
+                        </div>
+                        ${
+                          adminState.sources.message
+                            ? `<div class="admin-message ${sourcesStatusClass}">${escapeHtml(adminState.sources.message)}</div>`
+                            : ''
+                        }
+                        ${adminState.sources.loading ? '<div class="admin-meta">Normalisatie wordt geladen...</div>' : ''}
+                        <div class="admin-mapping-block">
+                          <h5 class="admin-mapping-title">Regels (keywords)</h5>
+                          <div class="admin-mapping-table-wrapper">
+                            <table class="admin-mapping-table">
+                              <thead>
+                                <tr>
+                                  <th>Kanaal</th>
+                                  <th>Keywords</th>
+                                </tr>
+                              </thead>
+                              <tbody>${sourcesRulesRowsMarkup}</tbody>
+                            </table>
+                          </div>
+                          <div class="admin-meta">
+                            Voorbeeld: kanaal = Bambelo, keywords = bambelo. Gebruik komma's om meerdere keywords toe te voegen.
+                          </div>
+                        </div>
+                        <div class="admin-mapping-block">
+                          <h5 class="admin-mapping-title">Gedetecteerde raw sources</h5>
+                          <div class="admin-mapping-table-wrapper">
+                            <table class="admin-mapping-table">
+                              <thead>
+                                <tr>
+                                  <th>Raw source</th>
+                                  <th>Aantal</th>
+                                  <th>Bucket</th>
+                                </tr>
+                              </thead>
+                              <tbody>${sourcesSamplesRowsMarkup}</tbody>
+                            </table>
+                          </div>
+                          ${adminState.sources.samplesLoading ? '<div class="admin-meta">Bronnen worden geladen...</div>' : ''}
+                          <div class="admin-meta">Tip: kijk vooral naar alles dat in Overig valt en voeg keywords toe.</div>
+                        </div>
+                      </div>`
+                    : ''
+                }
+                <div class="admin-section">
+                  <div class="admin-section-header">
+                    <div>
+                      <h4 class="admin-section-title">Leadkosten (CPL)</h4>
+                      <p class="admin-section-subtitle">
+                        Stel de kost per lead in per kanaal. Leeg = niet meegerekend. Zet 0 om mee te tellen zonder kost (bv. Organic).
+                      </p>
+                    </div>
+                    <div class="admin-mapping-toolbar">
+                      <button type="button" class="admin-ghost" data-lead-cost-add ${leadCostBusy ? 'disabled' : ''}>+ Kanaal</button>
+                      <button type="button" class="admin-submit" data-lead-cost-save ${leadCostBusy ? 'disabled' : ''}>
+                        ${adminState.leadCost.saving ? 'Opslaan...' : 'Opslaan'}
+                      </button>
+                    </div>
+                  </div>
+                  ${
+                    adminState.leadCost.message
+                      ? `<div class="admin-message ${leadCostStatusClass}">${escapeHtml(adminState.leadCost.message)}</div>`
+                      : ''
+                  }
+                  ${adminState.leadCost.loading ? '<div class="admin-meta">Leadkosten worden geladen...</div>' : ''}
+                  <div class="admin-mapping-block">
+                    <div class="admin-mapping-table-wrapper">
+                      <table class="admin-mapping-table">
+                        <thead>
+                          <tr>
+                            <th>Kanaal</th>
+                            <th>Kost per Lead (EUR)</th>
+                          </tr>
+                        </thead>
+                        <tbody>${leadCostRowsMarkup}</tbody>
+                      </table>
+                    </div>
+                    <div class="admin-meta">Tip: zet Organic op 0 als je dit wil meenemen in de totale kost per lead.</div>
+                    ${leadCostMissingHintMarkup}
+                    ${leadCostOptionsList}
+                  </div>
+                </div>
+                ${
+                  adminAccessEnabled && loggedIn
+                    ? `<div class="admin-section">
+                        <div class="admin-section-header">
+                          <div>
+                            <h4 class="admin-section-title">Kostattributie</h4>
+                            <p class="admin-section-subtitle">
+                              Koppel Meta campagnes of adsets en Google campagnes aan de juiste Source. Adset mapping overschrijft campagne mapping.
+                              Laat leeg om de NL default te gebruiken. Google zonder mapping krijgt het standaard label.
+                            </p>
+                          </div>
+                          <div class="admin-mapping-toolbar">
+                            <button type="button" class="admin-ghost" data-map-refresh ${mappingBusy ? 'disabled' : ''}>Vernieuw</button>
+                            <button type="button" class="admin-submit" data-map-save ${mappingBusy ? 'disabled' : ''}>
+                              ${adminState.mapping.saving ? 'Opslaan...' : 'Opslaan'}
+                            </button>
+                          </div>
+                        </div>
+                        ${
+                          adminState.mapping.message
+                            ? `<div class="admin-message ${mappingStatusClass}">${adminState.mapping.message}</div>`
+                            : ''
+                        }
+                        ${adminState.mapping.loading ? '<div class="admin-meta">Mapping wordt geladen...</div>' : ''}
+                        <div class="admin-mapping-block">
+                          <h5 class="admin-mapping-title">Meta campagnes</h5>
+                          <div class="admin-mapping-table-wrapper">
+                            <table class="admin-mapping-table">
+                              <thead>
+                                <tr>
+                                  <th>Campagne</th>
+                                  <th>Source label</th>
+                                </tr>
+                              </thead>
+                              <tbody>${campaignRowsMarkup}</tbody>
+                            </table>
+                          </div>
+                        </div>
+                        <div class="admin-mapping-block">
+                          <h5 class="admin-mapping-title">Meta adsets</h5>
+                          <div class="admin-mapping-table-wrapper">
+                            <table class="admin-mapping-table">
+                              <thead>
+                                <tr>
+                                  <th>Campagne</th>
+                                  <th>Adset</th>
+                                  <th>Default</th>
+                                  <th>Source label</th>
+                                </tr>
+                              </thead>
+                              <tbody>${adsetRowsMarkup}</tbody>
+                            </table>
+                          </div>
+                        </div>
+                        <div class="admin-mapping-block">
+                          <h5 class="admin-mapping-title">Google</h5>
+                          <div class="admin-mapping-table-wrapper">
+                            <table class="admin-mapping-table">
+                              <thead>
+                                <tr>
+                                  <th>Platform</th>
+                                  <th>Source label</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                <tr>
+                                  <td>Google (sheet)</td>
+                                  <td>${renderMappingInput(googleRow, GOOGLE_SOURCE_LABEL)}</td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                        <div class="admin-mapping-block">
+                          <h5 class="admin-mapping-title">Google campagnes</h5>
+                          <div class="admin-mapping-table-wrapper">
+                            <table class="admin-mapping-table">
+                              <thead>
+                                <tr>
+                                  <th>Campagne</th>
+                                  <th>Source label</th>
+                                </tr>
+                              </thead>
+                              <tbody>${googleCampaignRowsMarkup}</tbody>
+                            </table>
+                          </div>
+                        </div>
+                        ${sourceOptionsList}
+                      </div>`
+                    : ''
+                }`
             : `<form class="admin-form" data-admin-login>
                  <label class="admin-label">
                    Email
@@ -2514,6 +7796,11 @@ const renderAdminModal = () => {
                  <button type="submit" class="admin-submit" ${adminState.auth.status === 'sending' ? 'disabled' : ''}>
                    ${adminState.auth.status === 'sending' ? 'Versturen...' : 'Stuur magic link'}
                  </button>
+                 ${
+                   !adminModeEnabled && adminState.auth.requested
+                     ? '<button type="button" class="admin-ghost" data-admin-login-cancel>Terug naar instellingen</button>'
+                     : ''
+                 }
                </form>`
         }
       </div>
@@ -2615,19 +7902,42 @@ const computeMetrics = (range) => {
     { label: 'Lead -> Afspraak', value: formatPercent(conversionRate, 1), icon: icons.target('lucide lucide-target w-4 h-4 text-primary'), className: '' }
   ];
 
-  const sourceRows = SOURCE_ORDER.map((source) => {
-    const sourceEntries = filtered.filter((entry) => entry.source === source);
-    const sourceTotals = sourceEntries.reduce(
-      (acc, entry) => {
-        const confirmed = Math.max(entry.appointments - entry.cancelled - entry.noShow - entry.rescheduled, 0);
-        acc.leads += entry.leads;
-        acc.appointments += entry.appointments;
-        acc.confirmed += confirmed;
-        acc.cost += entry.leads * entry.costPerLead;
-        return acc;
-      },
-      { leads: 0, appointments: 0, confirmed: 0, cost: 0 }
-    );
+  const defaultSource = getDefaultDrilldownSource();
+  const denominatorKind = resolveSourceBreakdownCostDenominator();
+  const sourceTotalsByLabel = new Map();
+  filtered.forEach((entry) => {
+    const source = mapSourceToBucketLabel(entry.source) || defaultSource;
+    const current = sourceTotalsByLabel.get(source) || {
+      leads: 0,
+      appointments: 0,
+      confirmed: 0,
+      deals: 0,
+      cost: 0
+    };
+    const confirmed = Math.max(entry.appointments - entry.cancelled - entry.noShow - entry.rescheduled, 0);
+    current.leads += entry.leads;
+    current.appointments += entry.appointments;
+    current.confirmed += confirmed;
+    current.deals += entry.deals;
+    current.cost += entry.leads * entry.costPerLead;
+    sourceTotalsByLabel.set(source, current);
+  });
+
+  const orderedSources = Array.from(new Set([...getSourceBreakdownOrder(), ...Array.from(sourceTotalsByLabel.keys())]));
+  const sourceRows = orderedSources.map((source) => {
+    const sourceTotals = sourceTotalsByLabel.get(source) || {
+      leads: 0,
+      appointments: 0,
+      confirmed: 0,
+      deals: 0,
+      cost: 0
+    };
+    const costDenominator =
+      denominatorKind === 'deals'
+        ? sourceTotals.deals
+        : denominatorKind === 'appointments'
+          ? sourceTotals.appointments
+          : sourceTotals.confirmed;
 
     return {
       source,
@@ -2635,12 +7945,15 @@ const computeMetrics = (range) => {
       appointments: formatNumber(sourceTotals.appointments),
       confirmed: formatNumber(sourceTotals.confirmed),
       noLeadInRange: formatNumber(0),
+      deals: formatNumber(sourceTotals.deals),
       plan: formatPercent(safeDivide(sourceTotals.appointments, sourceTotals.leads), 1),
-      cost: formatCurrency(safeDivide(sourceTotals.cost, sourceTotals.confirmed), 2),
+      dealRate: formatPercent(safeDivide(sourceTotals.deals, sourceTotals.appointments), 1),
+      cost: costDenominator > 0 ? formatCurrency(sourceTotals.cost / costDenominator, 2) : '--',
       rawLeads: sourceTotals.leads,
       rawAppointments: sourceTotals.appointments,
       rawConfirmedAppointments: sourceTotals.confirmed,
-      rawNoLeadInRange: 0
+      rawNoLeadInRange: 0,
+      rawDeals: sourceTotals.deals
     };
   });
 
@@ -3030,24 +8343,29 @@ const applyLiveOverrides = (metrics, range) => {
   }
 
   if (liveState.sourceBreakdown.status === 'ready' && Array.isArray(liveState.sourceBreakdown.rows)) {
+    const defaultSource = getDefaultDrilldownSource();
     let liveRows = liveState.sourceBreakdown.rows.map((row) => {
       const leads = Number(row.leads ?? 0);
       const appointments = Number(row.appointments ?? 0);
       const confirmed = Number(row.appointments_confirmed ?? row.confirmed_appointments ?? 0);
       const noLeadInRange = Number(row.appointments_without_lead_in_range ?? 0);
+      const deals = Number(row.deals ?? 0);
 
       return {
-        source: row.source ?? 'Onbekend',
+        source: row.source ?? defaultSource,
         leads: formatNumber(leads),
         appointments: formatNumber(appointments),
         confirmed: formatNumber(confirmed),
         noLeadInRange: formatNumber(noLeadInRange),
+        deals: formatNumber(deals),
         plan: formatPercent(safeDivide(appointments, leads), 1),
+        dealRate: formatPercent(safeDivide(deals, appointments), 1),
         cost: '--',
         rawLeads: leads,
         rawAppointments: appointments,
         rawConfirmedAppointments: confirmed,
-        rawNoLeadInRange: noLeadInRange
+        rawNoLeadInRange: noLeadInRange,
+        rawDeals: deals
       };
     });
 
@@ -3080,25 +8398,89 @@ const applyLiveOverrides = (metrics, range) => {
     }
   }
 
+  const cplConfig = sanitizeCostPerLeadBySource(configState.costPerLeadBySource) || {};
+  const wantsCplFinance = Object.keys(cplConfig).length > 0;
+
+  if (wantsCplFinance) {
+    if (liveState.sourceBreakdown.status === 'ready' && Array.isArray(liveState.sourceBreakdown.rows)) {
+      let spend = 0;
+      let coveredLeads = 0;
+      (liveState.sourceBreakdown.rows || []).forEach((row) => {
+        const source = normalizeSourceLabel(row?.source);
+        const leads = Number(row?.leads ?? 0);
+        if (!source || leads <= 0) return;
+        if (!Object.prototype.hasOwnProperty.call(cplConfig, source)) return;
+        const cpl = Number(cplConfig[source]);
+        if (!Number.isFinite(cpl) || cpl < 0) return;
+        spend += leads * cpl;
+        coveredLeads += leads;
+      });
+
+      if (coveredLeads > 0) {
+        const costPerLead = spend / coveredLeads;
+        metrics.financeMetrics = [
+          {
+            label: 'Totale Leadkosten',
+            value: formatCurrency(spend, 0),
+            icon: icons.dollar('lucide lucide-dollar-sign w-4 h-4 text-primary'),
+            className: '',
+            isMock: false
+          },
+          {
+            label: 'Kost per Lead',
+            value: formatOptionalCurrency(costPerLead, 2),
+            icon: icons.chartColumn('lucide lucide-chart-column w-4 h-4 text-primary'),
+            className: '',
+            isMock: false
+          }
+        ];
+        return metrics;
+      }
+    } else if (liveState.sourceBreakdown.status === 'loading') {
+      metrics.financeMetrics = [
+        {
+          label: 'Totale Leadkosten',
+          value: '...',
+          icon: icons.dollar('lucide lucide-dollar-sign w-4 h-4 text-primary'),
+          className: '',
+          isMock: false
+        },
+        {
+          label: 'Kost per Lead',
+          value: '...',
+          icon: icons.chartColumn('lucide lucide-chart-column w-4 h-4 text-primary'),
+          className: '',
+          isMock: false
+        }
+      ];
+      return metrics;
+    }
+  }
+
   if (liveState.finance.status === 'ready') {
     const totals = liveState.finance.totals || {};
     const spend = Number(totals.total_spend ?? 0);
     const leads = Number(totals.total_leads ?? 0);
     const costPerLead = leads > 0 ? spend / leads : Number.NaN;
+    const financeRawValue = Math.max(spend, leads);
     metrics.financeMetrics = [
       {
         label: 'Totale Leadkosten',
         value: formatCurrency(spend, 0),
         icon: icons.dollar('lucide lucide-dollar-sign w-4 h-4 text-primary'),
         className: '',
-        isMock: false
+        isMock: false,
+        rawValue: financeRawValue,
+        drilldown: { kind: 'finance_spend' }
       },
       {
         label: 'Kost per Lead',
         value: formatOptionalCurrency(costPerLead, 2),
         icon: icons.chartColumn('lucide lucide-chart-column w-4 h-4 text-primary'),
         className: '',
-        isMock: false
+        isMock: false,
+        rawValue: financeRawValue,
+        drilldown: { kind: 'finance_spend' }
       }
     ];
   } else if (liveState.finance.status === 'loading') {
@@ -3168,8 +8550,9 @@ const renderKpiCards = (cards) =>
     })
     .join('');
 
-const renderSourceRows = (rows, isLive) =>
-  rows
+const renderSourceRows = (rows, isLive) => {
+  const dealsMode = resolveSourceBreakdownVariant() === 'deals';
+  return rows
     .map((row) => {
       const sourceText = row.source ? escapeHtml(row.source) : 'Onbekend';
       const leadsValue = renderDrilldownValue({
@@ -3205,6 +8588,26 @@ const renderSourceRows = (rows, isLive) =>
         className: 'drilldown-cell'
       });
 
+      if (dealsMode) {
+        const dealsValue = renderDrilldownValue({
+          value: row.deals,
+          kind: 'deals',
+          source: row.source,
+          label: 'Deals',
+          enabled: isLive && Number(row.rawDeals) > 0,
+          className: 'drilldown-cell'
+        });
+        return `<tr class="border-b transition-colors data-[state=selected]:bg-muted hover:bg-muted/50">
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 font-medium">${sourceText}</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${leadsValue}</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${appointmentsValue}</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${row.plan}</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${dealsValue}</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${row.dealRate}</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${row.cost}</td>
+        </tr>`;
+      }
+
       return `<tr class="border-b transition-colors data-[state=selected]:bg-muted hover:bg-muted/50">
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 font-medium">${sourceText}</td>
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${leadsValue}</td>
@@ -3216,35 +8619,164 @@ const renderSourceRows = (rows, isLive) =>
         </tr>`;
     })
     .join('');
+};
 
-const renderDrilldownRows = (rows) =>
+const renderFinanceDrilldownRows = (rows) =>
   rows
     .map((row) => {
-      const occurred = formatDateTime(row.occurred_at);
-      const contactName = row.contact_name ? escapeHtml(row.contact_name) : '—';
-      const contactEmail = row.contact_email ? escapeHtml(row.contact_email) : '—';
-      const source = row.source ? escapeHtml(row.source) : 'Onbekend';
-      const status = row.status ? escapeHtml(row.status) : '—';
-      const type = row.record_type ? escapeHtml(row.record_type) : 'record';
+      const date = row?.date ? formatDisplayDate(row.date) : '--';
+      const source = row?.source ? escapeHtml(row.source) : 'Onbekend';
+      const spend = formatCurrency(Number(row?.spend ?? 0), 2);
+      const leads = formatNumber(Number(row?.leads ?? 0));
+      const cplValue = Number(row?.leads ?? 0) > 0 ? Number(row?.spend ?? 0) / Number(row.leads ?? 0) : Number.NaN;
+      const cpl = formatOptionalCurrency(cplValue, 2);
 
       return `<tr class="border-b last:border-0">
-          <td class="px-3 py-2 text-xs font-semibold uppercase text-muted-foreground">${type}</td>
-          <td class="px-3 py-2 text-sm text-foreground">${occurred}</td>
-          <td class="px-3 py-2 text-sm text-foreground">${contactName}</td>
-          <td class="px-3 py-2 text-sm text-muted-foreground">${contactEmail}</td>
+          <td class="px-3 py-2 text-sm text-foreground">${date}</td>
           <td class="px-3 py-2 text-sm text-foreground">${source}</td>
-          <td class="px-3 py-2 text-sm text-muted-foreground">${status}</td>
+          <td class="px-3 py-2 text-sm text-foreground text-right">${spend}</td>
+          <td class="px-3 py-2 text-sm text-foreground text-right">${leads}</td>
+          <td class="px-3 py-2 text-sm text-muted-foreground text-right">${cpl}</td>
         </tr>`;
     })
     .join('');
 
+const renderFinanceAdsetDrilldownRows = (rows) =>
+  rows
+    .map((row) => {
+      const source = row?.source ? escapeHtml(row.source) : 'Onbekend';
+      const campaign = escapeHtml(
+        formatMetaEntityLabel(row?.campaign_name, row?.campaign_id, 'Campagne')
+      );
+      const adset = escapeHtml(formatMetaEntityLabel(row?.adset_name, row?.adset_id, 'Adset'));
+      const spend = formatCurrency(Number(row?.spend ?? 0), 2);
+      const leads = formatNumber(Number(row?.leads ?? 0));
+      const cplValue = Number(row?.leads ?? 0) > 0 ? Number(row?.spend ?? 0) / Number(row.leads ?? 0) : Number.NaN;
+      const cpl = formatOptionalCurrency(cplValue, 2);
+
+      return `<tr class="border-b last:border-0">
+          <td class="px-3 py-2 text-sm text-foreground">${source}</td>
+          <td class="px-3 py-2 text-sm text-foreground">${campaign}</td>
+          <td class="px-3 py-2 text-sm text-foreground">${adset}</td>
+          <td class="px-3 py-2 text-sm text-foreground text-right">${spend}</td>
+          <td class="px-3 py-2 text-sm text-foreground text-right">${leads}</td>
+          <td class="px-3 py-2 text-sm text-muted-foreground text-right">${cpl}</td>
+        </tr>`;
+    })
+    .join('');
+
+const renderFinanceCampaignDrilldownRows = (rows) =>
+  rows
+    .map((row) => {
+      const source = row?.source ? escapeHtml(row.source) : 'Onbekend';
+      const campaign = escapeHtml(
+        formatMetaEntityLabel(row?.campaign_name, row?.campaign_id, 'Campagne')
+      );
+      const spend = formatCurrency(Number(row?.spend ?? 0), 2);
+      const leads = formatNumber(Number(row?.leads ?? 0));
+      const cplValue = Number(row?.leads ?? 0) > 0 ? Number(row?.spend ?? 0) / Number(row.leads ?? 0) : Number.NaN;
+      const cpl = formatOptionalCurrency(cplValue, 2);
+
+      return `<tr class="border-b last:border-0">
+          <td class="px-3 py-2 text-sm text-foreground">${source}</td>
+          <td class="px-3 py-2 text-sm text-foreground">${campaign}</td>
+          <td class="px-3 py-2 text-sm text-foreground text-right">${spend}</td>
+          <td class="px-3 py-2 text-sm text-foreground text-right">${leads}</td>
+          <td class="px-3 py-2 text-sm text-muted-foreground text-right">${cpl}</td>
+        </tr>`;
+    })
+    .join('');
+
+const renderFinanceAdDrilldownRows = (rows) =>
+  rows
+    .map((row) => {
+      const source = row?.source ? escapeHtml(row.source) : 'Onbekend';
+      const campaign = escapeHtml(
+        formatMetaEntityLabel(row?.campaign_name, row?.campaign_id, 'Campagne')
+      );
+      const adset = escapeHtml(formatMetaEntityLabel(row?.adset_name, row?.adset_id, 'Adset'));
+      const ad = escapeHtml(formatMetaEntityLabel(row?.ad_name, row?.ad_id, 'Ad'));
+      const spend = formatCurrency(Number(row?.spend ?? 0), 2);
+      const leads = formatNumber(Number(row?.leads ?? 0));
+      const cplValue = Number(row?.leads ?? 0) > 0 ? Number(row?.spend ?? 0) / Number(row.leads ?? 0) : Number.NaN;
+      const cpl = formatOptionalCurrency(cplValue, 2);
+
+      return `<tr class="border-b last:border-0">
+          <td class="px-3 py-2 text-sm text-foreground">${source}</td>
+          <td class="px-3 py-2 text-sm text-foreground">${campaign}</td>
+          <td class="px-3 py-2 text-sm text-foreground">${adset}</td>
+          <td class="px-3 py-2 text-sm text-foreground">${ad}</td>
+          <td class="px-3 py-2 text-sm text-foreground text-right">${spend}</td>
+          <td class="px-3 py-2 text-sm text-foreground text-right">${leads}</td>
+          <td class="px-3 py-2 text-sm text-muted-foreground text-right">${cpl}</td>
+        </tr>`;
+    })
+    .join('');
+
+const renderDrilldownRows = (rows, options = {}) =>
+  rows
+    .map((row) => {
+      const occurred = formatDateTime(row.occurred_at);
+      const contactId = toTrimmedText(row?.contact_id);
+      const locationId = configState.locationId || ghlLocationId;
+      const ghlUrl = buildGhlContactUrl(locationId, contactId);
+      const contactName = row.contact_name ? escapeHtml(row.contact_name) : '';
+      const contactEmailRaw = toTrimmedText(row?.contact_email);
+      const ghlFallbackUrl = contactEmailRaw ? buildGhlContactSearchUrl(locationId, contactEmailRaw) : '';
+      const ghlLink = ghlUrl || ghlFallbackUrl;
+      const contactCell = ghlUrl
+        ? `<a class="text-primary hover:underline" href="${escapeHtml(ghlUrl)}" target="_blank" rel="noreferrer">${
+            contactName || 'Open contact'
+          }</a>`
+        : ghlLink
+          ? `<a class="text-primary hover:underline" href="${escapeHtml(ghlLink)}" target="_blank" rel="noreferrer">${
+              contactName || 'Open contact'
+            }</a>`
+          : contactName || '--';
+      const contactEmail = row.contact_email ? escapeHtml(row.contact_email) : '--';
+      const source = row.source ? escapeHtml(row.source) : 'Onbekend';
+      const status = row.status ? escapeHtml(row.status) : '--';
+      const type = row.record_type ? escapeHtml(row.record_type) : 'record';
+      const teamleaderUrl = options.showTeamleader
+        ? row.record_url || buildTeamleaderDealUrl(row.record_id)
+        : "";
+      const teamleaderCell = options.showTeamleader
+        ? `<td class="px-3 py-2 text-sm text-foreground">${
+            teamleaderUrl
+              ? `<a class="text-primary hover:underline" href="${escapeHtml(teamleaderUrl)}" target="_blank" rel="noreferrer">Open</a>`
+              : '--'
+          }</td>`
+        : "";
+
+      return `<tr class="border-b last:border-0">
+          <td class="px-3 py-2 text-xs font-semibold uppercase text-muted-foreground">${type}</td>
+          <td class="px-3 py-2 text-sm text-foreground">${occurred}</td>
+          <td class="px-3 py-2 text-sm text-foreground">${contactCell}</td>
+          <td class="px-3 py-2 text-sm text-muted-foreground">${contactEmail}</td>
+          <td class="px-3 py-2 text-sm text-foreground">${source}</td>
+          <td class="px-3 py-2 text-sm text-muted-foreground">${status}</td>
+          ${teamleaderCell}
+        </tr>`;
+    })
+    .join('');
 const renderDrilldownModal = () => {
   if (!drilldownState.open) return '';
 
   const range = drilldownState.range;
-  const rangeLabel = range ? `${formatDisplayDate(range.start)} → ${formatDisplayDate(range.end)}` : '';
+  const rangeLabel = range ? `${formatDisplayDate(range.start)} -> ${formatDisplayDate(range.end)}` : '';
   const sourceLabel = getDrilldownFilterLabel(drilldownState.kind, drilldownState.source);
-  const subtitle = [rangeLabel, sourceLabel].filter(Boolean).join(' · ');
+  const subtitle = [rangeLabel, sourceLabel].filter(Boolean).join(' | ');
+  const isFinance = isFinanceDrilldown(drilldownState.kind);
+  const financeView = drilldownState.financeView || 'daily';
+  const financeToggle = isFinance
+    ? `<div class="drilldown-toggle">
+         <button type="button" class="drilldown-toggle-btn${financeView === 'daily' ? ' active' : ''}" data-finance-view="daily">Per dag</button>
+         <button type="button" class="drilldown-toggle-btn${financeView === 'campaign' ? ' active' : ''}" data-finance-view="campaign">Per campagne</button>
+         <button type="button" class="drilldown-toggle-btn${financeView === 'adset' ? ' active' : ''}" data-finance-view="adset">Per adset</button>
+         <button type="button" class="drilldown-toggle-btn${financeView === 'ad' ? ' active' : ''}" data-finance-view="ad">Per ad</button>
+       </div>`
+    : '';
+  const showTeamleaderLink = !isFinance && String(drilldownState.kind || '').startsWith('sales_');
 
   let body = '';
   if (drilldownState.status === 'loading') {
@@ -3253,6 +8785,62 @@ const renderDrilldownModal = () => {
     body = `<div class="drilldown-error">${escapeHtml(drilldownState.errorMessage || 'Onbekende fout')}</div>`;
   } else if (!drilldownState.rows?.length) {
     body = '<div class="drilldown-empty">Geen records gevonden voor deze selectie.</div>';
+  } else if (isFinance) {
+    body = `
+      <div class="drilldown-table-wrapper">
+        <table class="drilldown-table">
+          <thead>
+            ${
+              financeView === 'ad'
+                ? `<tr>
+                     <th>Bron</th>
+                     <th>Campagne</th>
+                     <th>Adset</th>
+                     <th>Ad</th>
+                     <th class="text-right">Kosten</th>
+                     <th class="text-right">Leads</th>
+                     <th class="text-right">Kost/Lead</th>
+                   </tr>`
+                : financeView === 'adset'
+                  ? `<tr>
+                       <th>Bron</th>
+                       <th>Campagne</th>
+                       <th>Adset</th>
+                       <th class="text-right">Kosten</th>
+                       <th class="text-right">Leads</th>
+                       <th class="text-right">Kost/Lead</th>
+                     </tr>`
+                  : financeView === 'campaign'
+                    ? `<tr>
+                         <th>Bron</th>
+                         <th>Campagne</th>
+                         <th class="text-right">Kosten</th>
+                         <th class="text-right">Leads</th>
+                         <th class="text-right">Kost/Lead</th>
+                       </tr>`
+                    : `<tr>
+                         <th>Datum</th>
+                         <th>Bron</th>
+                         <th class="text-right">Kosten</th>
+                         <th class="text-right">Leads</th>
+                         <th class="text-right">Kost/Lead</th>
+                       </tr>`
+            }
+          </thead>
+          <tbody>
+            ${
+              financeView === 'ad'
+                ? renderFinanceAdDrilldownRows(drilldownState.rows)
+                : financeView === 'adset'
+                  ? renderFinanceAdsetDrilldownRows(drilldownState.rows)
+                  : financeView === 'campaign'
+                    ? renderFinanceCampaignDrilldownRows(drilldownState.rows)
+                    : renderFinanceDrilldownRows(drilldownState.rows)
+            }
+          </tbody>
+        </table>
+      </div>
+    `;
   } else {
     body = `
       <div class="drilldown-table-wrapper">
@@ -3265,10 +8853,11 @@ const renderDrilldownModal = () => {
               <th>Email</th>
               <th>Source</th>
               <th>Status</th>
+              ${showTeamleaderLink ? '<th>Teamleader</th>' : ''}
             </tr>
           </thead>
           <tbody>
-            ${renderDrilldownRows(drilldownState.rows)}
+            ${renderDrilldownRows(drilldownState.rows, { showTeamleader: showTeamleaderLink })}
           </tbody>
         </table>
       </div>
@@ -3283,6 +8872,7 @@ const renderDrilldownModal = () => {
           <div>
             <h3 class="drilldown-title">${escapeHtml(drilldownState.title || 'Records')}</h3>
             ${subtitle ? `<p class="drilldown-subtitle">${subtitle}</p>` : ''}
+            ${financeToggle}
           </div>
           <button type="button" class="drilldown-close" data-drilldown-close>Sluit</button>
         </div>
@@ -3290,6 +8880,13 @@ const renderDrilldownModal = () => {
       </div>
     </div>
   `;
+};
+
+const formatLostReasonDisplayLabel = (value) => {
+  const raw = toTrimmedText(value);
+  if (!raw) return 'Onbekend';
+  if (/^[0-9a-f]{24}$/i.test(raw)) return `Onbekend (${raw.slice(0, 6)}...)`;
+  return raw;
 };
 
 const renderLostReasons = (reasons, isLive) =>
@@ -3304,11 +8901,12 @@ const renderLostReasons = (reasons, isLive) =>
         className: 'text-sm font-medium text-foreground w-16 text-right inline-block',
         fallbackTag: 'span'
       });
+      const displayLabel = formatLostReasonDisplayLabel(reason.label);
 
       return `<div class="flex items-center justify-between p-3 bg-secondary/30 rounded-lg">
           <div class="flex items-center gap-3">
             <div class="w-3 h-3 rounded-full" style="background-color: ${reason.color};"></div>
-            <span class="text-sm text-foreground">${reason.label}</span>
+            <span class="text-sm text-foreground">${escapeHtml(displayLabel)}</span>
             ${
               reason.highlight
                 ? '<div class="inline-flex items-center rounded-full border px-2.5 py-0.5 font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-destructive text-destructive-foreground hover:bg-destructive/80 text-xs">Top reden</div>'
@@ -3354,6 +8952,7 @@ const renderLostReasonsChart = (reasons) => {
     .map((reason, index) => {
       const percent = safeDivide(reason.count, total) * 100;
       const isDefault = index === defaultIndex;
+      const displayLabel = formatLostReasonDisplayLabel(reason.label);
       return `
         <button
           type="button"
@@ -3364,10 +8963,10 @@ const renderLostReasonsChart = (reasons) => {
           data-percent="${percent.toFixed(3)}"
           data-color="${escapeHtml(reason.color)}"
           aria-pressed="${isDefault ? 'true' : 'false'}"
-          title="${escapeHtml(reason.label)} - ${formatNumber(percent, 1)}%"
+          title="${escapeHtml(displayLabel)} - ${formatNumber(percent, 1)}%"
         >
           <span class="lost-reason-dot" style="background-color: ${reason.color};"></span>
-          <span class="lost-reason-name" data-lost-label>${escapeHtml(reason.label)}</span>
+          <span class="lost-reason-name" data-lost-label>${escapeHtml(displayLabel)}</span>
           <span class="lost-reason-meta">${formatNumber(percent, 1)}%</span>
         </button>
       `;
@@ -3380,7 +8979,7 @@ const renderLostReasonsChart = (reasons) => {
         <div class="lost-reason-center">
           <p class="lost-reason-kicker">Verloren leads</p>
           <p class="lost-reason-total" data-lost-total>${formatNumber(total)}</p>
-          <p class="lost-reason-active" data-lost-active>${escapeHtml(defaultReason?.label ?? 'Onbekend')}</p>
+          <p class="lost-reason-active" data-lost-active>${escapeHtml(formatLostReasonDisplayLabel(defaultReason?.label ?? 'Onbekend'))}</p>
           <p class="lost-reason-percent" data-lost-percent>${formatNumber(defaultPercent, 1)}%</p>
         </div>
       </div>
@@ -3399,11 +8998,15 @@ const getLostReasonTip = (reasons) => {
   const labelRaw = topReason?.label ? String(topReason.label) : '';
   const label = labelRaw ? escapeHtml(labelRaw) : 'Onbekend';
   const normalized = labelRaw.trim().toLowerCase();
+  const looksLikeObjectId = /^[0-9a-f]{24}$/i.test(labelRaw.trim());
   if (!topReason || !Number.isFinite(topReason.count) || topReason.count <= 0) {
     return 'Vul een verliesreden in op je lead om betere inzichten te krijgen.';
   }
   if (!labelRaw || normalized === 'geen data' || normalized === 'onbekend') {
     return 'Vul een verliesreden in op je lead om betere inzichten te krijgen.';
+  }
+  if (looksLikeObjectId) {
+    return 'Er zijn verloren leads met een GHL lostReasonId zonder label. Map deze ID naar een label via Instellingen > Verliesredenen.';
   }
   return `"${label}" is je grootste blocker. Overweeg een gratis waardebepaling of exclusieve verkooptips te delen.`;
 };
@@ -3689,10 +9292,10 @@ const resolveDashboardTabs = (layoutOverride) => {
 };
 
 const resolveBranding = () => {
-  const title = configState.dashboardTitle || DEFAULT_BRANDING.title;
-  const headerSubtitle = configState.dashboardSubtitle || DEFAULT_BRANDING.headerSubtitle;
-  const pageSubtitle = configState.dashboardSubtitle || DEFAULT_BRANDING.pageSubtitle;
-  const logoUrl = configState.dashboardLogoUrl || DEFAULT_BRANDING.logoUrl;
+  const title = configState.dashboardTitle || envDashboardTitle || DEFAULT_BRANDING.title;
+  const headerSubtitle = configState.dashboardSubtitle || envDashboardSubtitle || DEFAULT_BRANDING.headerSubtitle;
+  const pageSubtitle = configState.dashboardSubtitle || envDashboardSubtitle || DEFAULT_BRANDING.pageSubtitle;
+  const logoUrl = configState.dashboardLogoUrl || envDashboardLogoUrl || DEFAULT_BRANDING.logoUrl;
   const logoAlt = title ? `${title} logo` : DEFAULT_BRANDING.logoAlt;
 
   return {
@@ -3700,8 +9303,156 @@ const resolveBranding = () => {
     headerSubtitle: escapeHtml(headerSubtitle),
     pageSubtitle: escapeHtml(pageSubtitle),
     logoUrl: escapeHtml(logoUrl),
+    logoAlt: escapeHtml(logoAlt),
+    raw: {
+      title,
+      headerSubtitle,
+      pageSubtitle,
+      logoUrl,
+      logoAlt
+    }
+  };
+};
+
+const resolveSidebarBranding = () => {
+  const logoUrl = envSidebarLogoUrl || DEFAULT_SIDEBAR_BRANDING.logoUrl;
+  const logoAlt = envSidebarLogoAlt || DEFAULT_SIDEBAR_BRANDING.logoAlt;
+  return {
+    logoUrl: escapeHtml(logoUrl),
     logoAlt: escapeHtml(logoAlt)
   };
+};
+
+const normalizeThemeKey = (value) => {
+  if (typeof value !== 'string') return '';
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+};
+
+const BRAND_THEME_STORAGE_KEY = 'dashboard_brand_theme';
+
+const readCachedBrandTheme = () => {
+  try {
+    return normalizeThemeKey(localStorage.getItem(BRAND_THEME_STORAGE_KEY) || '');
+  } catch (error) {
+    return '';
+  }
+};
+
+const writeCachedBrandTheme = (theme) => {
+  try {
+    if (theme) {
+      localStorage.setItem(BRAND_THEME_STORAGE_KEY, theme);
+    } else {
+      localStorage.removeItem(BRAND_THEME_STORAGE_KEY);
+    }
+  } catch (error) {
+    // Ignore localStorage access issues (privacy mode, blocked storage, etc.).
+  }
+};
+
+const getLayoutThemeHint = () => {
+  const layout = configState.dashboardLayout;
+  if (!layout || typeof layout !== 'object' || Array.isArray(layout)) return '';
+
+  const direct = layout.theme || layout.brand || layout.brand_theme || layout.brandTheme;
+  if (typeof direct === 'string' && direct.trim()) return direct.trim();
+
+  const branding = layout.branding;
+  if (!branding || typeof branding !== 'object') return '';
+  const nested = branding.theme || branding.key || branding.slug;
+  return typeof nested === 'string' && nested.trim() ? nested.trim() : '';
+};
+
+const resolveBrandTheme = () => {
+  const explicitTheme = normalizeThemeKey(envDashboardTheme || getLayoutThemeHint());
+  if (explicitTheme === 'belivert' || explicitTheme === 'belivet') {
+    return 'belivert';
+  }
+
+  const candidate = [
+    explicitTheme,
+    normalizeThemeKey(configState.dashboardTitle || ''),
+    normalizeThemeKey(configState.dashboardSubtitle || ''),
+    normalizeThemeKey(configState.dashboardLogoUrl || ''),
+    normalizeThemeKey(envDashboardTitle),
+    normalizeThemeKey(envDashboardSubtitle),
+    normalizeThemeKey(envDashboardLogoUrl),
+    normalizeThemeKey(DEFAULT_BRANDING.title)
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  if (candidate.includes('belivert') || candidate.includes('belivet')) {
+    return 'belivert';
+  }
+
+  // During initial load, keep the previously-detected theme to avoid a flash of template styles.
+  if (configState.status !== 'ready') {
+    const cachedTheme = readCachedBrandTheme();
+    if (cachedTheme === 'belivert' || cachedTheme === 'belivet') {
+      return 'belivert';
+    }
+  }
+
+  return '';
+};
+
+const applyBrandTheme = () => {
+  const rootNode = document.documentElement;
+  if (!rootNode) return;
+  const theme = resolveBrandTheme();
+  if (theme) {
+    rootNode.setAttribute('data-brand-theme', theme);
+    writeCachedBrandTheme(theme);
+  } else {
+    rootNode.removeAttribute('data-brand-theme');
+    if (configState.status === 'ready') {
+      writeCachedBrandTheme('');
+    }
+  }
+};
+
+const absolutizeUrl = (value) => {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith('//')) return `${window.location.protocol}${trimmed}`;
+  if (trimmed.startsWith('/')) return `${window.location.origin}${trimmed}`;
+  return `${window.location.origin}/${trimmed.replace(/^\.?\//, '')}`;
+};
+
+const setMetaTag = (attr, key, content) => {
+  if (!content || !document?.head) return;
+  let node = document.head.querySelector(`meta[${attr}="${key}"]`);
+  if (!node) {
+    node = document.createElement('meta');
+    node.setAttribute(attr, key);
+    document.head.appendChild(node);
+  }
+  node.setAttribute('content', content);
+};
+
+const applyDocumentBranding = (branding) => {
+  if (!branding) return;
+  const title = envMetaTitle || `${branding.title} Dashboard`;
+  const description =
+    envMetaDescription ||
+    branding.pageSubtitle ||
+    branding.headerSubtitle ||
+    DEFAULT_BRANDING.pageSubtitle;
+  const image = absolutizeUrl(envMetaImage || branding.logoUrl || '');
+
+  document.title = title;
+  setMetaTag('name', 'description', description);
+  setMetaTag('property', 'og:title', title);
+  setMetaTag('property', 'og:description', description);
+  if (image) setMetaTag('property', 'og:image', image);
 };
 
 const resolveSectionText = (value, fallback) => {
@@ -3780,10 +9531,21 @@ const renderFinanceSection = (section, metrics) => {
 };
 
 const renderSourceBreakdownSection = (section, metrics) => {
+  const variant = resolveSourceBreakdownVariant();
+  const dealsMode = variant === 'deals';
+  const denominatorKind = resolveSourceBreakdownCostDenominator();
+  const costLabel =
+    denominatorKind === 'deals'
+      ? 'Cost per Deal'
+      : denominatorKind === 'appointments'
+        ? 'Cost per Afspraak'
+        : 'Cost per Confirmed';
   const title = escapeHtml(resolveSectionText(section?.title, 'Source Breakdown'));
   const description = resolveSectionText(
     section?.description,
-    'Prestaties per leadgenerator - Leads = opportunities in periode - extra kolom = afspraken zonder lead in periode'
+    dealsMode
+      ? 'Prestaties per leadgenerator'
+      : 'Prestaties per leadgenerator - Leads = opportunities in periode - extra kolom = afspraken zonder lead in periode'
   );
   const descriptionMarkup = description ? `<p class="text-sm text-gray-500 mb-4">${escapeHtml(description)}</p>` : '';
 
@@ -3803,10 +9565,21 @@ const renderSourceBreakdownSection = (section, metrics) => {
                 <th class="h-12 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0">Bron</th>
                 <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Leads</th>
                 <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Appointments</th>
+                ${
+                  dealsMode
+                    ? `
+                <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Inplan %</th>
+                <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Deals</th>
+                <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">% naar Deals</th>
+                <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">${escapeHtml(costLabel)}</th>
+                `
+                    : `
                 <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Confirmed</th>
                 <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Afspraken zonder lead in periode</th>
                 <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Inplan %</th>
-                <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Cost per Afspraak</th>
+                <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">${escapeHtml(costLabel)}</th>
+                `
+                }
               </tr>
             </thead>
             <tbody class="[&_tr:last-child]:border-0">
@@ -3933,6 +9706,10 @@ const getRequiredLiveData = (layoutOverride) => {
       required.spendBySource = true;
     } else if (kind === 'finance_metrics') {
       required.finance = true;
+      const cplConfig = sanitizeCostPerLeadBySource(configState.costPerLeadBySource) || {};
+      if (Object.keys(cplConfig).length) {
+        required.sourceBreakdown = true;
+      }
     } else if (kind === 'hook_performance') {
       required.hookPerformance = true;
       required.spendBySource = true;
@@ -3946,13 +9723,53 @@ const getRequiredLiveData = (layoutOverride) => {
 
 const root = document.getElementById('root');
 
+const buildBootMarkup = () => `
+  <div class="min-h-screen w-full bg-background flex items-center justify-center">
+    <div class="flex flex-col items-center gap-3 px-6 py-4 rounded-2xl border border-border/60 bg-card/80 shadow-sm">
+      <div class="h-10 w-10 rounded-full border-4 border-muted-foreground/20 border-t-primary animate-spin"></div>
+      <p class="text-sm font-semibold text-muted-foreground">Dashboard laden...</p>
+    </div>
+  </div>
+`;
+
 const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = ALL_DASHBOARD_TABS) => {
   const metrics = applyLiveOverrides(computeMetrics(range), range);
   const debugInfo = getOpportunityDebug(range);
   const layout = resolveLayoutSections(layoutOverride);
+  const requiredLive = getRequiredLiveData(layout);
   const branding = resolveBranding();
+  const sidebarBranding = resolveSidebarBranding();
   const sidebarFooter = configState.dashboardTitle ? `${branding.title} Dashboard` : 'Dashboard Template';
   const activeRoute = routeId || 'lead';
+
+  const rangeKey = buildRangeKey(range);
+  const isDoneForKey = (state) =>
+    state?.rangeKey === rangeKey && (state?.status === 'ready' || state?.status === 'error');
+
+  const wantsHookPerformance =
+    requiredLive.hookPerformance && Boolean(configState.hookFieldId || configState.campaignFieldId);
+
+  const liveDone =
+    (!requiredLive.opportunities || isDoneForKey(liveState.opportunities)) &&
+    (!requiredLive.appointments || isDoneForKey(liveState.appointments)) &&
+    (!requiredLive.sourceBreakdown || isDoneForKey(liveState.sourceBreakdown)) &&
+    (!requiredLive.finance || isDoneForKey(liveState.finance)) &&
+    (!requiredLive.spendBySource || isDoneForKey(liveState.spendBySource)) &&
+    (!wantsHookPerformance || isDoneForKey(liveState.hookPerformance)) &&
+    (!requiredLive.lostReasons || isDoneForKey(liveState.lostReasons));
+
+  // Prevent a flash of placeholder/mock values: show a loader overlay until required live data is ready (or errored).
+  const showLoadingOverlay = Boolean(supabase) && configState.status !== 'error' && (!liveDone || configState.status !== 'ready');
+  const loadingOverlayMarkup = showLoadingOverlay
+    ? `
+      <div class="absolute inset-0 z-20 bg-background/95 backdrop-blur-sm flex items-start justify-center">
+        <div class="mt-16 sm:mt-24 flex flex-col items-center gap-3 px-6 py-4 rounded-2xl border border-border/60 bg-card/80 shadow-sm">
+          <div class="h-10 w-10 rounded-full border-4 border-muted-foreground/20 border-t-primary animate-spin"></div>
+          <p class="text-sm font-semibold text-muted-foreground">Data laden...</p>
+        </div>
+      </div>
+    `
+    : '';
 
   return `
     <div role="region" aria-label="Notifications (F8)" tabindex="-1" style="pointer-events: none;">
@@ -3965,7 +9782,7 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
         <div class="h-14 flex items-center justify-between px-4 border-b border-sidebar-border">
           <div class="flex items-center gap-3">
             <div class="flex items-center rounded-lg bg-white/90 px-3 py-1.5 shadow-sm ring-1 ring-black/5">
-              <img src="${branding.logoUrl}" alt="${branding.logoAlt}" class="h-9 w-auto object-contain" />
+              <img src="${sidebarBranding.logoUrl}" alt="${sidebarBranding.logoAlt}" class="h-9 w-auto object-contain" />
             </div>
           </div>
           <button class="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground hidden lg:flex" data-sidebar-toggle>
@@ -3985,7 +9802,7 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
         </div>
       </aside>
       <div class="flex-1 flex flex-col min-w-0">
-        <header class="h-16 border-b border-border bg-card shadow-sm flex items-center justify-between px-6 sticky top-0 z-40">
+        <header class="h-14 border-b border-border bg-card/50 backdrop-blur-sm flex items-center justify-between px-6 sticky top-0 z-40">
           <div class="flex items-center gap-4">
             <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 lg:hidden hover:bg-accent" aria-label="Sluit menu" data-sidebar-toggle>
               ${icons.menu('lucide lucide-menu h-5 w-5')}
@@ -4017,8 +9834,8 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
               </div>
             </div>
             ${
-              adminModeEnabled
-                ? `<button class="admin-trigger" type="button" data-admin-open>Setup</button>`
+              settingsEnabled
+                ? `<button class="admin-trigger" type="button" data-admin-open>${settingsButtonLabel}</button>`
                 : ''
             }
             <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 hover:bg-accent" title="Herlaad pagina" data-action="refresh">
@@ -4056,11 +9873,14 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
                 }">${debugInfo.text}</div>`
               : ''
           }
-          ${renderDebugPanel(range)}
-          <div class="mt-6 space-y-8">
-            ${renderDashboardSections(layout, metrics)}
-          </div>
-        </main>
+           ${renderDebugPanel(range)}
+           <div class="mt-6 relative">
+             ${loadingOverlayMarkup}
+            <div class="space-y-8${showLoadingOverlay ? ' opacity-0 pointer-events-none select-none' : ''}">
+              ${renderDashboardSections(layout, metrics)}
+            </div>
+           </div>
+         </main>
         <footer class="h-12 border-t border-border bg-card/50 flex items-center justify-center px-6">
           <p class="text-xs text-muted-foreground font-medium">(c) 2026 ${branding.title} - ${branding.headerSubtitle}</p>
         </footer>
@@ -4073,18 +9893,34 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
 
 const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
   const branding = resolveBranding();
+  const sidebarBranding = resolveSidebarBranding();
   const sidebarFooter = configState.dashboardTitle ? `${branding.title} Dashboard` : 'Dashboard Template';
+  const salesKey = buildRangeKey(dateRange);
+  const showLoadingOverlay = Boolean(supabase) && (salesState.status !== 'ready' || salesState.rangeKey !== salesKey);
+  const initialDealCount = salesState?.data?.totals?.deals;
   const salesStatus = MOCK_ENABLED
     ? {
         label: 'Mock data',
         className: 'bg-amber-500/10 border-amber-500/20 text-amber-600',
         dotClass: 'bg-amber-500'
       }
-    : {
-        label: 'Nog geen data',
-        className: 'bg-muted/60 border-border text-muted-foreground',
-        dotClass: 'bg-muted-foreground/60'
-      };
+    : showLoadingOverlay
+      ? {
+          label: 'Data laden...',
+          className: 'bg-amber-500/10 border-amber-500/20 text-amber-600',
+          dotClass: 'bg-amber-500'
+        }
+      : initialDealCount > 0
+        ? {
+            label: 'Live data',
+            className: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-700',
+            dotClass: 'bg-emerald-500'
+          }
+        : {
+            label: 'Nog geen data',
+            className: 'bg-muted/60 border-border text-muted-foreground',
+            dotClass: 'bg-muted-foreground/60'
+          };
 
   return `
     <div role="region" aria-label="Notifications (F8)" tabindex="-1" style="pointer-events: none;">
@@ -4096,7 +9932,9 @@ const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
       <aside class="fixed lg:sticky lg:top-0 z-50 h-screen bg-sidebar border-r border-sidebar-border transition-all duration-300 flex flex-col overflow-hidden w-64 translate-x-0 sidebar-panel">
         <div class="h-14 flex items-center justify-between px-4 border-b border-sidebar-border">
           <div class="flex items-center gap-3">
-            <img src="${branding.logoUrl}" alt="${branding.logoAlt}" class="h-8 w-auto" />
+            <div class="flex items-center rounded-lg bg-white/90 px-3 py-1.5 shadow-sm ring-1 ring-black/5">
+              <img src="${sidebarBranding.logoUrl}" alt="${sidebarBranding.logoAlt}" class="h-9 w-auto object-contain" />
+            </div>
           </div>
           <button class="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground hidden lg:flex" data-sidebar-toggle>
             ${icons.chevronLeft('lucide lucide-chevron-left w-4 h-4 transition-transform')}
@@ -4111,40 +9949,52 @@ const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
           </div>
         </nav>
         <div class="p-4 border-t border-sidebar-border">
-          <p class="text-xs text-muted-foreground text-center">${sidebarFooter}</p>
+          <p class="text-xs text-sidebar-foreground/60 text-center">${sidebarFooter}</p>
         </div>
       </aside>
       <div class="flex-1 flex flex-col min-w-0">
-        <header class="h-16 border-b border-border bg-gradient-to-r from-card via-card to-card/80 backdrop-blur-sm flex items-center justify-between px-6 sticky top-0 z-40">
+        <header class="h-14 border-b border-border bg-card/50 backdrop-blur-sm flex items-center justify-between px-6 sticky top-0 z-40">
           <div class="flex items-center gap-4">
-            <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 lg:hidden hover:bg-secondary" aria-label="Sluit menu" data-sidebar-toggle>
+            <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 lg:hidden hover:bg-accent" aria-label="Sluit menu" data-sidebar-toggle>
               ${icons.menu('lucide lucide-menu h-5 w-5')}
             </button>
             <div class="flex items-center gap-3">
-              <img src="${branding.logoUrl}" alt="${branding.logoAlt}" class="h-10 w-auto object-contain" />
+              <div class="flex items-center rounded-xl bg-white/80 px-3.5 py-2 shadow-sm ring-1 ring-black/5">
+                <img src="${branding.logoUrl}" alt="${branding.logoAlt}" class="h-10 w-auto object-contain" />
+              </div>
               <div class="hidden sm:block">
-                <div class="text-lg font-bold text-foreground tracking-tight">${branding.title}</div>
+                <div class="text-lg font-bold text-primary tracking-tight">${branding.title}</div>
                 <p class="text-xs text-muted-foreground -mt-0.5">${branding.headerSubtitle}</p>
               </div>
             </div>
           </div>
           <div class="flex items-center gap-4">
-            <div class="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full border ${salesStatus.className}">
-              <div class="w-2 h-2 rounded-full ${salesStatus.dotClass}"></div>
-              <span class="text-xs font-medium">${salesStatus.label}</span>
+            <div class="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full border ${salesStatus.className}" data-sales-status>
+              <div class="w-2 h-2 rounded-full ${salesStatus.dotClass}" data-sales-status-dot></div>
+              <span class="text-xs font-medium" data-sales-status-label>${salesStatus.label}</span>
             </div>
             ${
-              adminModeEnabled
-                ? `<button class="admin-trigger" type="button" data-admin-open>Setup</button>`
+              settingsEnabled
+                ? `<button class="admin-trigger" type="button" data-admin-open>${settingsButtonLabel}</button>`
                 : ''
             }
-            <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 hover:bg-secondary" title="Herlaad pagina" data-action="refresh">
+            <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 hover:bg-accent" title="Herlaad pagina" data-action="refresh">
               ${icons.refresh('lucide lucide-refresh-cw h-4 w-4')}
             </button>
           </div>
         </header>
-        <main class="flex-1 p-6 overflow-auto">
-          ${SALES_MAIN_MARKUP}
+        <main class="flex-1 p-6 overflow-auto relative">
+          <div class="absolute inset-0 z-20 bg-background/95 backdrop-blur-sm flex items-start justify-center${
+            showLoadingOverlay ? '' : ' hidden'
+          }" data-sales-loading-overlay>
+            <div class="mt-16 sm:mt-24 flex flex-col items-center gap-3 px-6 py-4 rounded-2xl border border-border/60 bg-card/80 shadow-sm" data-sales-loading-panel>
+              <div class="h-10 w-10 rounded-full border-4 border-muted-foreground/20 border-t-primary animate-spin" data-sales-loading-spinner></div>
+              <p class="text-sm font-semibold text-muted-foreground" data-sales-loading-message>Data laden...</p>
+            </div>
+          </div>
+          <div class="${showLoadingOverlay ? 'opacity-0 pointer-events-none select-none' : ''}" data-sales-loading-content>
+            ${SALES_MAIN_MARKUP}
+          </div>
         </main>
         <footer class="h-12 border-t border-border bg-card/30 flex items-center justify-center px-6">
           <p class="text-xs text-muted-foreground font-medium">(c) 2026 ${branding.title} - ${branding.headerSubtitle}</p>
@@ -4158,6 +10008,7 @@ const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
 
 const buildCallCenterMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
   const branding = resolveBranding();
+  const sidebarBranding = resolveSidebarBranding();
   const sidebarFooter = configState.dashboardTitle ? `${branding.title} Dashboard` : 'Dashboard Template';
 
   return `
@@ -4171,7 +10022,7 @@ const buildCallCenterMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
         <div class="h-14 flex items-center justify-between px-4 border-b border-sidebar-border">
           <div class="flex items-center gap-3">
             <div class="flex items-center rounded-lg bg-white/90 px-3 py-1.5 shadow-sm ring-1 ring-black/5">
-              <img src="${branding.logoUrl}" alt="${branding.logoAlt}" class="h-9 w-auto object-contain" />
+              <img src="${sidebarBranding.logoUrl}" alt="${sidebarBranding.logoAlt}" class="h-9 w-auto object-contain" />
             </div>
           </div>
           <button class="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground hidden lg:flex" data-sidebar-toggle>
@@ -4191,7 +10042,7 @@ const buildCallCenterMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
         </div>
       </aside>
       <div class="flex-1 flex flex-col min-w-0">
-        <header class="h-16 border-b border-border bg-card shadow-sm flex items-center justify-between px-6 sticky top-0 z-40">
+        <header class="h-14 border-b border-border bg-card/50 backdrop-blur-sm flex items-center justify-between px-6 sticky top-0 z-40">
           <div class="flex items-center gap-4">
             <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 lg:hidden hover:bg-accent" aria-label="Sluit menu" data-sidebar-toggle>
               ${icons.menu('lucide lucide-menu h-5 w-5')}
@@ -4223,8 +10074,8 @@ const buildCallCenterMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
               </div>
             </div>
             ${
-              adminModeEnabled
-                ? `<button class="admin-trigger" type="button" data-admin-open>Setup</button>`
+              settingsEnabled
+                ? `<button class="admin-trigger" type="button" data-admin-open>${settingsButtonLabel}</button>`
                 : ''
             }
             <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 hover:bg-accent" title="Herlaad pagina" data-action="refresh">
@@ -4257,11 +10108,31 @@ const buildCallCenterMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
 
 const renderApp = () => {
   if (!root) return;
+  applyBrandTheme();
+
+  // Avoid flashing template branding/layout while the per-customer config is still loading.
+  if (
+    Boolean(supabase) &&
+    configState.status !== 'error' &&
+    configState.status !== 'ready'
+  ) {
+    if (configState.status === 'idle') {
+      loadLocationConfig();
+    }
+    root.innerHTML = buildBootMarkup();
+    return;
+  }
+
+  const branding = resolveBranding();
+  applyDocumentBranding(branding.raw);
   const dashboardTabs = resolveDashboardTabs();
   const routeId = getRouteId(dashboardTabs);
   if (routeId === 'sales') {
     root.innerHTML = buildSalesMarkup(dashboardTabs);
+    renderSalesDateControls();
     bindInteractions();
+    bindSalesClicks();
+    ensureSalesData();
     return;
   }
   if (routeId === 'call-center') {
@@ -4335,7 +10206,37 @@ const bindInteractions = () => {
     });
   });
 
-  if (adminModeEnabled) {
+  document.querySelectorAll('[data-finance-view]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const view = button.getAttribute('data-finance-view');
+      if (!view || drilldownState.financeView === view) return;
+      if (!isFinanceDrilldown(drilldownState.kind)) return;
+      if (!drilldownState.range) return;
+      drilldownState.financeView = view;
+      drilldownState.status = 'loading';
+      drilldownState.errorMessage = '';
+      drilldownState.rows = [];
+      renderApp();
+
+      try {
+        const rows = await fetchDrilldownRecords({
+          kind: drilldownState.kind,
+          source: drilldownState.source,
+          range: drilldownState.range,
+          view: drilldownState.financeView
+        });
+        drilldownState.status = 'ready';
+        drilldownState.rows = Array.isArray(rows) ? rows : [];
+      } catch (error) {
+        drilldownState.status = 'error';
+        drilldownState.errorMessage = error instanceof Error ? error.message : 'Onbekende fout';
+      }
+
+      renderApp();
+    });
+  });
+
+  if (settingsEnabled) {
     document.querySelectorAll('[data-admin-open]').forEach((button) => {
       button.addEventListener('click', () => {
         adminState.open = true;
@@ -4343,11 +10244,27 @@ const bindInteractions = () => {
         adminState.message = '';
         adminState.auth.message = '';
         adminState.auth.status = 'idle';
+        adminState.auth.requested = false;
         adminState.loading = false;
+        adminState.kpi.message = '';
+        adminState.lostReasons.message = '';
+        adminState.sources.message = '';
+        adminState.leadCost.message = '';
         renderApp();
         if (authSession) {
-          loadAdminIntegration();
-          loadSpendMapping();
+          if (isAdminAccessEnabled()) {
+            loadAdminIntegration();
+            loadSpendMapping();
+          }
+          loadKpiSettings();
+          loadLostReasonMappings(dateRange);
+          loadSourceNormalizationSettings();
+          loadLeadCostSettings();
+        } else if (settingsModeEnabled && !isAdminAccessEnabled()) {
+          loadKpiSettings();
+          loadLostReasonMappings(dateRange);
+          loadSourceNormalizationSettings();
+          loadLeadCostSettings();
         }
       });
     });
@@ -4356,6 +10273,29 @@ const bindInteractions = () => {
       button.addEventListener('click', () => {
         adminState.open = false;
         adminState.loading = false;
+        adminState.auth.requested = false;
+        renderApp();
+      });
+    });
+
+    document.querySelectorAll('[data-admin-login-toggle]').forEach((button) => {
+      button.addEventListener('click', () => {
+        adminState.auth.requested = true;
+        adminState.auth.status = 'idle';
+        adminState.auth.message = '';
+        renderApp();
+        if (authSession) {
+          loadAdminIntegration();
+          loadSpendMapping();
+        }
+      });
+    });
+
+    document.querySelectorAll('[data-admin-login-cancel]').forEach((button) => {
+      button.addEventListener('click', () => {
+        adminState.auth.requested = false;
+        adminState.auth.status = 'idle';
+        adminState.auth.message = '';
         renderApp();
       });
     });
@@ -4511,6 +10451,11 @@ const bindInteractions = () => {
         adminState.open = false;
         adminState.loading = false;
         resetMappingState();
+        resetKpiState();
+        resetLostReasonsState();
+        resetSourceNormalizationState();
+        resetLeadCostState();
+        resetBillingState();
         renderApp();
       });
     }
@@ -4529,9 +10474,214 @@ const bindInteractions = () => {
       });
     }
 
+    const kpiMonthlyDealsTarget = document.querySelector('[data-kpi-monthly-deals-target]');
+    if (kpiMonthlyDealsTarget) {
+      kpiMonthlyDealsTarget.addEventListener('input', (event) => {
+        adminState.kpi.monthlyDealsTarget = event.target.value;
+        adminState.kpi.hasChanges = true;
+      });
+    }
+
+    const kpiQuotesFromPhase = document.querySelector('[data-kpi-quotes-from-phase]');
+    if (kpiQuotesFromPhase) {
+      kpiQuotesFromPhase.addEventListener('change', (event) => {
+        adminState.kpi.quotesFromPhaseId = event.target.value;
+        adminState.kpi.hasChanges = true;
+      });
+    }
+
+    const kpiLostReasonField = document.querySelector('[data-kpi-lost-reason-field]');
+    if (kpiLostReasonField) {
+      kpiLostReasonField.addEventListener('input', (event) => {
+        adminState.kpi.lostReasonFieldId = event.target.value;
+        adminState.kpi.hasChanges = true;
+      });
+    }
+
+    const kpiYearPrev = document.querySelector('[data-kpi-year-prev]');
+    if (kpiYearPrev) {
+      kpiYearPrev.addEventListener('click', () => {
+        const current = Number(adminState.kpi.year);
+        adminState.kpi.year = Number.isFinite(current) ? current - 1 : new Date().getFullYear() - 1;
+        renderApp();
+      });
+    }
+
+    const kpiYearNext = document.querySelector('[data-kpi-year-next]');
+    if (kpiYearNext) {
+      kpiYearNext.addEventListener('click', () => {
+        const current = Number(adminState.kpi.year);
+        adminState.kpi.year = Number.isFinite(current) ? current + 1 : new Date().getFullYear() + 1;
+        renderApp();
+      });
+    }
+
+    document.querySelectorAll('[data-kpi-month]').forEach((input) => {
+      input.addEventListener('input', (event) => {
+        const key = input.getAttribute('data-kpi-month');
+        if (!key) return;
+        const value = String(event.target.value ?? '').trim();
+        if (!adminState.kpi.monthlyDealsTargets || typeof adminState.kpi.monthlyDealsTargets !== 'object') {
+          adminState.kpi.monthlyDealsTargets = {};
+        }
+        if (!value) {
+          delete adminState.kpi.monthlyDealsTargets[key];
+        } else {
+          adminState.kpi.monthlyDealsTargets[key] = value;
+        }
+        adminState.kpi.hasChanges = true;
+      });
+    });
+
+    const kpiSave = document.querySelector('[data-kpi-save]');
+    if (kpiSave) {
+      kpiSave.addEventListener('click', () => {
+        saveKpiSettings();
+      });
+    }
+
+    const lostReasonsRefresh = document.querySelector('[data-lost-reasons-refresh]');
+    if (lostReasonsRefresh) {
+      lostReasonsRefresh.addEventListener('click', () => {
+        loadLostReasonMappings(dateRange);
+      });
+    }
+
+    const lostReasonsSync = document.querySelector('[data-lost-reasons-sync]');
+    if (lostReasonsSync) {
+      lostReasonsSync.addEventListener('click', () => {
+        syncLostReasonLookupFromGhl();
+      });
+    }
+
+    const lostReasonsSave = document.querySelector('[data-lost-reasons-save]');
+    if (lostReasonsSave) {
+      lostReasonsSave.addEventListener('click', () => {
+        saveLostReasonMappings();
+      });
+    }
+
+    document.querySelectorAll('[data-lost-reason-id]').forEach((input) => {
+      input.addEventListener('input', (event) => {
+        const id = toTrimmedText(input.getAttribute('data-lost-reason-id'));
+        if (!id) return;
+        const value = String(event.target.value ?? '');
+        if (!Array.isArray(adminState.lostReasons.entries)) adminState.lostReasons.entries = [];
+        const idx = adminState.lostReasons.entries.findIndex((entry) => toTrimmedText(entry?.id) === id);
+        if (idx < 0) return;
+        adminState.lostReasons.entries[idx] = {
+          ...adminState.lostReasons.entries[idx],
+          name: value
+        };
+        adminState.lostReasons.hasChanges = true;
+      });
+    });
+
     document.querySelectorAll('[data-map-key]').forEach((input) => {
       input.addEventListener('input', (event) => {
         setMappingValue(input.getAttribute('data-map-key'), event.target.value);
+      });
+    });
+
+    const sourceRulesAdd = document.querySelector('[data-source-rules-add]');
+    if (sourceRulesAdd) {
+      sourceRulesAdd.addEventListener('click', () => {
+        if (!Array.isArray(adminState.sources.rules)) adminState.sources.rules = [];
+        adminState.sources.rules = [...adminState.sources.rules, { bucket: '', patterns: [] }];
+        adminState.sources.hasChanges = true;
+        renderApp();
+      });
+    }
+
+    const sourceRulesSave = document.querySelector('[data-source-rules-save]');
+    if (sourceRulesSave) {
+      sourceRulesSave.addEventListener('click', () => {
+        saveSourceNormalizationSettings();
+      });
+    }
+
+    const sourceSamplesRefresh = document.querySelector('[data-source-samples-refresh]');
+    if (sourceSamplesRefresh) {
+      sourceSamplesRefresh.addEventListener('click', () => {
+        loadSourceNormalizationSamples();
+      });
+    }
+
+    document.querySelectorAll('[data-source-rule-bucket]').forEach((input) => {
+      input.addEventListener('input', (event) => {
+        const index = Number(input.getAttribute('data-source-rule-bucket'));
+        if (!Number.isFinite(index)) return;
+        if (!Array.isArray(adminState.sources.rules)) adminState.sources.rules = [];
+        const existing = adminState.sources.rules[index] ?? { bucket: '', patterns: [] };
+        adminState.sources.rules[index] = {
+          ...existing,
+          bucket: event.target.value
+        };
+        adminState.sources.hasChanges = true;
+      });
+    });
+
+    document.querySelectorAll('[data-source-rule-patterns]').forEach((input) => {
+      input.addEventListener('input', (event) => {
+        const index = Number(input.getAttribute('data-source-rule-patterns'));
+        if (!Number.isFinite(index)) return;
+        if (!Array.isArray(adminState.sources.rules)) adminState.sources.rules = [];
+        const existing = adminState.sources.rules[index] ?? { bucket: '', patterns: [] };
+        const raw = String(event.target.value ?? '');
+        const patterns = raw
+          .split(',')
+          .map((token) => token.trim())
+          .filter(Boolean);
+        adminState.sources.rules[index] = {
+          ...existing,
+          patterns
+        };
+        adminState.sources.hasChanges = true;
+      });
+    });
+
+    const leadCostAdd = document.querySelector('[data-lead-cost-add]');
+    if (leadCostAdd) {
+      leadCostAdd.addEventListener('click', () => {
+        if (!Array.isArray(adminState.leadCost.rows)) adminState.leadCost.rows = [];
+        adminState.leadCost.rows = [...adminState.leadCost.rows, { source: '', cpl: '' }];
+        adminState.leadCost.hasChanges = true;
+        renderApp();
+      });
+    }
+
+    const leadCostSave = document.querySelector('[data-lead-cost-save]');
+    if (leadCostSave) {
+      leadCostSave.addEventListener('click', () => {
+        saveLeadCostSettings();
+      });
+    }
+
+    document.querySelectorAll('[data-lead-cost-source]').forEach((input) => {
+      input.addEventListener('input', (event) => {
+        const index = Number(input.getAttribute('data-lead-cost-source'));
+        if (!Number.isFinite(index)) return;
+        if (!Array.isArray(adminState.leadCost.rows)) adminState.leadCost.rows = [];
+        const existing = adminState.leadCost.rows[index] ?? { source: '', cpl: '' };
+        adminState.leadCost.rows[index] = {
+          ...existing,
+          source: event.target.value
+        };
+        adminState.leadCost.hasChanges = true;
+      });
+    });
+
+    document.querySelectorAll('[data-lead-cost-cpl]').forEach((input) => {
+      input.addEventListener('input', (event) => {
+        const index = Number(input.getAttribute('data-lead-cost-cpl'));
+        if (!Number.isFinite(index)) return;
+        if (!Array.isArray(adminState.leadCost.rows)) adminState.leadCost.rows = [];
+        const existing = adminState.leadCost.rows[index] ?? { source: '', cpl: '' };
+        adminState.leadCost.rows[index] = {
+          ...existing,
+          cpl: event.target.value
+        };
+        adminState.leadCost.hasChanges = true;
       });
     });
   }
@@ -4649,6 +10799,8 @@ desktopQuery.addEventListener('change', (event) => {
     closeSidebar();
   }
 });
+
+
 
 
 

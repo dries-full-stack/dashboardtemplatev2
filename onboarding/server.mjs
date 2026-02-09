@@ -1,5 +1,5 @@
 import { createServer } from 'http';
-import { readFile } from 'fs/promises';
+import { readFile, writeFile, rename, stat } from 'fs/promises';
 import { spawn } from 'child_process';
 import { extname, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -23,6 +23,14 @@ const mimeTypes = {
 
 let isRunning = false;
 let isSyncing = false;
+let isTeamleaderSyncing = false;
+let isMetaSyncing = false;
+let isGoogleSyncing = false;
+let isGoogleSheetSyncing = false;
+let lastOnboardingState = null;
+let dashboardProcess = null;
+let dashboardOutput = '';
+const dashboardDir = join(repoRoot, 'dashboard');
 
 const sendJson = (res, statusCode, payload) => {
   const body = JSON.stringify(payload, null, 2);
@@ -93,8 +101,259 @@ const applyEnvDefaults = (payload) => {
   assignIfMissing('serviceRoleKey', 'SUPABASE_SECRET_KEY');
   assignIfMissing('publishableKey', 'SUPABASE_PUBLISHABLE_KEY');
   assignIfMissing('ghlPrivateIntegrationToken', 'GHL_PRIVATE_INTEGRATION_TOKEN');
+  assignIfMissing('metaAccessToken', 'META_ACCESS_TOKEN');
+  assignIfMissing('metaAdAccountId', 'META_AD_ACCOUNT_ID');
+  assignIfMissing('metaTimezone', 'META_TIMEZONE');
+  assignIfMissing('googleDeveloperToken', 'GOOGLE_ADS_DEVELOPER_TOKEN');
+  assignIfMissing('googleClientId', 'GOOGLE_ADS_CLIENT_ID');
+  assignIfMissing('googleClientSecret', 'GOOGLE_ADS_CLIENT_SECRET');
+  assignIfMissing('googleRefreshToken', 'GOOGLE_ADS_REFRESH_TOKEN');
+  assignIfMissing('googleCustomerId', 'GOOGLE_ADS_CUSTOMER_ID');
+  assignIfMissing('googleLoginCustomerId', 'GOOGLE_ADS_LOGIN_CUSTOMER_ID');
+  assignIfMissing('googleTimezone', 'GOOGLE_TIMEZONE');
+  assignIfMissing('sheetCsvUrl', 'SHEET_CSV_URL');
+  assignIfMissing('sheetHeaderRow', 'SHEET_HEADER_ROW');
   assignIfMissing('dbPassword', 'SUPABASE_DB_PASSWORD');
   assignIfMissing('githubToken', 'GITHUB_TOKEN');
+};
+
+const fileExists = async (filePath) => {
+  try {
+    await stat(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const writeDashboardEnvFile = async (payload) => {
+  const supabaseUrl =
+    payload.supabaseUrl ||
+    (payload.projectRef ? `https://${payload.projectRef}.supabase.co` : '');
+  const publishableKey = payload.publishableKey || '';
+  const locationId = payload.locationId || '';
+
+  if (!supabaseUrl || !locationId) {
+    return { ok: false, error: 'Supabase URL en location ID zijn vereist.' };
+  }
+  if (!publishableKey) {
+    return { ok: false, error: 'Publishable key ontbreekt.' };
+  }
+
+  const envLines = [
+    `VITE_SUPABASE_URL=${supabaseUrl}`,
+    `VITE_SUPABASE_PUBLISHABLE_KEY=${publishableKey}`,
+    `VITE_GHL_LOCATION_ID=${locationId}`,
+    'VITE_ENABLE_MOCK_DATA=false'
+  ];
+
+  const envPath = join(repoRoot, 'dashboard', '.env');
+  let backupPath = '';
+  if (await fileExists(envPath)) {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    backupPath = `${envPath}.bak-${stamp}`;
+    await rename(envPath, backupPath);
+  }
+
+  await writeFile(envPath, envLines.join('\n') + '\n', 'utf-8');
+  return { ok: true, path: envPath, backupPath };
+};
+
+const checkDashboardReady = async () => {
+  try {
+    const response = await fetch('http://localhost:5173', { method: 'GET' });
+    return response.ok;
+  } catch {
+    return false;
+  }
+};
+
+const startDashboardDevServer = async () => {
+  if (dashboardProcess && !dashboardProcess.killed) {
+    return { ok: true, status: 'already-running' };
+  }
+
+  const nodeModulesPath = join(dashboardDir, 'node_modules');
+  const hasNodeModules = await fileExists(nodeModulesPath);
+  if (!hasNodeModules) {
+    const installResult = await runCommand('npm', ['install'], dashboardDir);
+    if (!installResult.ok) {
+      return { ok: false, status: 'install-failed', output: installResult };
+    }
+  }
+
+  const child = spawn('npm', ['run', 'dev', '--', '--host'], { cwd: dashboardDir, shell: true });
+  dashboardProcess = child;
+  dashboardOutput = '';
+
+  child.stdout.on('data', (chunk) => {
+    dashboardOutput += chunk.toString();
+  });
+  child.stderr.on('data', (chunk) => {
+    dashboardOutput += chunk.toString();
+  });
+  child.on('close', (code) => {
+    dashboardProcess = null;
+    dashboardOutput += `\n[dashboard] exited with ${code ?? 'unknown'}`;
+  });
+
+  return { ok: true, status: 'started' };
+};
+
+const buildSupabaseRestHeaders = (serviceRoleKey) => {
+  const headers = {
+    'Content-Type': 'application/json; charset=utf-8'
+  };
+  if (serviceRoleKey) {
+    headers.apikey = serviceRoleKey;
+    headers.Authorization = `Bearer ${serviceRoleKey}`;
+  }
+  return headers;
+};
+
+const parseContentRangeCount = (value) => {
+  if (!value) return null;
+  const match = String(value).match(/\/(\d+)$/);
+  if (!match?.[1]) return null;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const toDateOnly = (value) => {
+  if (!(value instanceof Date)) return '';
+  return value.toISOString().slice(0, 10);
+};
+
+const fetchRestCount = async (supabaseUrl, serviceRoleKey, path, query = {}) => {
+  const url = new URL(`${supabaseUrl}/rest/v1/${path}`);
+  Object.entries(query).forEach(([key, value]) => {
+    if (value === null || value === undefined || value === '') return;
+    url.searchParams.set(key, String(value));
+  });
+  if (!url.searchParams.has('select')) url.searchParams.set('select', 'id');
+  if (!url.searchParams.has('limit')) url.searchParams.set('limit', '1');
+
+  const headers = {
+    ...buildSupabaseRestHeaders(serviceRoleKey),
+    Prefer: 'count=exact'
+  };
+
+  const response = await fetch(url.toString(), { headers });
+  const text = await response.text();
+  let json = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    json = null;
+  }
+
+  return {
+    ok: response.ok,
+    status: response.status,
+    count: parseContentRangeCount(response.headers.get('content-range')),
+    data: json,
+    raw: text
+  };
+};
+
+const callRpc = async (supabaseUrl, serviceRoleKey, fnName, args) => {
+  const url = `${supabaseUrl}/rest/v1/rpc/${fnName}`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: buildSupabaseRestHeaders(serviceRoleKey),
+    body: JSON.stringify(args ?? {})
+  });
+
+  const text = await response.text();
+  let json = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    json = null;
+  }
+
+  return { ok: response.ok, status: response.status, data: json, raw: text };
+};
+
+const normalizeSourceText = (value) => {
+  if (typeof value !== 'string') return '';
+  return value.trim();
+};
+
+const SOURCE_BUCKET_ORDER = [
+  'Solvari',
+  'Bobex',
+  'Trustlocal',
+  'Bambelo',
+  'Facebook Ads',
+  'Google Ads',
+  'Organic',
+  'Overig'
+];
+
+const suggestSourceBucket = (rawValue) => {
+  const text = normalizeSourceText(rawValue);
+  const lower = text.toLowerCase();
+  if (!lower) return 'Organic';
+  if (lower === 'onbekend' || lower === 'unknown' || lower === 'n/a') return 'Overig';
+
+  if (lower.includes('solvari')) return 'Solvari';
+  if (lower.includes('bobex')) return 'Bobex';
+  if (lower.includes('trustlocal') || lower.includes('trust local')) return 'Trustlocal';
+  if (lower.includes('bambelo')) return 'Bambelo';
+
+  if (
+    lower.includes('facebook') ||
+    lower.includes('instagram') ||
+    lower.includes('meta') ||
+    lower.includes('fbclid') ||
+    lower.includes('meta - calculator') ||
+    lower.includes('meta ads - calculator')
+  ) {
+    return 'Facebook Ads';
+  }
+
+  if (
+    lower.includes('google') ||
+    lower.includes('adwords') ||
+    lower.includes('gclid') ||
+    lower.includes('cpc') ||
+    lower.includes('google - woning prijsberekening')
+  ) {
+    return 'Google Ads';
+  }
+
+  if (
+    lower.includes('organic') ||
+    lower.includes('seo') ||
+    lower.includes('direct') ||
+    lower.includes('referral') ||
+    lower.includes('(none)') ||
+    lower.includes('website')
+  ) {
+    return 'Organic';
+  }
+
+  return 'Overig';
+};
+
+const resolveOnboardingContext = (data = {}) => {
+  const supabaseUrl = sanitizeString(data.supabaseUrl) || lastOnboardingState?.supabaseUrl || '';
+  const projectRef =
+    sanitizeString(data.projectRef) ||
+    extractProjectRef(supabaseUrl) ||
+    lastOnboardingState?.projectRef ||
+    '';
+  const locationId = sanitizeString(data.locationId) || lastOnboardingState?.locationId || '';
+  const serviceRoleKey =
+    sanitizeString(data.serviceRoleKey) ||
+    lastOnboardingState?.serviceRoleKey ||
+    process.env.SUPABASE_SERVICE_ROLE_JWT ||
+    process.env.SUPABASE_SECRET_KEY ||
+    '';
+
+  const resolvedUrl = supabaseUrl || (projectRef ? `https://${projectRef}.supabase.co` : '');
+  return { supabaseUrl: resolvedUrl, projectRef, locationId, serviceRoleKey };
 };
 
 const extractProjectRef = (supabaseUrl) => {
@@ -195,6 +454,19 @@ const buildArgs = (payload) => {
   addString('-TeamleaderClientSecret', payload.teamleaderClientSecret);
   addString('-TeamleaderRedirectUrl', payload.teamleaderRedirectUrl);
   addString('-TeamleaderScopes', payload.teamleaderScopes);
+  addString('-MetaAccessToken', payload.metaAccessToken);
+  addString('-MetaAdAccountId', payload.metaAdAccountId);
+  addString('-MetaTimezone', payload.metaTimezone);
+  addString('-GoogleSpendMode', payload.googleSpendMode);
+  addString('-GoogleDeveloperToken', payload.googleDeveloperToken);
+  addString('-GoogleClientId', payload.googleClientId);
+  addString('-GoogleClientSecret', payload.googleClientSecret);
+  addString('-GoogleRefreshToken', payload.googleRefreshToken);
+  addString('-GoogleCustomerId', payload.googleCustomerId);
+  addString('-GoogleLoginCustomerId', payload.googleLoginCustomerId);
+  addString('-GoogleTimezone', payload.googleTimezone);
+  addString('-SheetCsvUrl', payload.sheetCsvUrl);
+  addString('-SheetHeaderRow', payload.sheetHeaderRow);
   addString('-BranchName', payload.branchName);
   addString('-BaseBranch', payload.baseBranch);
   addString('-NetlifyAccountSlug', payload.netlifyAccountSlug);
@@ -230,6 +502,7 @@ const buildArgs = (payload) => {
   addSwitch('-LinkProject', payload.linkProject);
   addSwitch('-PushSchema', payload.pushSchema);
   addSwitch('-DeployFunctions', payload.deployFunctions);
+  addSwitch('-EnableMetaSpend', payload.metaEnabled);
   addSwitch('-NetlifySyncEnv', payload.netlifySyncEnv);
   addSwitch('-NetlifyReplaceEnv', payload.netlifyReplaceEnv);
   addSwitch('-NetlifyCreateSite', payload.netlifyCreateSite);
@@ -286,6 +559,38 @@ const validatePayload = (payload) => {
       errors.push('Teamleader client secret is verplicht (zet de checkbox uit als je dit niet wil).');
     }
   }
+
+  const wantsMeta = Boolean(payload.metaEnabled);
+  if (wantsMeta) {
+    if (!payload.accessToken) {
+      errors.push('Supabase access token is vereist om Meta secrets te zetten.');
+    }
+    if (!payload.metaAccessToken) {
+      errors.push('Meta access token is verplicht (zet de toggle uit als je dit niet wil).');
+    }
+    if (!payload.metaAdAccountId) {
+      errors.push('Meta ad account ID is verplicht (zet de toggle uit als je dit niet wil).');
+    }
+  }
+
+  const googleMode = sanitizeString(payload.googleSpendMode).toLowerCase() || 'none';
+  if (googleMode === 'api') {
+    if (!payload.accessToken) {
+      errors.push('Supabase access token is vereist om Google Ads secrets te zetten.');
+    }
+    if (!payload.googleDeveloperToken) errors.push('Google developer token is verplicht (of kies een andere Google methode).');
+    if (!payload.googleClientId) errors.push('Google client id is verplicht (of kies een andere Google methode).');
+    if (!payload.googleClientSecret) errors.push('Google client secret is verplicht (of kies een andere Google methode).');
+    if (!payload.googleRefreshToken) errors.push('Google refresh token is verplicht (of kies een andere Google methode).');
+    if (!payload.googleCustomerId) errors.push('Google Ads customer id is verplicht (of kies een andere Google methode).');
+  } else if (googleMode === 'sheet') {
+    if (!payload.accessToken) {
+      errors.push('Supabase access token is vereist om Google Sheet secrets te zetten.');
+    }
+    if (!payload.sheetCsvUrl) errors.push('Google Sheet CSV URL is verplicht (of kies geen Google kosten sync).');
+  } else if (googleMode !== 'none') {
+    errors.push('Google spend mode is ongeldig.');
+  }
   if (payload.netlifySyncEnv) {
     if (!payload.netlifySiteId && !payload.netlifySiteName && !payload.netlifyCreateSite) {
       errors.push('Netlify site id of naam is vereist voor env sync.');
@@ -313,6 +618,306 @@ const server = createServer(async (req, res) => {
   if (!req.url) {
     res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Bad request');
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/api/source-suggestions') {
+    try {
+      const rawBody = await readBody(req);
+      const data = JSON.parse(rawBody || '{}');
+      const context = resolveOnboardingContext(data);
+
+      if (!context.supabaseUrl || !context.locationId) {
+        sendJson(res, 400, { ok: false, error: 'Supabase URL en location ID zijn vereist.' });
+        return;
+      }
+
+      let serviceRoleKey = context.serviceRoleKey;
+      if (!serviceRoleKey) {
+        const accessToken =
+          sanitizeString(data.accessToken) ||
+          process.env.SUPABASE_ACCESS_TOKEN ||
+          '';
+        if (context.projectRef && accessToken) {
+          try {
+            const keys = await fetchSupabaseKeys(context.projectRef, accessToken);
+            const picked = pickSupabaseKeys(keys);
+            serviceRoleKey = picked.serviceRoleKey || '';
+          } catch (error) {
+            serviceRoleKey = '';
+          }
+        }
+      }
+
+      if (!serviceRoleKey) {
+        sendJson(res, 400, { ok: false, error: 'Service role key ontbreekt (vul server key in of zet access token).' });
+        return;
+      }
+
+      const url = new URL(`${context.supabaseUrl}/rest/v1/opportunities_view`);
+      url.searchParams.set('select', 'source_guess,created_at');
+      url.searchParams.set('location_id', `eq.${context.locationId}`);
+      url.searchParams.set('order', 'created_at.desc.nullslast');
+      url.searchParams.set('limit', '5000');
+
+      const response = await fetch(url.toString(), {
+        headers: buildSupabaseRestHeaders(serviceRoleKey)
+      });
+      const text = await response.text();
+      let rows = null;
+      try {
+        rows = JSON.parse(text);
+      } catch {
+        rows = null;
+      }
+
+      if (!response.ok) {
+        const message =
+          (rows && (rows.message || rows.error || rows.details)) ||
+          text ||
+          `Supabase request faalde (${response.status}).`;
+        sendJson(res, response.status, {
+          ok: false,
+          error:
+            String(message).toLowerCase().includes('opportunities_view') ||
+            String(message).toLowerCase().includes('relation')
+              ? 'opportunities_view ontbreekt. Run eerst base schema + een GHL sync.'
+              : `Supabase error: ${message}`
+        });
+        return;
+      }
+
+      const list = Array.isArray(rows) ? rows : [];
+      const counts = new Map();
+      list.forEach((row) => {
+        const raw = normalizeSourceText(row?.source_guess) || 'Onbekend';
+        counts.set(raw, (counts.get(raw) || 0) + 1);
+      });
+
+      const sourceRowsAll = Array.from(counts.entries())
+        .map(([raw, count]) => ({
+          raw,
+          count,
+          suggested: suggestSourceBucket(raw)
+        }))
+        .sort((a, b) => {
+          const diff = (b.count ?? 0) - (a.count ?? 0);
+          if (diff) return diff;
+          return String(a.raw ?? '').localeCompare(String(b.raw ?? ''));
+        });
+
+      const sources = sourceRowsAll.slice(0, 40);
+
+      const bucketCounts = new Map();
+      sourceRowsAll.forEach((row) => {
+        const bucket = row.suggested || 'Organic';
+        bucketCounts.set(bucket, (bucketCounts.get(bucket) || 0) + (Number(row.count) || 0));
+      });
+
+      const buckets = Array.from(bucketCounts.entries())
+        .map(([bucket, count]) => ({ bucket, count }))
+        .sort((a, b) => {
+          const aIdx = SOURCE_BUCKET_ORDER.indexOf(a.bucket);
+          const bIdx = SOURCE_BUCKET_ORDER.indexOf(b.bucket);
+          if (aIdx !== -1 || bIdx !== -1) {
+            return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
+          }
+          return String(a.bucket ?? '').localeCompare(String(b.bucket ?? ''));
+        });
+
+      sendJson(res, 200, {
+        ok: true,
+        sampledRows: list.length,
+        sources,
+        buckets
+      });
+    } catch (error) {
+      sendJson(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Onbekende fout' });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/api/preflight') {
+    try {
+      const rawBody = await readBody(req);
+      const data = JSON.parse(rawBody || '{}');
+
+      const payload = {
+        supabaseUrl: sanitizeString(data.supabaseUrl),
+        projectRef: sanitizeString(data.projectRef),
+        locationId: sanitizeString(data.locationId),
+        accessToken: sanitizeString(data.accessToken),
+        dbPassword: sanitizeString(data.dbPassword),
+        serviceRoleKey: sanitizeString(data.serviceRoleKey),
+        autoFetchKeys: Boolean(data.autoFetchKeys),
+        runMigrations: Boolean(data.runMigrations),
+        applyConfig: Boolean(data.applyConfig),
+        deployFunctions: Boolean(data.deployFunctions),
+        installCronSchedules: Boolean(data.installCronSchedules),
+        autoHealthCheck: Boolean(data.autoHealthCheck),
+        netlifyEnabled: Boolean(data.netlifyEnabled),
+        netlifySyncEnv: Boolean(data.netlifySyncEnv),
+        netlifyCreateSite: Boolean(data.netlifyCreateSite),
+        netlifyTriggerDeploy: Boolean(data.netlifyTriggerDeploy)
+      };
+
+      applyEnvDefaults(payload);
+      const context = resolveOnboardingContext({
+        ...data,
+        serviceRoleKey: payload.serviceRoleKey
+      });
+
+      const checks = [];
+      const addCheck = (id, label, status, details) => {
+        checks.push({
+          id,
+          label,
+          status,
+          details: String(details ?? '').trim()
+        });
+      };
+
+      const firstLine = (value) => String(value ?? '').trim().split(/\r?\n/)[0].slice(0, 240);
+
+      const supabaseCli = await runCommand('supabase', ['--version'], repoRoot);
+      addCheck(
+        'supabase-cli',
+        'Supabase CLI',
+        supabaseCli.ok ? 'ok' : 'error',
+        supabaseCli.ok
+          ? firstLine(supabaseCli.stdout || supabaseCli.stderr)
+          : firstLine(supabaseCli.stderr || supabaseCli.stdout || 'Supabase CLI niet gevonden.')
+      );
+
+      const node = await runCommand('node', ['--version'], repoRoot);
+      addCheck(
+        'node',
+        'Node',
+        node.ok ? 'ok' : 'error',
+        node.ok ? firstLine(node.stdout || node.stderr) : firstLine(node.stderr || node.stdout || 'Node niet gevonden.')
+      );
+
+      const git = await runCommand('git', ['--version'], repoRoot);
+      addCheck(
+        'git',
+        'Git',
+        git.ok ? 'ok' : 'warn',
+        git.ok ? firstLine(git.stdout || git.stderr) : firstLine(git.stderr || git.stdout || 'Git niet gevonden.')
+      );
+
+      if (payload.netlifyEnabled || payload.netlifySyncEnv || payload.netlifyCreateSite || payload.netlifyTriggerDeploy) {
+        const netlify = await runCommand('netlify', ['status'], repoRoot);
+        const combined = `${netlify.stdout || ''}\n${netlify.stderr || ''}`.toLowerCase();
+        let tone = netlify.ok ? 'ok' : 'warn';
+        let message = firstLine(netlify.stdout || netlify.stderr || '');
+        if (combined.includes('not logged in') || combined.includes('logged out')) {
+          tone = 'warn';
+          message = 'Niet ingelogd in Netlify CLI.';
+        } else if (combined.includes('not recognized') || combined.includes('command not found')) {
+          tone = 'error';
+          message = 'Netlify CLI niet gevonden.';
+        } else if (!message) {
+          message = netlify.ok ? 'Netlify status OK.' : 'Netlify status onduidelijk.';
+        }
+        addCheck('netlify', 'Netlify CLI', tone, message);
+      }
+
+      addCheck(
+        'project-ref',
+        'Project ref',
+        context.projectRef ? 'ok' : 'error',
+        context.projectRef ? context.projectRef : 'Kan project ref niet afleiden uit Supabase URL.'
+      );
+
+      addCheck(
+        'location-id',
+        'Location ID',
+        context.locationId ? 'ok' : 'error',
+        context.locationId ? context.locationId : 'Location ID ontbreekt.'
+      );
+
+      if (context.projectRef && payload.accessToken) {
+        try {
+          const keys = await fetchSupabaseKeys(context.projectRef, payload.accessToken);
+          addCheck('access-token', 'Access token', 'ok', `Kan Supabase API keys lezen (${keys.length} keys).`);
+          if (payload.autoFetchKeys) {
+            const picked = pickSupabaseKeys(keys);
+            addCheck(
+              'auto-fetch-keys',
+              'Auto fetch keys',
+              picked.publishableKey && picked.serviceRoleKey ? 'ok' : 'warn',
+              picked.publishableKey && picked.serviceRoleKey
+                ? 'Publishable + service role key gevonden.'
+                : 'Kon niet beide keys vinden in Supabase API response.'
+            );
+          }
+        } catch (error) {
+          addCheck(
+            'access-token',
+            'Access token',
+            'error',
+            error instanceof Error ? error.message : 'Supabase API keys ophalen faalde.'
+          );
+        }
+      } else if (payload.accessToken || process.env.SUPABASE_ACCESS_TOKEN) {
+        addCheck('access-token', 'Access token', 'warn', 'Project ref ontbreekt, kan token niet testen.');
+      } else if (payload.deployFunctions || payload.runMigrations) {
+        addCheck('access-token', 'Access token', 'warn', 'Geen access token ingevuld (CLI acties zullen falen).');
+      } else {
+        addCheck('access-token', 'Access token', 'ok', 'Niet nodig voor deze run (geen CLI acties).');
+      }
+
+      const serviceRoleKey = payload.serviceRoleKey || context.serviceRoleKey || '';
+      if (context.supabaseUrl && serviceRoleKey) {
+        const probe = await fetchRestCount(context.supabaseUrl, serviceRoleKey, 'dashboard_config', {
+          select: 'id',
+          limit: '1'
+        });
+        if (probe.ok) {
+          addCheck('service-role', 'Server key', 'ok', 'Supabase REST access OK.');
+        } else if (probe.status === 404) {
+          addCheck('service-role', 'Server key', 'warn', 'dashboard_config ontbreekt (run base schema).');
+        } else if (probe.status === 401 || probe.status === 403) {
+          addCheck('service-role', 'Server key', 'error', 'Server key lijkt ongeldig (401/403).');
+        } else {
+          addCheck('service-role', 'Server key', 'warn', `Supabase REST probe faalde (${probe.status}).`);
+        }
+      } else if (payload.applyConfig || payload.installCronSchedules || payload.autoHealthCheck) {
+        addCheck('service-role', 'Server key', 'error', 'Server key ontbreekt (nodig voor config/cron/health checks).');
+      } else {
+        addCheck('service-role', 'Server key', 'ok', 'Niet ingevuld (ok zolang je geen config/health checks nodig hebt).');
+      }
+
+      if (payload.runMigrations) {
+        const hasDbPassword = Boolean(payload.dbPassword) || Boolean(process.env.SUPABASE_DB_PASSWORD);
+        addCheck(
+          'db-password',
+          'DB password',
+          hasDbPassword ? 'ok' : 'error',
+          hasDbPassword ? 'Ingevuld.' : 'DB password ontbreekt (nodig voor supabase link/db push).'
+        );
+      }
+
+      if (payload.installCronSchedules && context.supabaseUrl && serviceRoleKey) {
+        const cronProbe = await callRpc(context.supabaseUrl, serviceRoleKey, 'cron_health', {});
+        if (cronProbe.ok && cronProbe.data?.ok) {
+          addCheck(
+            'cron-health',
+            'Cron RPC',
+            cronProbe.data.pg_cron && cronProbe.data.pg_net ? 'ok' : 'warn',
+            `pg_cron: ${cronProbe.data.pg_cron ? 'aan' : 'uit'}, pg_net: ${cronProbe.data.pg_net ? 'aan' : 'uit'}`
+          );
+        } else if (cronProbe.status === 404) {
+          addCheck('cron-health', 'Cron RPC', 'warn', 'cron_health RPC ontbreekt (push base schema migrations).');
+        } else {
+          addCheck('cron-health', 'Cron RPC', 'warn', `cron_health faalde (${cronProbe.status}).`);
+        }
+      }
+
+      sendJson(res, 200, { ok: true, checks });
+    } catch (error) {
+      sendJson(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Onbekende fout' });
+    }
     return;
   }
 
@@ -354,7 +959,21 @@ const server = createServer(async (req, res) => {
         teamleaderClientSecret: sanitizeString(data.teamleaderClientSecret),
         teamleaderRedirectUrl: sanitizeString(data.teamleaderRedirectUrl),
         teamleaderScopes: sanitizeString(data.teamleaderScopes),
-        teamleaderEnabled: Boolean(data.enableTeamleader),
+        teamleaderEnabled: Boolean(data.teamleaderEnabled ?? data.enableTeamleader),
+        metaAccessToken: sanitizeString(data.metaAccessToken),
+        metaAdAccountId: sanitizeString(data.metaAdAccountId),
+        metaTimezone: sanitizeString(data.metaTimezone),
+        metaEnabled: Boolean(data.metaEnabled ?? data.enableMetaSpend),
+        googleSpendMode: sanitizeString(data.googleSpendMode),
+        googleDeveloperToken: sanitizeString(data.googleDeveloperToken),
+        googleClientId: sanitizeString(data.googleClientId),
+        googleClientSecret: sanitizeString(data.googleClientSecret),
+        googleRefreshToken: sanitizeString(data.googleRefreshToken),
+        googleCustomerId: sanitizeString(data.googleCustomerId),
+        googleLoginCustomerId: sanitizeString(data.googleLoginCustomerId),
+        googleTimezone: sanitizeString(data.googleTimezone),
+        sheetCsvUrl: sanitizeString(data.sheetCsvUrl),
+        sheetHeaderRow: sanitizeString(data.sheetHeaderRow),
         createBranch: Boolean(data.createBranch),
         pushBranch: Boolean(data.pushBranch),
         branchName: sanitizeString(data.branchName),
@@ -388,7 +1007,8 @@ const server = createServer(async (req, res) => {
         netlifySyncEnv: Boolean(data.netlifySyncEnv),
         netlifyReplaceEnv: Boolean(data.netlifyReplaceEnv),
         netlifyCreateDnsRecord: Boolean(data.netlifyCreateDnsRecord),
-        netlifyTriggerDeploy: Boolean(data.netlifyTriggerDeploy)
+        netlifyTriggerDeploy: Boolean(data.netlifyTriggerDeploy),
+        writeDashboardEnv: Boolean(data.writeDashboardEnv)
       };
 
       applyEnvDefaults(payload);
@@ -437,6 +1057,14 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+      lastOnboardingState = {
+        supabaseUrl: payload.supabaseUrl,
+        projectRef: payload.projectRef,
+        locationId: payload.locationId,
+        serviceRoleKey: payload.serviceRoleKey,
+        publishableKey: payload.publishableKey
+      };
+
       const args = buildArgs(payload);
       isRunning = true;
 
@@ -451,18 +1079,352 @@ const server = createServer(async (req, res) => {
         stderr += chunk.toString();
       });
 
-      child.on('close', (code) => {
+      child.on('close', async (code) => {
         isRunning = false;
+        let dashboardEnv = null;
+        if (code === 0 && payload.writeDashboardEnv) {
+          try {
+            dashboardEnv = await writeDashboardEnvFile(payload);
+          } catch (error) {
+            dashboardEnv = {
+              ok: false,
+              error: error instanceof Error ? error.message : 'Dashboard env schrijven faalde.'
+            };
+          }
+        }
         sendJson(res, 200, {
           ok: code === 0,
           exitCode: code,
           stdout,
-          stderr
+          stderr,
+          dashboardEnv
         });
       });
     } catch (error) {
       isRunning = false;
       sendJson(res, 500, { error: error instanceof Error ? error.message : 'Onbekende fout' });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/api/cron-install') {
+    try {
+      const rawBody = await readBody(req);
+      const data = JSON.parse(rawBody || '{}');
+      const context = resolveOnboardingContext(data);
+
+      if (!context.supabaseUrl || !context.projectRef) {
+        sendJson(res, 400, { ok: false, error: 'Supabase URL of project ref ontbreekt.' });
+        return;
+      }
+
+      const serviceRoleKey =
+        sanitizeString(data.serviceRoleKey) ||
+        context.serviceRoleKey ||
+        process.env.SUPABASE_SERVICE_ROLE_JWT ||
+        process.env.SUPABASE_SECRET_KEY ||
+        '';
+
+      if (!serviceRoleKey) {
+        sendJson(res, 400, { ok: false, error: 'Server key ontbreekt (sb_secret_ of legacy eyJ).' });
+        return;
+      }
+
+      const syncSecret = sanitizeString(data.syncSecret);
+      const enableTeamleader = Boolean(data.teamleaderEnabled);
+      const enableMeta = Boolean(data.metaEnabled);
+      const googleMode = sanitizeString(data.googleSpendMode).toLowerCase() || 'none';
+
+      const rpcPayload = {
+        project_ref: context.projectRef,
+        enable_teamleader: enableTeamleader,
+        enable_meta: enableMeta,
+        google_mode: googleMode,
+        sync_secret: syncSecret || null,
+        meta_sync_secret: syncSecret || null
+      };
+
+      const rpcResult = await callRpc(context.supabaseUrl, serviceRoleKey, 'setup_cron_jobs', rpcPayload);
+      if (!rpcResult.ok) {
+        const message =
+          rpcResult.status === 404
+            ? 'setup_cron_jobs RPC ontbreekt. Run eerst base schema migrations (supabase db push).'
+            : rpcResult.status === 401 || rpcResult.status === 403
+              ? 'Server key lijkt ongeldig (401/403).'
+              : `Cron install faalde (${rpcResult.status}).`;
+        sendJson(res, rpcResult.status || 500, { ok: false, error: message, details: rpcResult.data || rpcResult.raw });
+        return;
+      }
+
+      if (rpcResult.data?.ok === false) {
+        sendJson(res, 500, { ok: false, error: rpcResult.data?.error || 'Cron install faalde.', details: rpcResult.data });
+        return;
+      }
+
+      sendJson(res, 200, { ok: true, data: rpcResult.data });
+    } catch (error) {
+      sendJson(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Onbekende fout' });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/api/health-check') {
+    try {
+      const rawBody = await readBody(req);
+      const data = JSON.parse(rawBody || '{}');
+      const context = resolveOnboardingContext(data);
+
+      const locationId = sanitizeString(data.locationId) || context.locationId || '';
+      const serviceRoleKey =
+        sanitizeString(data.serviceRoleKey) ||
+        context.serviceRoleKey ||
+        process.env.SUPABASE_SERVICE_ROLE_JWT ||
+        process.env.SUPABASE_SECRET_KEY ||
+        '';
+
+      const wantsTeamleader = Boolean(data.teamleaderEnabled);
+      const wantsMeta = Boolean(data.metaEnabled);
+      const googleMode = sanitizeString(data.googleSpendMode).toLowerCase() || 'none';
+      const expectsGoogle = googleMode === 'api' || googleMode === 'sheet';
+      const expectsCron = Boolean(data.installCronSchedules);
+
+      const checks = [];
+      const addCheck = (id, label, status, details) => {
+        checks.push({ id, label, status, details: String(details ?? '').trim() });
+      };
+
+      if (!context.supabaseUrl || !context.projectRef) {
+        addCheck('project', 'Supabase project', 'error', 'Supabase URL of project ref ontbreekt.');
+        sendJson(res, 200, { ok: true, checks });
+        return;
+      }
+
+      if (!locationId) {
+        addCheck('location', 'Location ID', 'error', 'Location ID ontbreekt.');
+      } else {
+        addCheck('location', 'Location ID', 'ok', locationId);
+      }
+
+      if (!serviceRoleKey) {
+        addCheck('server-key', 'Server key', 'error', 'Server key ontbreekt (sb_secret_ of legacy eyJ).');
+        sendJson(res, 200, { ok: true, checks });
+        return;
+      }
+
+      const config = await fetchRestCount(context.supabaseUrl, serviceRoleKey, 'dashboard_config', {
+        select: 'id,location_id,dashboard_title',
+        limit: '1'
+      });
+      if (!config.ok) {
+        addCheck(
+          'dashboard-config',
+          'dashboard_config',
+          config.status === 404 ? 'error' : config.status === 401 || config.status === 403 ? 'error' : 'warn',
+          config.status === 404
+            ? 'dashboard_config ontbreekt. Run base schema migrations.'
+            : config.status === 401 || config.status === 403
+              ? 'Server key lijkt ongeldig (401/403).'
+              : `Supabase REST faalde (${config.status}).`
+        );
+      } else {
+        const row = Array.isArray(config.data) && config.data.length ? config.data[0] : null;
+        if (!row) {
+          addCheck('dashboard-config', 'dashboard_config', 'warn', 'Geen config row gevonden (apply config?).');
+        } else if (locationId && row.location_id && row.location_id !== locationId) {
+          addCheck(
+            'dashboard-config',
+            'dashboard_config',
+            'warn',
+            `Location mismatch: dashboard_config.location_id=${row.location_id} (wizard=${locationId}).`
+          );
+        } else {
+          addCheck(
+            'dashboard-config',
+            'dashboard_config',
+            'ok',
+            row.dashboard_title ? `OK (${row.dashboard_title})` : 'OK'
+          );
+        }
+      }
+
+      const countTable = async (id, label, table, query, { warnIfZero = true } = {}) => {
+        const result = await fetchRestCount(context.supabaseUrl, serviceRoleKey, table, query);
+        if (!result.ok) {
+          addCheck(
+            id,
+            label,
+            result.status === 404 ? 'error' : 'warn',
+            result.status === 404 ? `${table} ontbreekt (run base schema).` : `Query faalde (${result.status}).`
+          );
+          return { ok: false, count: null };
+        }
+        const count = result.count ?? null;
+        if (warnIfZero && count === 0) {
+          addCheck(id, label, 'warn', 'Geen rows gevonden (run sync?).');
+        } else {
+          addCheck(id, label, 'ok', count === null ? 'OK' : `Rows: ${count}`);
+        }
+        return { ok: true, count };
+      };
+
+      const locFilter = locationId ? { location_id: `eq.${locationId}` } : {};
+      await countTable('contacts', 'Contacts', 'contacts', { select: 'id', ...locFilter, limit: '1' });
+      await countTable('opportunities', 'Opportunities', 'opportunities', { select: 'id', ...locFilter, limit: '1' });
+      await countTable('appointments', 'Appointments', 'appointments', { select: 'id', ...locFilter, limit: '1' });
+
+      const view = await fetchRestCount(context.supabaseUrl, serviceRoleKey, 'opportunities_view', {
+        select: 'id',
+        ...locFilter,
+        limit: '1'
+      });
+      if (!view.ok) {
+        addCheck(
+          'opportunities-view',
+          'opportunities_view',
+          view.status === 404 ? 'error' : 'warn',
+          view.status === 404 ? 'opportunities_view ontbreekt. Run base schema migrations.' : `Query faalde (${view.status}).`
+        );
+      } else {
+        addCheck('opportunities-view', 'opportunities_view', 'ok', 'OK');
+      }
+
+      const now = new Date();
+      const start = new Date(now);
+      start.setDate(start.getDate() - 30);
+      const startDate = toDateOnly(start);
+
+      const metaSpend = await fetchRestCount(context.supabaseUrl, serviceRoleKey, 'marketing_spend_daily', {
+        select: 'date',
+        ...locFilter,
+        source: 'eq.META',
+        date: startDate ? `gte.${startDate}` : null,
+        limit: '1'
+      });
+      if (!metaSpend.ok) {
+        addCheck(
+          'meta-spend',
+          'Marketing spend (META)',
+          metaSpend.status === 404 ? 'error' : 'warn',
+          metaSpend.status === 404 ? 'marketing_spend_daily ontbreekt.' : `Query faalde (${metaSpend.status}).`
+        );
+      } else if (wantsMeta && (metaSpend.count ?? 0) === 0) {
+        addCheck('meta-spend', 'Marketing spend (META)', 'warn', 'Geen META spend rows in laatste 30 dagen.');
+      } else {
+        addCheck(
+          'meta-spend',
+          'Marketing spend (META)',
+          'ok',
+          metaSpend.count === null ? 'OK' : `Rows (30d): ${metaSpend.count}`
+        );
+      }
+
+      const googleSpend = await fetchRestCount(context.supabaseUrl, serviceRoleKey, 'marketing_spend_daily', {
+        select: 'date',
+        ...locFilter,
+        source: 'eq.Google Ads',
+        date: startDate ? `gte.${startDate}` : null,
+        limit: '1'
+      });
+      if (!googleSpend.ok) {
+        addCheck(
+          'google-spend',
+          'Marketing spend (Google Ads)',
+          googleSpend.status === 404 ? 'error' : 'warn',
+          googleSpend.status === 404 ? 'marketing_spend_daily ontbreekt.' : `Query faalde (${googleSpend.status}).`
+        );
+      } else if (expectsGoogle && (googleSpend.count ?? 0) === 0) {
+        addCheck('google-spend', 'Marketing spend (Google Ads)', 'warn', 'Geen Google Ads spend rows in laatste 30 dagen.');
+      } else {
+        addCheck(
+          'google-spend',
+          'Marketing spend (Google Ads)',
+          'ok',
+          googleSpend.count === null ? 'OK' : `Rows (30d): ${googleSpend.count}`
+        );
+      }
+
+      const mapping = await fetchRestCount(context.supabaseUrl, serviceRoleKey, 'marketing_spend_source_mapping', {
+        select: 'id',
+        ...locFilter,
+        limit: '1'
+      });
+      if (!mapping.ok) {
+        addCheck(
+          'spend-mapping',
+          'Spend mapping',
+          mapping.status === 404 ? 'error' : 'warn',
+          mapping.status === 404 ? 'marketing_spend_source_mapping ontbreekt.' : `Query faalde (${mapping.status}).`
+        );
+      } else if ((metaSpend.count ?? 0) > 0 || (googleSpend.count ?? 0) > 0) {
+        addCheck(
+          'spend-mapping',
+          'Spend mapping',
+          (mapping.count ?? 0) === 0 ? 'warn' : 'ok',
+          (mapping.count ?? 0) === 0
+            ? 'Geen mapping rows. Vul mapping in via dashboard (Leadkosten mapping UI).'
+            : mapping.count === null
+              ? 'OK'
+              : `Rows: ${mapping.count}`
+        );
+      } else {
+        addCheck('spend-mapping', 'Spend mapping', 'ok', mapping.count === null ? 'OK' : `Rows: ${mapping.count}`);
+      }
+
+      if (wantsTeamleader) {
+        const integration = await fetchRestCount(context.supabaseUrl, serviceRoleKey, 'teamleader_integrations', {
+          select: 'location_id',
+          ...locFilter,
+          limit: '1'
+        });
+        if (!integration.ok) {
+          addCheck(
+            'teamleader',
+            'Teamleader integratie',
+            integration.status === 404 ? 'warn' : 'warn',
+            integration.status === 404 ? 'teamleader_integrations ontbreekt.' : `Query faalde (${integration.status}).`
+          );
+        } else {
+          addCheck(
+            'teamleader',
+            'Teamleader integratie',
+            (integration.count ?? 0) === 0 ? 'warn' : 'ok',
+            (integration.count ?? 0) === 0 ? 'Geen koppeling gevonden (OAuth nog niet afgerond?).' : 'OK'
+          );
+        }
+      }
+
+      const cron = await callRpc(context.supabaseUrl, serviceRoleKey, 'cron_health', {});
+      if (cron.ok && cron.data?.ok) {
+        const hasCron = Boolean(cron.data.pg_cron);
+        const hasNet = Boolean(cron.data.pg_net);
+        const jobs = Array.isArray(cron.data.jobs) ? cron.data.jobs : [];
+        const names = new Set(jobs.map((job) => String(job?.jobname ?? '')));
+
+        const expected = new Set(['ghl-sync-15m']);
+        if (wantsTeamleader) expected.add('teamleader-sync-15m');
+        if (wantsMeta) expected.add('meta-sync-daily');
+        if (expectsGoogle && googleMode === 'api') expected.add('google-sync-daily');
+        if (expectsGoogle && googleMode === 'sheet') expected.add('google-sheet-sync-daily');
+
+        const missing = Array.from(expected).filter((name) => name && !names.has(name));
+        if (!hasCron || !hasNet) {
+          addCheck('cron', 'Cron extensions', 'warn', `pg_cron: ${hasCron ? 'aan' : 'uit'}, pg_net: ${hasNet ? 'aan' : 'uit'}`);
+        } else if (expectsCron && missing.length) {
+          addCheck('cron', 'Cron jobs', 'warn', `Jobs ontbreken: ${missing.join(', ')}`);
+        } else if (missing.length) {
+          addCheck('cron', 'Cron jobs', 'warn', `Niet alle jobs gevonden: ${missing.join(', ')}`);
+        } else {
+          addCheck('cron', 'Cron jobs', 'ok', `${jobs.length} jobs gevonden.`);
+        }
+      } else if (cron.status === 404) {
+        addCheck('cron', 'Cron jobs', 'warn', 'cron_health RPC ontbreekt (push base schema migrations).');
+      } else {
+        addCheck('cron', 'Cron jobs', 'warn', `cron_health faalde (${cron.status}).`);
+      }
+
+      sendJson(res, 200, { ok: true, checks });
+    } catch (error) {
+      sendJson(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Onbekende fout' });
     }
     return;
   }
@@ -493,8 +1455,28 @@ const server = createServer(async (req, res) => {
         headers['x-sync-secret'] = syncSecret;
       }
 
+      const initialWindowRaw = data.initialWindowDays ?? data.initial_window_days;
+      const initialWindowDays = Number(initialWindowRaw);
+
+      const requestBody = {};
+      if (Array.isArray(data.entities)) {
+        const entities = data.entities.map(sanitizeString).filter(Boolean);
+        if (entities.length) {
+          requestBody.entities = entities;
+        }
+      } else if (typeof data.entities === 'string' && data.entities.trim()) {
+        requestBody.entities = data.entities.trim();
+      }
+      if (Number.isFinite(initialWindowDays) && initialWindowDays > 0) {
+        requestBody.initial_window_days = Math.floor(initialWindowDays);
+      }
+
       isSyncing = true;
-      const response = await fetch(syncUrl, { method: 'POST', headers });
+      const response = await fetch(syncUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(requestBody)
+      });
       const text = await response.text();
       let parsed = null;
       try {
@@ -521,13 +1503,316 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === 'POST' && req.url === '/api/meta-sync') {
+    if (isMetaSyncing) {
+      sendJson(res, 409, { ok: false, error: 'Er draait al een Meta sync.' });
+      return;
+    }
+
+    try {
+      const rawBody = await readBody(req);
+      const data = JSON.parse(rawBody || '{}');
+      const supabaseUrl = sanitizeString(data.supabaseUrl);
+      const explicitRef = sanitizeString(data.projectRef);
+      const projectRef = explicitRef || extractProjectRef(supabaseUrl);
+      if (!projectRef) {
+        sendJson(res, 400, { ok: false, error: 'Supabase URL of project ref ontbreekt.' });
+        return;
+      }
+
+      const syncSecret =
+        sanitizeString(data.syncSecret) ||
+        process.env.META_SYNC_SECRET ||
+        process.env.SYNC_SECRET ||
+        '';
+
+      const lookbackDaysRaw = data.lookbackDays ?? data.lookback_days;
+      const endOffsetDaysRaw = data.endOffsetDays ?? data.end_offset_days;
+      const lookbackDays = Number(lookbackDaysRaw ?? 7);
+      const endOffsetDays = Number(endOffsetDaysRaw ?? 1);
+
+      const syncUrl = `https://${projectRef}.supabase.co/functions/v1/meta-sync`;
+      const headers = { 'Content-Type': 'application/json' };
+      if (syncSecret) {
+        headers['x-sync-secret'] = syncSecret;
+      }
+
+      isMetaSyncing = true;
+      const response = await fetch(syncUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          lookback_days: Number.isFinite(lookbackDays) ? Math.max(1, Math.floor(lookbackDays)) : 7,
+          end_offset_days: Number.isFinite(endOffsetDays) ? Math.max(0, Math.floor(endOffsetDays)) : 1
+        })
+      });
+
+      const text = await response.text();
+      let parsed = null;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = null;
+      }
+
+      if (!response.ok) {
+        sendJson(res, response.status, { ok: false, status: response.status, error: parsed || text });
+        return;
+      }
+
+      sendJson(res, 200, { ok: true, status: response.status, data: parsed || text });
+    } catch (error) {
+      sendJson(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Onbekende fout' });
+    } finally {
+      isMetaSyncing = false;
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/api/google-sync') {
+    if (isGoogleSyncing) {
+      sendJson(res, 409, { ok: false, error: 'Er draait al een Google sync.' });
+      return;
+    }
+
+    try {
+      const rawBody = await readBody(req);
+      const data = JSON.parse(rawBody || '{}');
+      const supabaseUrl = sanitizeString(data.supabaseUrl);
+      const explicitRef = sanitizeString(data.projectRef);
+      const projectRef = explicitRef || extractProjectRef(supabaseUrl);
+      if (!projectRef) {
+        sendJson(res, 400, { ok: false, error: 'Supabase URL of project ref ontbreekt.' });
+        return;
+      }
+
+      const lookbackDaysRaw = data.lookbackDays ?? data.lookback_days;
+      const endOffsetDaysRaw = data.endOffsetDays ?? data.end_offset_days;
+      const lookbackDays = Number(lookbackDaysRaw ?? 7);
+      const endOffsetDays = Number(endOffsetDaysRaw ?? 1);
+
+      const syncUrl = `https://${projectRef}.supabase.co/functions/v1/google-sync`;
+      isGoogleSyncing = true;
+      const response = await fetch(syncUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lookback_days: Number.isFinite(lookbackDays) ? Math.max(1, Math.floor(lookbackDays)) : 7,
+          end_offset_days: Number.isFinite(endOffsetDays) ? Math.max(0, Math.floor(endOffsetDays)) : 1
+        })
+      });
+
+      const text = await response.text();
+      let parsed = null;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = null;
+      }
+
+      if (!response.ok) {
+        sendJson(res, response.status, { ok: false, status: response.status, error: parsed || text });
+        return;
+      }
+
+      sendJson(res, 200, { ok: true, status: response.status, data: parsed || text });
+    } catch (error) {
+      sendJson(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Onbekende fout' });
+    } finally {
+      isGoogleSyncing = false;
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/api/google-sheet-sync') {
+    if (isGoogleSheetSyncing) {
+      sendJson(res, 409, { ok: false, error: 'Er draait al een Google Sheet sync.' });
+      return;
+    }
+
+    try {
+      const rawBody = await readBody(req);
+      const data = JSON.parse(rawBody || '{}');
+      const supabaseUrl = sanitizeString(data.supabaseUrl);
+      const explicitRef = sanitizeString(data.projectRef);
+      const projectRef = explicitRef || extractProjectRef(supabaseUrl);
+      if (!projectRef) {
+        sendJson(res, 400, { ok: false, error: 'Supabase URL of project ref ontbreekt.' });
+        return;
+      }
+
+      const lookbackDaysRaw = data.lookbackDays ?? data.lookback_days;
+      const endOffsetDaysRaw = data.endOffsetDays ?? data.end_offset_days;
+      const lookbackDays = Number(lookbackDaysRaw ?? 7);
+      const endOffsetDays = Number(endOffsetDaysRaw ?? 1);
+
+      const syncUrl = `https://${projectRef}.supabase.co/functions/v1/google-sheet-sync`;
+      isGoogleSheetSyncing = true;
+      const response = await fetch(syncUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lookback_days: Number.isFinite(lookbackDays) ? Math.max(1, Math.floor(lookbackDays)) : 7,
+          end_offset_days: Number.isFinite(endOffsetDays) ? Math.max(0, Math.floor(endOffsetDays)) : 1
+        })
+      });
+
+      const text = await response.text();
+      let parsed = null;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = null;
+      }
+
+      if (!response.ok) {
+        sendJson(res, response.status, { ok: false, status: response.status, error: parsed || text });
+        return;
+      }
+
+      sendJson(res, 200, { ok: true, status: response.status, data: parsed || text });
+    } catch (error) {
+      sendJson(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Onbekende fout' });
+    } finally {
+      isGoogleSheetSyncing = false;
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/api/teamleader-status') {
+    try {
+      const rawBody = await readBody(req);
+      const data = JSON.parse(rawBody || '{}');
+      const context = resolveOnboardingContext(data);
+
+      if (!context.supabaseUrl || !context.locationId) {
+        sendJson(res, 400, { ok: false, error: 'Supabase URL en location ID zijn vereist.' });
+        return;
+      }
+      if (!context.serviceRoleKey) {
+        sendJson(res, 400, { ok: false, error: 'Service role key ontbreekt.' });
+        return;
+      }
+
+      const url = new URL(`${context.supabaseUrl}/rest/v1/teamleader_integrations`);
+      url.searchParams.set('select', 'location_id,scope,expires_at');
+      url.searchParams.set('location_id', `eq.${context.locationId}`);
+      url.searchParams.set('limit', '1');
+
+      const response = await fetch(url.toString(), {
+        headers: buildSupabaseRestHeaders(context.serviceRoleKey)
+      });
+      const payload = await response.json();
+
+      if (!response.ok) {
+        sendJson(res, response.status, { ok: false, error: payload || 'Status check faalde.' });
+        return;
+      }
+
+      const integration = Array.isArray(payload) && payload.length ? payload[0] : null;
+      sendJson(res, 200, { ok: true, connected: Boolean(integration), integration });
+    } catch (error) {
+      sendJson(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Onbekende fout' });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/api/teamleader-sync') {
+    if (isTeamleaderSyncing) {
+      sendJson(res, 409, { ok: false, error: 'Er draait al een Teamleader sync.' });
+      return;
+    }
+
+    try {
+      const rawBody = await readBody(req);
+      const data = JSON.parse(rawBody || '{}');
+      const context = resolveOnboardingContext(data);
+
+      if (!context.projectRef) {
+        sendJson(res, 400, { ok: false, error: 'Supabase URL of project ref ontbreekt.' });
+        return;
+      }
+
+      const entities = sanitizeString(data.entities);
+      const lookbackMonths = data.lookbackMonths ? Number(data.lookbackMonths) : null;
+      const syncSecret = sanitizeString(data.syncSecret) || process.env.SYNC_SECRET || '';
+
+      const syncUrl = new URL(`https://${context.projectRef}.supabase.co/functions/v1/teamleader-sync`);
+      if (context.locationId) syncUrl.searchParams.set('location_id', context.locationId);
+      if (entities) syncUrl.searchParams.set('entities', entities);
+      if (lookbackMonths && Number.isFinite(lookbackMonths)) {
+        syncUrl.searchParams.set('lookback_months', String(lookbackMonths));
+      }
+
+      const headers = { 'Content-Type': 'application/json' };
+      if (syncSecret) {
+        headers['x-sync-secret'] = syncSecret;
+      }
+
+      isTeamleaderSyncing = true;
+      const response = await fetch(syncUrl.toString(), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          location_id: context.locationId || undefined,
+          entities: entities || undefined,
+          lookback_months: lookbackMonths || undefined
+        })
+      });
+
+      const text = await response.text();
+      let parsed = null;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = null;
+      }
+
+      if (!response.ok) {
+        sendJson(res, response.status, { ok: false, status: response.status, error: parsed || text });
+        return;
+      }
+
+      sendJson(res, 200, { ok: true, status: response.status, data: parsed || text });
+    } catch (error) {
+      sendJson(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Onbekende fout' });
+    } finally {
+      isTeamleaderSyncing = false;
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/api/dashboard-start') {
+    try {
+      const result = await startDashboardDevServer();
+      if (!result.ok) {
+        sendJson(res, 500, { ok: false, ...result });
+        return;
+      }
+      const ready = await checkDashboardReady();
+      sendJson(res, 200, { ok: true, ready, ...result });
+    } catch (error) {
+      sendJson(res, 500, { ok: false, error: error instanceof Error ? error.message : 'Onbekende fout' });
+    }
+    return;
+  }
+
+  if (req.method === 'GET' && req.url === '/api/dashboard-status') {
+    const ready = await checkDashboardReady();
+    sendJson(res, 200, { ok: true, ready });
+    return;
+  }
+
   if (req.method === 'GET' && req.url === '/api/env-hints') {
     sendJson(res, 200, {
       supabaseAccessToken: Boolean(process.env.SUPABASE_ACCESS_TOKEN),
       netlifyAuthToken: Boolean(process.env.NETLIFY_AUTH_TOKEN),
       supabaseServiceRoleJwt: Boolean(process.env.SUPABASE_SERVICE_ROLE_JWT || process.env.SUPABASE_SECRET_KEY),
       githubToken: Boolean(process.env.GITHUB_TOKEN),
-      syncSecret: Boolean(process.env.SYNC_SECRET)
+      syncSecret: Boolean(process.env.SYNC_SECRET),
+      metaAccessToken: Boolean(process.env.META_ACCESS_TOKEN),
+      googleDeveloperToken: Boolean(process.env.GOOGLE_ADS_DEVELOPER_TOKEN),
+      sheetCsvUrl: Boolean(process.env.SHEET_CSV_URL)
     });
     return;
   }

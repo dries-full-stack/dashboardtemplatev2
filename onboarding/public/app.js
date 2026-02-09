@@ -1,14 +1,18 @@
-const form = document.getElementById('onboard-form');
+﻿const form = document.getElementById('onboard-form');
 const output = document.getElementById('output');
 const statusNode = document.getElementById('status');
 const runBtn = document.getElementById('run-btn');
 const advancedToggle = document.getElementById('advancedMode');
 const teamleaderToggle = document.getElementById('enableTeamleader');
+const metaToggle = document.getElementById('enableMetaSpend');
 const netlifyToggle = document.getElementById('enableNetlify');
 
 const advancedSections = Array.from(document.querySelectorAll('[data-advanced]:not([data-netlify])'));
 const advancedNetlifySections = Array.from(document.querySelectorAll('[data-advanced][data-netlify]'));
 const teamleaderSections = Array.from(document.querySelectorAll('[data-teamleader]'));
+const metaSections = Array.from(document.querySelectorAll('[data-meta]'));
+const googleApiSections = Array.from(document.querySelectorAll('[data-google-api]'));
+const googleSheetSections = Array.from(document.querySelectorAll('[data-google-sheet]'));
 const netlifySections = Array.from(document.querySelectorAll('[data-netlify]:not([data-advanced])'));
 const manualKeySections = Array.from(document.querySelectorAll('[data-manual-keys]'));
 const dbPasswordLabel = document.querySelector('[data-db-password]');
@@ -40,13 +44,49 @@ const netlifyCheckBtn = document.getElementById('netlifyCheck');
 const netlifyStatusNode = document.getElementById('netlifyStatus');
 const teamleaderAction = document.getElementById('teamleaderAction');
 const teamleaderLink = document.getElementById('teamleaderLink');
+const teamleaderSyncAction = document.getElementById('teamleaderSyncAction');
+const teamleaderSyncNowBtn = document.getElementById('teamleaderSyncNow');
+const teamleaderSyncStatusNode = document.getElementById('teamleaderSyncStatus');
 const syncAction = document.getElementById('syncAction');
 const syncNowBtn = document.getElementById('syncNow');
 const syncStatusNode = document.getElementById('syncStatus');
+const metaSyncAction = document.getElementById('metaSyncAction');
+const metaSyncNowBtn = document.getElementById('metaSyncNow');
+const metaSyncStatusNode = document.getElementById('metaSyncStatus');
+const googleSyncAction = document.getElementById('googleSyncAction');
+const googleSyncNowBtn = document.getElementById('googleSyncNow');
+const googleSyncStatusNode = document.getElementById('googleSyncStatus');
+const googleSheetSyncAction = document.getElementById('googleSheetSyncAction');
+const googleSheetSyncNowBtn = document.getElementById('googleSheetSyncNow');
+const googleSheetSyncStatusNode = document.getElementById('googleSheetSyncStatus');
+const cronInstallAction = document.getElementById('cronInstallAction');
+const cronInstallNowBtn = document.getElementById('cronInstallNow');
+const cronInstallStatusNode = document.getElementById('cronInstallStatus');
+const healthCard = document.getElementById('healthCard');
+const healthRunBtn = document.getElementById('healthRun');
+const healthStatusNode = document.getElementById('healthStatus');
+const healthContentNode = document.getElementById('healthContent');
+const dashboardStatusNode = document.getElementById('dashboardStatus');
+const teamleaderAutoSyncInput = form?.querySelector('[name="teamleaderAutoSync"]');
+const sourceSuggestRefreshBtn = document.getElementById('sourceSuggestRefresh');
+const sourceSuggestStatusNode = document.getElementById('sourceSuggestStatus');
+const sourceSuggestContentNode = document.getElementById('sourceSuggestContent');
+const preflightRunBtn = document.getElementById('preflightRun');
+const preflightStatusNode = document.getElementById('preflightStatus');
+const preflightContentNode = document.getElementById('preflightContent');
 
 const BASIC_STORAGE_KEY = 'onboard-basic';
 const BASIC_FIELDS = ['slug', 'supabaseUrl', 'locationId', 'dashboardTitle', 'dashboardSubtitle', 'logoUrl'];
-const BASIC_CHECKS = ['dashboardLead', 'dashboardSales', 'dashboardCallCenter'];
+const BASIC_CHECKS = [
+  'dashboardLead',
+  'dashboardSales',
+  'dashboardCallCenter',
+  'autoGhlSync',
+  'autoMetaSync',
+  'autoGoogleSpendSync',
+  'installCronSchedules',
+  'autoHealthCheck'
+];
 const DEFAULT_CUSTOM_DOMAIN_SUFFIX = 'profitpulse.be';
 const DEFAULT_NETLIFY_SITE_PREFIX = 'dashboard-';
 let currentStep = 1;
@@ -56,9 +96,13 @@ let envHints = {
   netlifyAuthToken: false,
   supabaseServiceRoleJwt: false,
   githubToken: false,
-  syncSecret: false
+  syncSecret: false,
+  metaAccessToken: false,
+  googleDeveloperToken: false,
+  sheetCsvUrl: false
 };
 let lastPayload = null;
+let teamleaderAutoRunning = false;
 
 const setHidden = (node, hidden) => {
   if (!node) return;
@@ -107,13 +151,56 @@ const setAdvancedMode = (enabled) => {
 const setTeamleaderEnabled = (enabled) => {
   toggleGroup(teamleaderSections, enabled);
   if (!enabled) {
-    clearFields(['teamleaderClientId', 'teamleaderClientSecret', 'teamleaderRedirectUrl', 'teamleaderScopes']);
+    clearFields([
+      'teamleaderClientId',
+      'teamleaderClientSecret',
+      'teamleaderRedirectUrl',
+      'teamleaderScopes',
+      'teamleaderAutoSync'
+    ]);
     if (teamleaderRedirectInput) {
       teamleaderRedirectInput.dataset.userEdited = 'false';
       teamleaderRedirectInput.dataset.autoValue = '';
     }
   }
   updateTeamleaderRedirect();
+};
+
+const getGoogleSpendMode = () => {
+  const input = form?.querySelector('[name="googleSpendMode"]:checked');
+  const raw = (input?.value || '').toString().trim().toLowerCase();
+  return raw || 'none';
+};
+
+const setMetaEnabled = (enabled) => {
+  toggleGroup(metaSections, enabled);
+  if (!enabled) {
+    clearFields(['metaAccessToken', 'metaAdAccountId', 'metaTimezone']);
+  }
+};
+
+const setGoogleSpendMode = (mode) => {
+  const normalized = (mode || '').toString().trim().toLowerCase();
+  const isApi = normalized === 'api';
+  const isSheet = normalized === 'sheet';
+
+  toggleGroup(googleApiSections, isApi);
+  toggleGroup(googleSheetSections, isSheet);
+
+  if (!isApi) {
+    clearFields([
+      'googleDeveloperToken',
+      'googleClientId',
+      'googleClientSecret',
+      'googleRefreshToken',
+      'googleCustomerId',
+      'googleLoginCustomerId',
+      'googleTimezone'
+    ]);
+  }
+  if (!isSheet) {
+    clearFields(['sheetCsvUrl', 'sheetHeaderRow']);
+  }
 };
 
 const setNetlifyEnabled = (enabled) => {
@@ -273,6 +360,60 @@ const setSyncAction = (enabled) => {
   }
 };
 
+const setMetaSyncAction = (enabled) => {
+  if (!metaSyncAction) return;
+  metaSyncAction.classList.toggle('hidden', !enabled);
+  if (!enabled && metaSyncStatusNode) {
+    metaSyncStatusNode.textContent = '';
+    metaSyncStatusNode.classList.remove('ok', 'warn', 'error');
+  }
+};
+
+const setGoogleSyncAction = (enabled) => {
+  if (!googleSyncAction) return;
+  googleSyncAction.classList.toggle('hidden', !enabled);
+  if (!enabled && googleSyncStatusNode) {
+    googleSyncStatusNode.textContent = '';
+    googleSyncStatusNode.classList.remove('ok', 'warn', 'error');
+  }
+};
+
+const setGoogleSheetSyncAction = (enabled) => {
+  if (!googleSheetSyncAction) return;
+  googleSheetSyncAction.classList.toggle('hidden', !enabled);
+  if (!enabled && googleSheetSyncStatusNode) {
+    googleSheetSyncStatusNode.textContent = '';
+    googleSheetSyncStatusNode.classList.remove('ok', 'warn', 'error');
+  }
+};
+
+const setCronInstallAction = (enabled) => {
+  if (!cronInstallAction) return;
+  cronInstallAction.classList.toggle('hidden', !enabled);
+  if (!enabled && cronInstallStatusNode) {
+    cronInstallStatusNode.textContent = '';
+    cronInstallStatusNode.classList.remove('ok', 'warn', 'error');
+  }
+};
+
+const setHealthCardVisible = (visible) => {
+  if (!healthCard) return;
+  healthCard.classList.toggle('hidden', !visible);
+  if (!visible) {
+    setHealthStatus('');
+    if (healthContentNode) healthContentNode.innerHTML = '';
+  }
+};
+
+const setTeamleaderSyncAction = (enabled) => {
+  if (!teamleaderSyncAction) return;
+  teamleaderSyncAction.classList.toggle('hidden', !enabled);
+  if (!enabled && teamleaderSyncStatusNode) {
+    teamleaderSyncStatusNode.textContent = '';
+    teamleaderSyncStatusNode.classList.remove('ok', 'warn', 'error');
+  }
+};
+
 const splitDomain = (domain) => {
   const clean = normalizeDomain(domain);
   if (!clean) return { host: '', apex: '' };
@@ -399,6 +540,136 @@ const buildTestLinks = () => {
   ].join('\n');
 };
 
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const buildTeamleaderSyncPayload = () => ({
+  projectRef: extractProjectRef(supabaseUrlInput?.value || ''),
+  supabaseUrl: supabaseUrlInput?.value || '',
+  locationId: getFieldValue('locationId'),
+  syncSecret: getFieldValue('syncSecret'),
+  serviceRoleKey: getFieldValue('serviceRoleKey')
+});
+
+const checkTeamleaderIntegration = async () => {
+  const payload = buildTeamleaderSyncPayload();
+  if (!payload.projectRef || !payload.locationId) {
+    return { ok: false, connected: false, error: 'Supabase URL of location ID ontbreekt.' };
+  }
+
+  const response = await fetch('/api/teamleader-status', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  const result = await response.json();
+  if (!response.ok) {
+    return { ok: false, connected: false, error: result?.error || 'Status check faalde.' };
+  }
+  return result;
+};
+
+const triggerTeamleaderSync = async () => {
+  const payload = buildTeamleaderSyncPayload();
+  if (!payload.projectRef || !payload.locationId) {
+    setTeamleaderSyncStatus('Vul een geldige Supabase URL en location ID in.', 'error');
+    return { ok: false };
+  }
+
+  setTeamleaderSyncStatus('Teamleader sync gestart...', 'muted');
+  if (teamleaderSyncNowBtn) teamleaderSyncNowBtn.disabled = true;
+
+  try {
+    const response = await fetch('/api/teamleader-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const result = await response.json();
+    if (!response.ok || !result?.ok) {
+      const detail = result?.error ? ` (${result.error})` : '';
+      setTeamleaderSyncStatus(`Sync faalde${detail}`, 'error');
+      return { ok: false, result };
+    }
+
+    const summary = result?.data?.results
+      ? Object.entries(result.data.results)
+          .map(([key, value]) => `${key}: ${value}`)
+          .join(', ')
+      : '';
+    setTeamleaderSyncStatus(summary ? `Sync klaar: ${summary}` : 'Sync klaar.', 'ok');
+    return { ok: true, result };
+  } catch (error) {
+    setTeamleaderSyncStatus(error instanceof Error ? error.message : 'Sync faalde.', 'error');
+    return { ok: false, error };
+  } finally {
+    if (teamleaderSyncNowBtn) teamleaderSyncNowBtn.disabled = false;
+  }
+};
+
+const waitForTeamleaderIntegration = async (timeoutMs = 10 * 60 * 1000, intervalMs = 5000) => {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const result = await checkTeamleaderIntegration();
+    if (result?.connected) return result;
+    await wait(intervalMs);
+  }
+  return { ok: false, connected: false, error: 'Timeout: koppeling niet gevonden.' };
+};
+
+const startTeamleaderAutopilot = async () => {
+  if (teamleaderAutoRunning) return;
+  teamleaderAutoRunning = true;
+  const url = buildTeamleaderStartUrl();
+  if (url) {
+    const win = window.open(url, '_blank', 'noopener,noreferrer');
+    if (!win) {
+      setTeamleaderSyncStatus('Popup geblokkeerd. Klik op "Koppel Teamleader".', 'warn');
+    }
+  }
+
+  setTeamleaderSyncStatus('Wachten op Teamleader koppeling...', 'muted');
+  const status = await waitForTeamleaderIntegration();
+  if (!status?.connected) {
+    const detail = status?.error ? ` (${status.error})` : '';
+    setTeamleaderSyncStatus(`Geen koppeling gevonden${detail}`, 'warn');
+    teamleaderAutoRunning = false;
+    return;
+  }
+
+  setTeamleaderSyncStatus('Koppeling ok. Sync gestart...', 'muted');
+  await triggerTeamleaderSync();
+  teamleaderAutoRunning = false;
+};
+
+const waitForDashboardReady = async (timeoutMs = 60000, intervalMs = 1500) => {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const response = await fetch('/api/dashboard-status');
+      const result = await response.json();
+      if (result?.ready) return true;
+    } catch {
+      // ignore
+    }
+    await wait(intervalMs);
+  }
+  return false;
+};
+
+const startDashboardDev = async () => {
+  try {
+    const response = await fetch('/api/dashboard-start', { method: 'POST' });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || result?.ok === false) {
+      return { ok: false, error: result?.error || 'Dashboard start faalde.' };
+    }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : 'Dashboard start faalde.' };
+  }
+  const ready = await waitForDashboardReady();
+  return { ok: ready };
+};
+
 const setNetlifyStatus = (text, tone = 'muted') => {
   if (!netlifyStatusNode) return;
   netlifyStatusNode.textContent = text;
@@ -415,6 +686,608 @@ const setSyncStatus = (text, tone = 'muted') => {
   if (tone === 'ok') syncStatusNode.classList.add('ok');
   if (tone === 'warn') syncStatusNode.classList.add('warn');
   if (tone === 'error') syncStatusNode.classList.add('error');
+};
+
+const setMetaSyncStatus = (text, tone = 'muted') => {
+  if (!metaSyncStatusNode) return;
+  metaSyncStatusNode.textContent = text;
+  metaSyncStatusNode.classList.remove('ok', 'warn', 'error');
+  if (tone === 'ok') metaSyncStatusNode.classList.add('ok');
+  if (tone === 'warn') metaSyncStatusNode.classList.add('warn');
+  if (tone === 'error') metaSyncStatusNode.classList.add('error');
+};
+
+const setGoogleSyncStatus = (text, tone = 'muted') => {
+  if (!googleSyncStatusNode) return;
+  googleSyncStatusNode.textContent = text;
+  googleSyncStatusNode.classList.remove('ok', 'warn', 'error');
+  if (tone === 'ok') googleSyncStatusNode.classList.add('ok');
+  if (tone === 'warn') googleSyncStatusNode.classList.add('warn');
+  if (tone === 'error') googleSyncStatusNode.classList.add('error');
+};
+
+const setGoogleSheetSyncStatus = (text, tone = 'muted') => {
+  if (!googleSheetSyncStatusNode) return;
+  googleSheetSyncStatusNode.textContent = text;
+  googleSheetSyncStatusNode.classList.remove('ok', 'warn', 'error');
+  if (tone === 'ok') googleSheetSyncStatusNode.classList.add('ok');
+  if (tone === 'warn') googleSheetSyncStatusNode.classList.add('warn');
+  if (tone === 'error') googleSheetSyncStatusNode.classList.add('error');
+};
+
+const setCronInstallStatus = (text, tone = 'muted') => {
+  if (!cronInstallStatusNode) return;
+  cronInstallStatusNode.textContent = text;
+  cronInstallStatusNode.classList.remove('ok', 'warn', 'error');
+  if (tone === 'ok') cronInstallStatusNode.classList.add('ok');
+  if (tone === 'warn') cronInstallStatusNode.classList.add('warn');
+  if (tone === 'error') cronInstallStatusNode.classList.add('error');
+};
+
+const setPreflightStatus = (text, tone = 'muted') => {
+  if (!preflightStatusNode) return;
+  preflightStatusNode.textContent = text;
+  preflightStatusNode.classList.remove('ok', 'warn', 'error');
+  if (tone === 'ok') preflightStatusNode.classList.add('ok');
+  if (tone === 'warn') preflightStatusNode.classList.add('warn');
+  if (tone === 'error') preflightStatusNode.classList.add('error');
+};
+
+const setHealthStatus = (text, tone = 'muted') => {
+  if (!healthStatusNode) return;
+  healthStatusNode.textContent = text;
+  healthStatusNode.classList.remove('ok', 'warn', 'error');
+  if (tone === 'ok') healthStatusNode.classList.add('ok');
+  if (tone === 'warn') healthStatusNode.classList.add('warn');
+  if (tone === 'error') healthStatusNode.classList.add('error');
+};
+
+const triggerGhlSync = async ({
+  fullSync = false,
+  initialWindowDays = 60,
+  entities = ['contacts', 'opportunities', 'appointments', 'lost_reasons'],
+  statusText = 'Sync gestart...'
+} = {}) => {
+  const ref = extractProjectRef(supabaseUrlInput?.value || '');
+  if (!ref) {
+    setSyncStatus('Vul een geldige Supabase URL in.', 'error');
+    return { ok: false };
+  }
+
+  if (syncNowBtn) syncNowBtn.disabled = true;
+  setSyncStatus(statusText, 'muted');
+
+  const safeInitialWindowDays = Number.isFinite(Number(initialWindowDays)) ? Number(initialWindowDays) : 0;
+
+  try {
+    const response = await fetch('/api/ghl-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        projectRef: ref,
+        supabaseUrl: supabaseUrlInput?.value || '',
+        syncSecret: getFieldValue('syncSecret'),
+        fullSync: Boolean(fullSync),
+        initialWindowDays: safeInitialWindowDays > 0 ? safeInitialWindowDays : undefined,
+        entities
+      })
+    });
+
+    const result = await response.json();
+    if (!response.ok || !result?.ok) {
+      const detail = result?.error ? ` (${result.error})` : '';
+      setSyncStatus(`Sync faalde${detail}`, 'error');
+      return { ok: false, result };
+    }
+
+    const summary = result?.data?.results
+      ? Object.entries(result.data.results)
+          .map(([key, value]) => `${key}: ${value}`)
+          .join(', ')
+      : '';
+    setSyncStatus(summary ? `Sync klaar: ${summary}` : 'Sync klaar.', 'ok');
+    return { ok: true, result };
+  } catch (error) {
+    setSyncStatus(error instanceof Error ? error.message : 'Sync faalde.', 'error');
+    return { ok: false, error };
+  } finally {
+    if (syncNowBtn) syncNowBtn.disabled = false;
+  }
+};
+
+const triggerMetaSync = async ({ lookbackDays = 7, endOffsetDays = 1 } = {}) => {
+  const ref = extractProjectRef(supabaseUrlInput?.value || '');
+  if (!ref) {
+    setMetaSyncStatus('Vul een geldige Supabase URL in.', 'error');
+    return { ok: false };
+  }
+
+  if (metaSyncNowBtn) metaSyncNowBtn.disabled = true;
+  setMetaSyncStatus('Meta sync gestart...', 'muted');
+
+  try {
+    const response = await fetch('/api/meta-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        projectRef: ref,
+        supabaseUrl: supabaseUrlInput?.value || '',
+        syncSecret: getFieldValue('syncSecret'),
+        lookbackDays,
+        endOffsetDays
+      })
+    });
+
+    const result = await response.json();
+    if (!response.ok || !result?.ok) {
+      const detail = result?.error ? ` (${result.error})` : '';
+      setMetaSyncStatus(`Sync faalde${detail}`, 'error');
+      return { ok: false, result };
+    }
+
+    const upserted = Number(result?.data?.upserted ?? result?.data?.upserted_daily ?? 0);
+    const summary = upserted ? `Upserted: ${upserted}` : '';
+    setMetaSyncStatus(summary ? `Sync klaar: ${summary}` : 'Sync klaar.', 'ok');
+    return { ok: true, result };
+  } catch (error) {
+    setMetaSyncStatus(error instanceof Error ? error.message : 'Sync faalde.', 'error');
+    return { ok: false, error };
+  } finally {
+    if (metaSyncNowBtn) metaSyncNowBtn.disabled = false;
+  }
+};
+
+const triggerGoogleSync = async ({ lookbackDays = 7, endOffsetDays = 1 } = {}) => {
+  const ref = extractProjectRef(supabaseUrlInput?.value || '');
+  if (!ref) {
+    setGoogleSyncStatus('Vul een geldige Supabase URL in.', 'error');
+    return { ok: false };
+  }
+
+  if (googleSyncNowBtn) googleSyncNowBtn.disabled = true;
+  setGoogleSyncStatus('Google sync gestart...', 'muted');
+
+  try {
+    const response = await fetch('/api/google-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        projectRef: ref,
+        supabaseUrl: supabaseUrlInput?.value || '',
+        lookbackDays,
+        endOffsetDays
+      })
+    });
+
+    const result = await response.json();
+    if (!response.ok || !result?.ok) {
+      const detail = result?.error ? ` (${result.error})` : '';
+      setGoogleSyncStatus(`Sync faalde${detail}`, 'error');
+      return { ok: false, result };
+    }
+
+    const upserted = Number(result?.data?.upserted ?? 0);
+    const summary = upserted ? `Upserted: ${upserted}` : '';
+    setGoogleSyncStatus(summary ? `Sync klaar: ${summary}` : 'Sync klaar.', 'ok');
+    return { ok: true, result };
+  } catch (error) {
+    setGoogleSyncStatus(error instanceof Error ? error.message : 'Sync faalde.', 'error');
+    return { ok: false, error };
+  } finally {
+    if (googleSyncNowBtn) googleSyncNowBtn.disabled = false;
+  }
+};
+
+const triggerGoogleSheetSync = async ({ lookbackDays = 7, endOffsetDays = 1 } = {}) => {
+  const ref = extractProjectRef(supabaseUrlInput?.value || '');
+  if (!ref) {
+    setGoogleSheetSyncStatus('Vul een geldige Supabase URL in.', 'error');
+    return { ok: false };
+  }
+
+  if (googleSheetSyncNowBtn) googleSheetSyncNowBtn.disabled = true;
+  setGoogleSheetSyncStatus('Sheet sync gestart...', 'muted');
+
+  try {
+    const response = await fetch('/api/google-sheet-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        projectRef: ref,
+        supabaseUrl: supabaseUrlInput?.value || '',
+        lookbackDays,
+        endOffsetDays
+      })
+    });
+
+    const result = await response.json();
+    if (!response.ok || !result?.ok) {
+      const detail = result?.error ? ` (${result.error})` : '';
+      setGoogleSheetSyncStatus(`Sync faalde${detail}`, 'error');
+      return { ok: false, result };
+    }
+
+    const daily = Number(result?.data?.upserted_daily ?? 0);
+    const campaigns = Number(result?.data?.upserted_campaigns ?? 0);
+    const summary = daily || campaigns ? `Daily: ${daily}, Campaigns: ${campaigns}` : '';
+    setGoogleSheetSyncStatus(summary ? `Sync klaar: ${summary}` : 'Sync klaar.', 'ok');
+    return { ok: true, result };
+  } catch (error) {
+    setGoogleSheetSyncStatus(error instanceof Error ? error.message : 'Sync faalde.', 'error');
+    return { ok: false, error };
+  } finally {
+    if (googleSheetSyncNowBtn) googleSheetSyncNowBtn.disabled = false;
+  }
+};
+
+const triggerCronInstall = async () => {
+  const projectRef = extractProjectRef(supabaseUrlInput?.value || '');
+  if (!projectRef) {
+    setCronInstallStatus('Vul een geldige Supabase URL in.', 'error');
+    return { ok: false };
+  }
+
+  if (cronInstallNowBtn) cronInstallNowBtn.disabled = true;
+  setCronInstallStatus('Cron install gestart...', 'muted');
+
+  try {
+    const response = await fetch('/api/cron-install', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        projectRef,
+        supabaseUrl: supabaseUrlInput?.value || '',
+        locationId: getFieldValue('locationId'),
+        serviceRoleKey: getFieldValue('serviceRoleKey'),
+        accessToken: getFieldValue('accessToken'),
+        syncSecret: getFieldValue('syncSecret'),
+        teamleaderEnabled: Boolean(teamleaderToggle?.checked),
+        metaEnabled: Boolean(metaToggle?.checked),
+        googleSpendMode: getGoogleSpendMode()
+      })
+    });
+
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result?.ok) {
+      const detail = result?.error ? ` (${result.error})` : '';
+      setCronInstallStatus(`Cron install faalde${detail}`, 'error');
+      return { ok: false, result };
+    }
+
+    const jobs = result?.data?.jobs && typeof result.data.jobs === 'object' ? Object.keys(result.data.jobs) : [];
+    const summary = jobs.length ? `Jobs: ${jobs.join(', ')}` : '';
+    setCronInstallStatus(summary ? `Cron klaar: ${summary}` : 'Cron klaar.', 'ok');
+    return { ok: true, result };
+  } catch (error) {
+    setCronInstallStatus(error instanceof Error ? error.message : 'Cron install faalde.', 'error');
+    return { ok: false, error };
+  } finally {
+    if (cronInstallNowBtn) cronInstallNowBtn.disabled = false;
+  }
+};
+
+const triggerHealthCheck = async () => {
+  const projectRef = extractProjectRef(supabaseUrlInput?.value || '');
+  if (!projectRef) {
+    setHealthStatus('Vul een geldige Supabase URL in.', 'error');
+    return { ok: false };
+  }
+
+  if (healthRunBtn) healthRunBtn.disabled = true;
+  setHealthStatus('Health check bezig...', 'muted');
+  if (healthContentNode) healthContentNode.innerHTML = '';
+
+  try {
+    const response = await fetch('/api/health-check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        projectRef,
+        supabaseUrl: supabaseUrlInput?.value || '',
+        locationId: getFieldValue('locationId'),
+        serviceRoleKey: getFieldValue('serviceRoleKey'),
+        accessToken: getFieldValue('accessToken'),
+        teamleaderEnabled: Boolean(teamleaderToggle?.checked),
+        metaEnabled: Boolean(metaToggle?.checked),
+        googleSpendMode: getGoogleSpendMode(),
+        installCronSchedules: isFieldChecked('installCronSchedules')
+      })
+    });
+
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result?.ok) {
+      const checks = Array.isArray(result?.checks) ? result.checks : [];
+      renderCheckTable(healthContentNode, checks);
+      const detail = result?.error ? ` (${result.error})` : '';
+      setHealthStatus(`Health check faalde${detail}`, 'error');
+      return { ok: false, result };
+    }
+
+    const checks = Array.isArray(result?.checks) ? result.checks : [];
+    renderCheckTable(healthContentNode, checks);
+    const tone = worstCheckTone(checks);
+    setHealthStatus(
+      tone === 'error' ? 'Health check met fouten.' : tone === 'warn' ? 'Health check met waarschuwingen.' : 'Health check OK.',
+      tone
+    );
+    return { ok: true, result };
+  } catch (error) {
+    setHealthStatus(error instanceof Error ? error.message : 'Health check faalde.', 'error');
+    return { ok: false, error };
+  } finally {
+    if (healthRunBtn) healthRunBtn.disabled = false;
+  }
+};
+
+const setTeamleaderSyncStatus = (text, tone = 'muted') => {
+  if (!teamleaderSyncStatusNode) return;
+  teamleaderSyncStatusNode.textContent = text;
+  teamleaderSyncStatusNode.classList.remove('ok', 'warn', 'error');
+  if (tone === 'ok') teamleaderSyncStatusNode.classList.add('ok');
+  if (tone === 'warn') teamleaderSyncStatusNode.classList.add('warn');
+  if (tone === 'error') teamleaderSyncStatusNode.classList.add('error');
+};
+
+const setDashboardStatus = (text, tone = 'muted') => {
+  if (!dashboardStatusNode) return;
+  dashboardStatusNode.textContent = text;
+  dashboardStatusNode.classList.remove('ok', 'warn', 'error');
+  if (tone === 'ok') dashboardStatusNode.classList.add('ok');
+  if (tone === 'warn') dashboardStatusNode.classList.add('warn');
+  if (tone === 'error') dashboardStatusNode.classList.add('error');
+};
+
+const escapeHtml = (value) =>
+  String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+const normalizeCheckTone = (value) => {
+  const raw = String(value ?? '')
+    .trim()
+    .toLowerCase();
+  if (raw === 'ok' || raw === 'success') return 'ok';
+  if (raw === 'warn' || raw === 'warning') return 'warn';
+  if (raw === 'error' || raw === 'fail' || raw === 'failed') return 'error';
+  return 'muted';
+};
+
+const worstCheckTone = (checks = []) => {
+  const items = Array.isArray(checks) ? checks : [];
+  let hasWarn = false;
+  for (const check of items) {
+    const tone = normalizeCheckTone(check?.status ?? check?.tone);
+    if (tone === 'error') return 'error';
+    if (tone === 'warn') hasWarn = true;
+  }
+  return hasWarn ? 'warn' : 'ok';
+};
+
+const renderCheckTable = (container, checks = []) => {
+  if (!container) return;
+  const items = Array.isArray(checks) ? checks : [];
+  if (!items.length) {
+    container.innerHTML = '<p class="muted">Geen checks beschikbaar.</p>';
+    return;
+  }
+
+  const rows = items
+    .map((item) => {
+      const label = escapeHtml(item?.label ?? item?.name ?? item?.id ?? '-');
+      const tone = normalizeCheckTone(item?.status ?? item?.tone);
+      const statusText = tone === 'ok' ? 'OK' : tone === 'warn' ? 'WARN' : tone === 'error' ? 'ERROR' : '-';
+      const statusHtml =
+        tone === 'muted'
+          ? `<span class="status-inline">${statusText}</span>`
+          : `<span class="status-inline ${tone}">${statusText}</span>`;
+      const detailsRaw = String(item?.details ?? item?.detail ?? item?.message ?? '');
+      const details = escapeHtml(detailsRaw).replace(/\n/g, '<br />') || '-';
+      return `
+        <tr>
+          <td>${label}</td>
+          <td>${statusHtml}</td>
+          <td>${details}</td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  container.innerHTML = `
+    <table class="normalization-table">
+      <thead>
+        <tr>
+          <th>Check</th>
+          <th>Status</th>
+          <th>Details</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+};
+
+const setSourceSuggestStatus = (text, tone = 'muted') => {
+  if (!sourceSuggestStatusNode) return;
+  sourceSuggestStatusNode.textContent = text;
+  sourceSuggestStatusNode.classList.remove('ok', 'warn', 'error');
+  if (tone === 'ok') sourceSuggestStatusNode.classList.add('ok');
+  if (tone === 'warn') sourceSuggestStatusNode.classList.add('warn');
+  if (tone === 'error') sourceSuggestStatusNode.classList.add('error');
+};
+
+let sourceSuggestState = { status: 'idle', key: '', inFlight: false };
+
+const renderSourceSuggestions = (result) => {
+  if (!sourceSuggestContentNode) return;
+  if (!result?.ok) {
+    sourceSuggestContentNode.innerHTML = '';
+    return;
+  }
+
+  const sampled = Number(result?.sampledRows ?? 0);
+  const sources = Array.isArray(result?.sources) ? result.sources : [];
+  const buckets = Array.isArray(result?.buckets) ? result.buckets : [];
+
+  if (!sources.length) {
+    sourceSuggestContentNode.innerHTML = `
+      <p class="muted">
+        Geen bronnen gevonden. Run eerst een GHL sync en klik opnieuw op "Vernieuw voorstel".
+      </p>
+    `;
+    return;
+  }
+
+  const pills = buckets
+    .map(
+      (bucket) =>
+        `<span class="pill"><span>${escapeHtml(bucket.bucket)}</span><strong>${escapeHtml(bucket.count)}</strong></span>`
+    )
+    .join('');
+
+  const rows = sources
+    .map(
+      (row) => `
+      <tr>
+        <td>${escapeHtml(row.raw)}</td>
+        <td>${escapeHtml(row.suggested)}</td>
+        <td>${escapeHtml(row.count)}</td>
+      </tr>
+    `
+    )
+    .join('');
+
+  sourceSuggestContentNode.innerHTML = `
+    <div class="pill-row">${pills}</div>
+    <p class="muted">Sample: ${escapeHtml(sampled)} opportunities (meest recente).</p>
+    <table class="normalization-table">
+      <thead>
+        <tr>
+          <th>Ruwe bron</th>
+          <th>Voorstel</th>
+          <th>Leads</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+};
+
+const loadSourceSuggestions = async (options = {}) => {
+  if (!sourceSuggestRefreshBtn || !sourceSuggestContentNode) return;
+  if (!form) return;
+
+  const projectRef = extractProjectRef(supabaseUrlInput?.value || '');
+  const locationId = getFieldValue('locationId');
+  const serviceRoleKey = getFieldValue('serviceRoleKey');
+  const accessToken = getFieldValue('accessToken');
+  const hasAccessToken = Boolean(accessToken) || Boolean(envHints?.supabaseAccessToken);
+  const key = `${projectRef}|${locationId}`;
+
+  if (!projectRef || !locationId) {
+    setSourceSuggestStatus('Vul eerst Supabase URL en location ID in.', 'warn');
+    sourceSuggestContentNode.innerHTML = '';
+    return;
+  }
+
+  if (!serviceRoleKey && !hasAccessToken) {
+    setSourceSuggestStatus('Vul "Server key" of "Supabase access token" in om bronnen te kunnen ophalen.', 'warn');
+    sourceSuggestContentNode.innerHTML = '';
+    return;
+  }
+
+  if (!options.force && sourceSuggestState.status === 'ready' && sourceSuggestState.key === key) {
+    return;
+  }
+  if (sourceSuggestState.inFlight && sourceSuggestState.key === key) return;
+
+  sourceSuggestState = { status: 'loading', key, inFlight: true };
+  sourceSuggestRefreshBtn.disabled = true;
+  setSourceSuggestStatus('Voorstel laden...', 'muted');
+
+  try {
+    const response = await fetch('/api/source-suggestions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        projectRef,
+        supabaseUrl: supabaseUrlInput?.value || '',
+        locationId,
+        serviceRoleKey,
+        accessToken
+      })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result?.ok) {
+      const errorMessage = result?.error || 'Voorstel ophalen faalde.';
+      setSourceSuggestStatus(errorMessage, 'warn');
+      sourceSuggestContentNode.innerHTML = '';
+      sourceSuggestState = { status: 'error', key, inFlight: false };
+      return;
+    }
+
+    setSourceSuggestStatus('Voorstel klaar.', 'ok');
+    sourceSuggestState = { status: 'ready', key, inFlight: false };
+    renderSourceSuggestions(result);
+  } catch (error) {
+    setSourceSuggestStatus(error instanceof Error ? error.message : 'Voorstel ophalen faalde.', 'error');
+    sourceSuggestContentNode.innerHTML = '';
+    sourceSuggestState = { status: 'error', key, inFlight: false };
+  } finally {
+    sourceSuggestRefreshBtn.disabled = false;
+  }
+};
+
+const runPreflightChecks = async () => {
+  if (!form) return { ok: false };
+
+  if (preflightRunBtn) preflightRunBtn.disabled = true;
+  setPreflightStatus('Checks bezig...', 'muted');
+  if (preflightContentNode) preflightContentNode.innerHTML = '';
+
+  try {
+    const payload = {
+      ...buildPayload(),
+      runMigrations: isFieldChecked('runMigrations'),
+      netlifyEnabled: Boolean(netlifyToggle?.checked),
+      installCronSchedules: isFieldChecked('installCronSchedules'),
+      autoHealthCheck: isFieldChecked('autoHealthCheck'),
+      syncSecret: getFieldValue('syncSecret'),
+      teamleaderEnabled: Boolean(teamleaderToggle?.checked),
+      metaEnabled: Boolean(metaToggle?.checked),
+      googleSpendMode: getGoogleSpendMode()
+    };
+
+    const response = await fetch('/api/preflight', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    const result = await response.json().catch(() => ({}));
+    const checks = Array.isArray(result?.checks) ? result.checks : [];
+    renderCheckTable(preflightContentNode, checks);
+
+    if (!response.ok || !result?.ok) {
+      const detail = result?.error ? ` (${result.error})` : '';
+      setPreflightStatus(`Preflight faalde${detail}`, 'error');
+      return { ok: false, result };
+    }
+
+    const tone = worstCheckTone(checks);
+    setPreflightStatus(
+      tone === 'error' ? 'Preflight met fouten.' : tone === 'warn' ? 'Preflight met waarschuwingen.' : 'Preflight OK.',
+      tone
+    );
+    return { ok: true, result };
+  } catch (error) {
+    setPreflightStatus(error instanceof Error ? error.message : 'Preflight faalde.', 'error');
+    return { ok: false, error };
+  } finally {
+    if (preflightRunBtn) preflightRunBtn.disabled = false;
+  }
 };
 
 const interpretNetlifyStatus = (result) => {
@@ -466,6 +1339,21 @@ const buildPayload = () => {
     teamleaderRedirectUrl: getValue('teamleaderRedirectUrl'),
     teamleaderScopes: getValue('teamleaderScopes'),
     teamleaderEnabled: Boolean(teamleaderToggle?.checked),
+    teamleaderAutoSync: isChecked('teamleaderAutoSync'),
+    metaEnabled: Boolean(metaToggle?.checked),
+    metaAccessToken: getValue('metaAccessToken'),
+    metaAdAccountId: getValue('metaAdAccountId'),
+    metaTimezone: getValue('metaTimezone'),
+    googleSpendMode: getValue('googleSpendMode'),
+    googleDeveloperToken: getValue('googleDeveloperToken'),
+    googleClientId: getValue('googleClientId'),
+    googleClientSecret: getValue('googleClientSecret'),
+    googleRefreshToken: getValue('googleRefreshToken'),
+    googleCustomerId: getValue('googleCustomerId'),
+    googleLoginCustomerId: getValue('googleLoginCustomerId'),
+    googleTimezone: getValue('googleTimezone'),
+    sheetCsvUrl: getValue('sheetCsvUrl'),
+    sheetHeaderRow: getValue('sheetHeaderRow'),
     branchName: getValue('branchName'),
     baseBranch: getValue('baseBranch'),
     netlifyAccountSlug: getValue('netlifyAccountSlug'),
@@ -499,7 +1387,9 @@ const buildPayload = () => {
     netlifySetProdBranch: isChecked('netlifySetProdBranch'),
     netlifyCreateDnsRecord: isChecked('netlifyCreateDnsRecord'),
     netlifyReplaceEnv: isChecked('netlifyReplaceEnv'),
-    noLayout: isChecked('noLayout')
+    noLayout: isChecked('noLayout'),
+    writeDashboardEnv: isChecked('writeDashboardEnv'),
+    openDashboard: isChecked('openDashboard')
   };
 };
 
@@ -526,6 +1416,8 @@ const buildSummary = () => {
   if (isFieldChecked('dashboardCallCenter')) dashboards.push('Call Center');
 
   const teamleaderOn = Boolean(teamleaderToggle?.checked);
+  const metaOn = Boolean(metaToggle?.checked);
+  const googleMode = getGoogleSpendMode();
   const netlifyOn = Boolean(netlifyToggle?.checked);
 
   const summaryItems = [
@@ -539,9 +1431,24 @@ const buildSummary = () => {
       label: 'Teamleader client id',
       value: teamleaderOn ? getFieldValue('teamleaderClientId') || '-' : '-'
     },
+    {
+      label: 'Teamleader auto sync',
+      value: teamleaderOn ? yesNo(isFieldChecked('teamleaderAutoSync')) : '-'
+    },
+    { label: 'Meta spend', value: metaOn ? 'Aan' : 'Uit' },
+    { label: 'Meta token', value: metaOn ? maskedWithHint(getFieldValue('metaAccessToken'), 'metaAccessToken') : '-' },
+    { label: 'Meta ad account', value: metaOn ? getFieldValue('metaAdAccountId') || '-' : '-' },
+    { label: 'Google spend', value: googleMode === 'api' ? 'Google Ads API' : googleMode === 'sheet' ? 'Google Sheet' : 'Uit' },
     { label: 'Apply config', value: yesNo(isFieldChecked('applyConfig')) },
     { label: 'Base schema', value: yesNo(isFieldChecked('runMigrations')) },
     { label: 'Deploy functions', value: yesNo(isFieldChecked('deployFunctions')) },
+    { label: 'Dashboard .env', value: yesNo(isFieldChecked('writeDashboardEnv')) },
+    { label: 'Open dashboard', value: yesNo(isFieldChecked('openDashboard')) },
+    { label: 'Auto GHL sync', value: yesNo(isFieldChecked('autoGhlSync')) },
+    { label: 'Auto Meta sync', value: yesNo(isFieldChecked('autoMetaSync')) },
+    { label: 'Auto Google sync', value: yesNo(isFieldChecked('autoGoogleSpendSync')) },
+    { label: 'Cron jobs', value: yesNo(isFieldChecked('installCronSchedules')) },
+    { label: 'Auto health check', value: yesNo(isFieldChecked('autoHealthCheck')) },
     { label: 'Auto fetch keys', value: yesNo(isFieldChecked('autoFetchKeys')) },
     { label: 'Access token', value: maskedWithHint(getFieldValue('accessToken'), 'supabaseAccessToken') },
     { label: 'Server key', value: maskedWithHint(getFieldValue('serviceRoleKey'), 'supabaseServiceRoleJwt') },
@@ -578,10 +1485,14 @@ const loadEnvHints = async () => {
       netlifyAuthToken: Boolean(data?.netlifyAuthToken),
       supabaseServiceRoleJwt: Boolean(data?.supabaseServiceRoleJwt),
       githubToken: Boolean(data?.githubToken),
-      syncSecret: Boolean(data?.syncSecret)
+      syncSecret: Boolean(data?.syncSecret),
+      metaAccessToken: Boolean(data?.metaAccessToken),
+      googleDeveloperToken: Boolean(data?.googleDeveloperToken),
+      sheetCsvUrl: Boolean(data?.sheetCsvUrl)
     };
     if (currentStep === TOTAL_STEPS) {
       buildSummary();
+      loadSourceSuggestions({ force: true });
     }
   } catch {
     // ignore
@@ -603,6 +1514,7 @@ const setStep = (step) => {
   setHidden(submitStepBtn, currentStep !== TOTAL_STEPS);
   if (currentStep === TOTAL_STEPS) {
     buildSummary();
+    loadSourceSuggestions();
   }
   setStatus('', 'muted');
 };
@@ -655,6 +1567,66 @@ const validateStep = (step) => {
     }
   }
 
+  if (step === 3 && metaToggle?.checked) {
+    const token = form?.querySelector('[name="metaAccessToken"]');
+    const account = form?.querySelector('[name="metaAdAccountId"]');
+    const hasToken = Boolean(token?.value?.trim());
+    const hasAccount = Boolean(account?.value?.trim());
+    setInputError(token, !hasToken);
+    setInputError(account, !hasAccount);
+    if (!hasToken || !hasAccount) {
+      setStatus('Meta access token en ad account ID zijn verplicht of zet de toggle uit.', 'error');
+      return false;
+    }
+  }
+
+  if (step === 3) {
+    const mode = getGoogleSpendMode();
+    if (mode === 'api') {
+      const required = [
+        { name: 'googleDeveloperToken', label: 'Google developer token' },
+        { name: 'googleClientId', label: 'Google client id' },
+        { name: 'googleClientSecret', label: 'Google client secret' },
+        { name: 'googleRefreshToken', label: 'Google refresh token' },
+        { name: 'googleCustomerId', label: 'Google customer id' }
+      ];
+      let missing = false;
+      required.forEach((field) => {
+        const input = form?.querySelector(`[name="${field.name}"]`);
+        const hasValue = Boolean(input?.value?.trim());
+        setInputError(input, !hasValue);
+        if (!hasValue) missing = true;
+      });
+      if (missing) {
+        setStatus('Vul de Google Ads API velden in (of kies een andere methode).', 'error');
+        return false;
+      }
+    } else if (mode === 'sheet') {
+      const sheetUrl = form?.querySelector('[name="sheetCsvUrl"]');
+      const hasUrl = Boolean(sheetUrl?.value?.trim());
+      setInputError(sheetUrl, !hasUrl);
+      if (!hasUrl) {
+        setStatus('Google Sheet CSV URL is verplicht (of kies geen Google kosten sync).', 'error');
+        return false;
+      }
+    }
+  }
+
+  if (step === 4) {
+    const wantsCron = isFieldChecked('installCronSchedules');
+    const wantsHealth = isFieldChecked('autoHealthCheck');
+    if (wantsCron || wantsHealth) {
+      const serverKeyInput = form?.querySelector('[name="serviceRoleKey"]');
+      const hasKey = Boolean(serverKeyInput?.value?.trim()) || Boolean(envHints?.supabaseServiceRoleJwt);
+      setInputError(serverKeyInput, !hasKey);
+      if (!hasKey) {
+        setStatus('Server key is vereist voor cron install/health check (of zet die opties uit).', 'error');
+        serverKeyInput?.focus();
+        return false;
+      }
+    }
+  }
+
   return true;
 };
 
@@ -662,6 +1634,8 @@ const initUi = () => {
   loadBasicState();
   setAdvancedMode(Boolean(advancedToggle?.checked));
   setTeamleaderEnabled(Boolean(teamleaderToggle?.checked));
+  setMetaEnabled(Boolean(metaToggle?.checked));
+  setGoogleSpendMode(getGoogleSpendMode());
   setNetlifyEnabled(Boolean(netlifyToggle?.checked));
   setManualKeysVisible(!autoFetchInput?.checked);
   syncAdvancedFromMigrations();
@@ -669,6 +1643,16 @@ const initUi = () => {
   syncNetlifyProdBranch();
   syncBranchAutomation();
   setTeamleaderAction(false);
+  setTeamleaderSyncAction(false);
+  setSyncAction(false);
+  setMetaSyncAction(false);
+  setGoogleSyncAction(false);
+  setGoogleSheetSyncAction(false);
+  setCronInstallAction(false);
+  setHealthCardVisible(false);
+  setPreflightStatus('');
+  if (preflightContentNode) preflightContentNode.innerHTML = '';
+  setDashboardStatus('');
   if (slugInput?.value && netlifyToggle?.checked) {
     updateNetlifySiteName(slugInput.value);
     updateCustomDomain(slugInput.value);
@@ -779,6 +1763,14 @@ netlifyCheckBtn?.addEventListener('click', async () => {
   }
 });
 
+sourceSuggestRefreshBtn?.addEventListener('click', async () => {
+  await loadSourceSuggestions({ force: true });
+});
+
+preflightRunBtn?.addEventListener('click', async () => {
+  await runPreflightChecks();
+});
+
 BASIC_FIELDS.forEach((field) => {
   const input = form?.querySelector(`[name="${field}"]`);
   if (!input || input === slugInput) return;
@@ -798,6 +1790,19 @@ advancedToggle?.addEventListener('change', () => {
 teamleaderToggle?.addEventListener('change', () => {
   setTeamleaderEnabled(teamleaderToggle.checked);
   setTeamleaderAction(false);
+  setTeamleaderSyncAction(false);
+});
+
+metaToggle?.addEventListener('change', () => {
+  setMetaEnabled(metaToggle.checked);
+  buildSummary();
+});
+
+Array.from(form?.querySelectorAll('[name="googleSpendMode"]') ?? []).forEach((input) => {
+  input.addEventListener('change', () => {
+    setGoogleSpendMode(getGoogleSpendMode());
+    buildSummary();
+  });
 });
 
 netlifyToggle?.addEventListener('change', () => {
@@ -839,45 +1844,35 @@ nextStepBtn?.addEventListener('click', () => {
 initUi();
 
 syncNowBtn?.addEventListener('click', async () => {
-  const ref = extractProjectRef(supabaseUrlInput?.value || '');
-  if (!ref) {
-    setSyncStatus('Vul een geldige Supabase URL in.', 'error');
-    return;
-  }
+  await triggerGhlSync({
+    fullSync: false,
+    initialWindowDays: 60,
+    statusText: 'Sync gestart (laatste 60 dagen)...'
+  });
+});
 
-  syncNowBtn.disabled = true;
-  setSyncStatus('Sync gestart...', 'muted');
+metaSyncNowBtn?.addEventListener('click', async () => {
+  await triggerMetaSync();
+});
 
-  try {
-    const response = await fetch('/api/ghl-sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        projectRef: ref,
-        supabaseUrl: supabaseUrlInput?.value || '',
-        syncSecret: getFieldValue('syncSecret'),
-        fullSync: true
-      })
-    });
+googleSyncNowBtn?.addEventListener('click', async () => {
+  await triggerGoogleSync();
+});
 
-    const result = await response.json();
-    if (!response.ok || !result?.ok) {
-      const detail = result?.error ? ` (${result.error})` : '';
-      setSyncStatus(`Sync faalde${detail}`, 'error');
-      return;
-    }
+googleSheetSyncNowBtn?.addEventListener('click', async () => {
+  await triggerGoogleSheetSync();
+});
 
-    const summary = result?.data?.results
-      ? Object.entries(result.data.results)
-          .map(([key, value]) => `${key}: ${value}`)
-          .join(', ')
-      : '';
-    setSyncStatus(summary ? `Sync klaar: ${summary}` : 'Sync klaar.', 'ok');
-  } catch (error) {
-    setSyncStatus(error instanceof Error ? error.message : 'Sync faalde.', 'error');
-  } finally {
-    syncNowBtn.disabled = false;
-  }
+cronInstallNowBtn?.addEventListener('click', async () => {
+  await triggerCronInstall();
+});
+
+healthRunBtn?.addEventListener('click', async () => {
+  await triggerHealthCheck();
+});
+
+teamleaderSyncNowBtn?.addEventListener('click', async () => {
+  await triggerTeamleaderSync();
 });
 
 form.addEventListener('submit', async (event) => {
@@ -914,7 +1909,66 @@ form.addEventListener('submit', async (event) => {
 
     const showTeamleader = result.ok && Boolean(teamleaderToggle?.checked);
     setTeamleaderAction(showTeamleader);
+    setTeamleaderSyncAction(showTeamleader);
     setSyncAction(result.ok);
+    const showMeta = result.ok && Boolean(metaToggle?.checked);
+    const googleMode = getGoogleSpendMode();
+    setMetaSyncAction(showMeta);
+    setGoogleSyncAction(result.ok && googleMode === 'api');
+    setGoogleSheetSyncAction(result.ok && googleMode === 'sheet');
+    setCronInstallAction(result.ok);
+    setHealthCardVisible(result.ok);
+
+    const shouldAutoSync = showTeamleader && isFieldChecked('teamleaderAutoSync');
+    if (shouldAutoSync) {
+      startTeamleaderAutopilot();
+    }
+
+    const shouldAutoGhlSync = result.ok && isFieldChecked('autoGhlSync');
+    if (shouldAutoGhlSync) {
+      await triggerGhlSync({
+        fullSync: false,
+        initialWindowDays: 60,
+        statusText: 'Auto sync gestart (laatste 60 dagen)...'
+      });
+    }
+
+    const shouldAutoMetaSync = showMeta && isFieldChecked('autoMetaSync');
+    if (shouldAutoMetaSync) {
+      await triggerMetaSync();
+    }
+
+    const shouldAutoGoogleSpendSync = result.ok && isFieldChecked('autoGoogleSpendSync');
+    if (shouldAutoGoogleSpendSync) {
+      if (googleMode === 'api') {
+        await triggerGoogleSync();
+      } else if (googleMode === 'sheet') {
+        await triggerGoogleSheetSync();
+      }
+    }
+
+    if (isFieldChecked('openDashboard')) {
+      setDashboardStatus('Dashboard starten...', 'muted');
+      const dashboardStart = await startDashboardDev();
+      if (dashboardStart?.ok) {
+        setDashboardStatus('Dashboard klaar.', 'ok');
+        window.open('http://localhost:5173', '_blank', 'noopener,noreferrer');
+      } else {
+        setDashboardStatus('Dashboard start faalde.', 'error');
+        setStatus('Dashboard kon niet opstarten.', 'error');
+      }
+    }
+
+    const shouldAutoCronInstall = result.ok && isFieldChecked('installCronSchedules');
+    if (shouldAutoCronInstall) {
+      await triggerCronInstall();
+    }
+
+    const shouldAutoHealthCheck = result.ok && isFieldChecked('autoHealthCheck');
+    if (shouldAutoHealthCheck) {
+      await triggerHealthCheck();
+    }
+
 
     const logs = [
       `Exit code: ${result.exitCode}`,
@@ -925,6 +1979,18 @@ form.addEventListener('submit', async (event) => {
       '--- STDERR ---',
       result.stderr || '(leeg)'
     ];
+    if (result?.dashboardEnv) {
+      logs.push('', '--- DASHBOARD ENV ---');
+      if (result.dashboardEnv.ok) {
+        logs.push(`Geschreven: ${result.dashboardEnv.path}`);
+        if (result.dashboardEnv.backupPath) {
+          logs.push(`Backup: ${result.dashboardEnv.backupPath}`);
+        }
+      } else {
+        logs.push(`Fout: ${result.dashboardEnv.error || 'Onbekend'}`);
+      }
+    }
+
 
     const testLinks = buildTestLinks();
     if (testLinks) {
@@ -938,3 +2004,4 @@ form.addEventListener('submit', async (event) => {
     runBtn.disabled = false;
   }
 });
+
