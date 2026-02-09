@@ -916,6 +916,30 @@
   margin-top: 0.25rem;
 }
 
+.drilldown-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+
+.drilldown-toggle-btn {
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  padding: 0.35rem 0.65rem;
+  border-radius: 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+}
+
+.drilldown-toggle-btn.active {
+  border-color: hsl(var(--primary) / 0.4);
+  background: hsl(var(--primary) / 0.12);
+  color: hsl(var(--primary));
+}
+
 .drilldown-close {
   border: 1px solid hsl(var(--border));
   background: transparent;

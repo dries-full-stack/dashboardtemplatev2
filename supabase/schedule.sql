@@ -25,7 +25,10 @@ select
       net.http_post(
         url := 'https://PROJECT_REF.supabase.co/functions/v1/teamleader-sync',
         headers := jsonb_build_object('Content-Type', 'application/json'),
-        body := jsonb_build_object('lookback_months', 12)
+        body := jsonb_build_object(
+          'lookback_months', 12,
+          'entities', array['users','contacts','companies','deal_pipelines','deal_phases','lost_reasons','deals','meetings']
+        )
       ) as request_id;
     $$
   );

@@ -297,7 +297,8 @@ const DRILLDOWN_LABELS = {
   deals: 'Deals',
   hook_leads: 'Leads',
   hook_appointments: 'Afspraken',
-  lost_reason_leads: 'Verloren leads'
+  lost_reason_leads: 'Verloren leads',
+  finance_spend: 'Leadkosten'
 };
 
 const DEFAULT_BOUNDS = { min: '2018-01-01', max: '2035-12-31' };
@@ -570,6 +571,7 @@ const configState = {
   salesMonthlyDealsTargets: null,
   salesQuotesFromPhaseId: null,
   sourceNormalizationRules: null,
+  costPerLeadBySource: null,
   billingPortalUrl: null,
   billingCheckoutUrl: null,
   billingCheckoutEmbed: false,
@@ -587,7 +589,8 @@ const adminState = {
   auth: {
     email: '',
     status: 'idle',
-    message: ''
+    message: '',
+    requested: false
   },
   loading: false,
   form: {
@@ -639,6 +642,14 @@ const adminState = {
     samplesLoading: false,
     hasChanges: false
   },
+  leadCost: {
+    status: 'idle',
+    message: '',
+    loading: false,
+    saving: false,
+    rows: [],
+    hasChanges: false
+  },
   billing: {
     status: 'idle',
     message: '',
@@ -650,6 +661,8 @@ const adminState = {
     hasChanges: false
   }
 };
+
+const isAdminAccessEnabled = () => adminModeEnabled || adminState.auth.requested;
 
 const resetMappingState = () => {
   adminState.mapping = {
@@ -707,6 +720,17 @@ const resetSourceNormalizationState = () => {
   };
 };
 
+const resetLeadCostState = () => {
+  adminState.leadCost = {
+    status: 'idle',
+    message: '',
+    loading: false,
+    saving: false,
+    rows: [],
+    hasChanges: false
+  };
+};
+
 const resetBillingState = () => {
   adminState.billing = {
     status: 'idle',
@@ -728,7 +752,8 @@ const drilldownState = {
   source: null,
   rows: [],
   errorMessage: '',
-  range: null
+  range: null,
+  financeView: 'daily'
 };
 
 let authSession = null;
@@ -747,18 +772,21 @@ const initAuth = async () => {
       adminState.status = 'idle';
       adminState.auth.status = 'idle';
       adminState.auth.message = '';
+      adminState.auth.requested = false;
       resetMappingState();
       resetKpiState();
       resetLostReasonsState();
       resetSourceNormalizationState();
+      resetLeadCostState();
       resetBillingState();
     } else if (adminState.open) {
-      if (adminModeEnabled) {
+      if (isAdminAccessEnabled()) {
         loadAdminIntegration();
         loadSpendMapping();
       }
       loadKpiSettings();
       loadSourceNormalizationSettings();
+      loadLeadCostSettings();
     }
     renderApp();
   });
@@ -832,6 +860,12 @@ const loadLocationConfig = async () => {
       ? data.sales_quotes_from_phase_id.trim()
       : null;
   configState.sourceNormalizationRules = data?.source_normalization_rules ?? null;
+  configState.costPerLeadBySource =
+    data?.cost_per_lead_by_source &&
+    typeof data.cost_per_lead_by_source === 'object' &&
+    !Array.isArray(data.cost_per_lead_by_source)
+      ? data.cost_per_lead_by_source
+      : null;
   configState.billingPortalUrl = normalizeBillingUrl(data?.billing_portal_url);
   configState.billingCheckoutUrl = normalizeBillingUrl(data?.billing_checkout_url);
   configState.billingCheckoutEmbed = data?.billing_checkout_embed === true;
@@ -870,7 +904,7 @@ const loadLocationConfig = async () => {
 };
 
 const loadAdminIntegration = async () => {
-  if (!supabase || !adminEndpoint) return;
+  if (!supabase || !adminEndpoint || !isAdminAccessEnabled()) return;
   const token = await getAuthToken();
   if (!token) {
     adminState.status = 'error';
@@ -916,7 +950,7 @@ const loadAdminIntegration = async () => {
 };
 
 const loadSpendMapping = async () => {
-  if (!supabase || !adminModeEnabled) return;
+  if (!supabase || !isAdminAccessEnabled()) return;
   const activeLocationId = configState.locationId || ghlLocationId;
   if (!activeLocationId) {
     adminState.mapping.status = 'error';
@@ -1138,7 +1172,7 @@ const setMappingValue = (key, value) => {
 };
 
 const saveSpendMapping = async () => {
-  if (!supabase || !adminModeEnabled) return;
+  if (!supabase || !isAdminAccessEnabled()) return;
   if (adminState.mapping.saving) return;
   const activeLocationId = configState.locationId || ghlLocationId;
   if (!activeLocationId) {
@@ -1407,8 +1441,9 @@ const saveKpiSettings = async () => {
   if (!supabase || !settingsEnabled) return;
   if (adminState.kpi.saving) return;
 
-  const kpiOnlyMode = settingsModeEnabled && !adminModeEnabled;
-  if (adminModeEnabled) {
+  const adminAccessEnabled = isAdminAccessEnabled();
+  const kpiOnlyMode = settingsModeEnabled && !adminAccessEnabled;
+  if (adminAccessEnabled) {
     const token = await getAuthToken();
     if (!token) {
       adminState.kpi.status = 'error';
@@ -1462,7 +1497,7 @@ const saveKpiSettings = async () => {
   const lostReasonFieldId = lostReasonFieldIdRaw || null;
 
   const locationId = (configState.locationId || ghlLocationId || adminState.form.locationId || '').trim();
-  if (adminModeEnabled && !locationId) {
+  if (adminAccessEnabled && !locationId) {
     adminState.kpi.status = 'error';
     adminState.kpi.message = 'Location ID ontbreekt. Sla eerst de integratie op.';
     renderApp();
@@ -1870,8 +1905,9 @@ const saveSourceNormalizationSettings = async () => {
   if (!isBelivertSourceBreakdownMode()) return;
   if (adminState.sources.saving) return;
 
-  const kpiOnlyMode = settingsModeEnabled && !adminModeEnabled;
-  if (adminModeEnabled) {
+  const adminAccessEnabled = isAdminAccessEnabled();
+  const kpiOnlyMode = settingsModeEnabled && !adminAccessEnabled;
+  if (adminAccessEnabled) {
     const token = await getAuthToken();
     if (!token) {
       adminState.sources.status = 'error';
@@ -1890,7 +1926,7 @@ const saveSourceNormalizationSettings = async () => {
   }
 
   const locationId = (configState.locationId || ghlLocationId || adminState.form.locationId || '').trim();
-  if (adminModeEnabled && !locationId) {
+  if (adminAccessEnabled && !locationId) {
     adminState.sources.status = 'error';
     adminState.sources.message = 'Location ID ontbreekt. Sla eerst de integratie op.';
     renderApp();
@@ -1977,12 +2013,181 @@ const saveSourceNormalizationSettings = async () => {
   }
 };
 
+const cloneLeadCostRows = (rows) =>
+  (Array.isArray(rows) ? rows : []).map((row) => ({
+    source: normalizeSourceLabel(row?.source),
+    cpl: String(row?.cpl ?? '')
+  }));
+
+const loadLeadCostSettings = async () => {
+  if (!settingsEnabled) return;
+  if (adminState.leadCost.loading) return;
+
+  adminState.leadCost.loading = true;
+  adminState.leadCost.status = 'loading';
+  adminState.leadCost.message = '';
+  renderApp();
+
+  try {
+    const saved = sanitizeCostPerLeadBySource(configState.costPerLeadBySource) || {};
+
+    let sourcesFromLive = [];
+    if (liveState.sourceBreakdown.status === 'ready' && Array.isArray(liveState.sourceBreakdown.rows)) {
+      sourcesFromLive = (liveState.sourceBreakdown.rows || [])
+        .map((row) => ({
+          source: normalizeSourceLabel(row?.source),
+          leads: Number(row?.leads ?? 0)
+        }))
+        .filter((entry) => entry.source)
+        .sort((a, b) => (b.leads ?? 0) - (a.leads ?? 0) || a.source.localeCompare(b.source))
+        .map((entry) => entry.source);
+    }
+
+    const sourcesFromConfig = Object.keys(saved).sort((a, b) => a.localeCompare(b));
+    const combined = [];
+    const add = (value) => {
+      const source = normalizeSourceLabel(value);
+      if (!source) return;
+      if (combined.includes(source)) return;
+      combined.push(source);
+    };
+
+    sourcesFromLive.forEach(add);
+    sourcesFromConfig.forEach(add);
+    if (!combined.length) {
+      getSourceBreakdownOrder().forEach(add);
+    }
+    if (!combined.length) combined.push('');
+
+    adminState.leadCost.rows = combined.map((source) => ({
+      source,
+      cpl: Object.prototype.hasOwnProperty.call(saved, source) ? String(saved[source]) : ''
+    }));
+    adminState.leadCost.rows = cloneLeadCostRows(adminState.leadCost.rows);
+    adminState.leadCost.hasChanges = false;
+    adminState.leadCost.status = 'ready';
+    adminState.leadCost.message = '';
+  } catch (error) {
+    adminState.leadCost.status = 'error';
+    adminState.leadCost.message = error instanceof Error ? error.message : 'Onbekende fout';
+    if (!Array.isArray(adminState.leadCost.rows)) adminState.leadCost.rows = [{ source: '', cpl: '' }];
+  } finally {
+    adminState.leadCost.loading = false;
+    renderApp();
+  }
+};
+
+const saveLeadCostSettings = async () => {
+  if (!supabase || !settingsEnabled) return;
+  if (adminState.leadCost.saving) return;
+
+  const adminAccessEnabled = isAdminAccessEnabled();
+  const kpiOnlyMode = settingsModeEnabled && !adminAccessEnabled;
+  if (adminAccessEnabled) {
+    const token = await getAuthToken();
+    if (!token) {
+      adminState.leadCost.status = 'error';
+      adminState.leadCost.message = 'Log in om leadkosten op te slaan.';
+      renderApp();
+      return;
+    }
+  }
+
+  const cleaned = {};
+  const rows = Array.isArray(adminState.leadCost.rows) ? adminState.leadCost.rows : [];
+  for (const row of rows) {
+    const source = normalizeSourceLabel(row?.source);
+    if (!source) continue;
+    const rawCpl = String(row?.cpl ?? '').trim();
+    if (!rawCpl) continue;
+    const value = Number(rawCpl.replace(',', '.'));
+    if (!Number.isFinite(value) || value < 0) {
+      adminState.leadCost.status = 'error';
+      adminState.leadCost.message = `Ongeldige kost per lead voor ${source}. Gebruik een getal (>= 0) of laat leeg.`;
+      renderApp();
+      return;
+    }
+    cleaned[source] = value;
+  }
+
+  const locationId = (configState.locationId || ghlLocationId || adminState.form.locationId || '').trim();
+  if (adminAccessEnabled && !locationId) {
+    adminState.leadCost.status = 'error';
+    adminState.leadCost.message = 'Location ID ontbreekt. Sla eerst de integratie op.';
+    renderApp();
+    return;
+  }
+
+  adminState.leadCost.saving = true;
+  adminState.leadCost.status = 'saving';
+  adminState.leadCost.message = '';
+  renderApp();
+
+  try {
+    const now = new Date().toISOString();
+    if (kpiOnlyMode) {
+      const { data, error } = await supabase
+        .from('dashboard_config')
+        .update({
+          cost_per_lead_by_source: cleaned,
+          updated_at: now
+        })
+        .eq('id', 1)
+        .select('id')
+        .maybeSingle();
+      if (error) throw error;
+      if (!data?.id) {
+        throw new Error('dashboard_config ontbreekt. Contacteer je dashboardbeheerder.');
+      }
+    } else {
+      const { error } = await supabase
+        .from('dashboard_config')
+        .upsert(
+          {
+            id: 1,
+            location_id: locationId,
+            cost_per_lead_by_source: cleaned,
+            updated_at: now
+          },
+          { onConflict: 'id' }
+        );
+      if (error) throw error;
+    }
+
+    adminState.leadCost.status = 'success';
+    adminState.leadCost.message = 'Leadkosten opgeslagen.';
+    adminState.leadCost.hasChanges = false;
+
+    configState.costPerLeadBySource = cleaned;
+    if (!Array.isArray(adminState.leadCost.rows) || adminState.leadCost.rows.length === 0) {
+      adminState.leadCost.rows = [{ source: '', cpl: '' }];
+    }
+
+    // Finance KPIs depend on these settings.
+    liveState.finance = {
+      status: 'idle',
+      totals: null,
+      rangeKey: '',
+      errorMessage: '',
+      inFlight: false
+    };
+    ensureFinanceSummary(dateRange);
+  } catch (error) {
+    adminState.leadCost.status = 'error';
+    adminState.leadCost.message = error instanceof Error ? error.message : 'Onbekende fout';
+  } finally {
+    adminState.leadCost.saving = false;
+    renderApp();
+  }
+};
+
 const saveBillingSettings = async () => {
   if (!supabase || !settingsEnabled) return;
   if (adminState.billing.saving) return;
 
-  const kpiOnlyMode = settingsModeEnabled && !adminModeEnabled;
-  if (adminModeEnabled) {
+  const adminAccessEnabled = isAdminAccessEnabled();
+  const kpiOnlyMode = settingsModeEnabled && !adminAccessEnabled;
+  if (adminAccessEnabled) {
     const token = await getAuthToken();
     if (!token) {
       adminState.billing.status = 'error';
@@ -2013,7 +2218,7 @@ const saveBillingSettings = async () => {
   }
 
   const locationId = (configState.locationId || ghlLocationId || adminState.form.locationId || '').trim();
-  if (adminModeEnabled && !locationId) {
+  if (adminAccessEnabled && !locationId) {
     adminState.billing.status = 'error';
     adminState.billing.message = 'Location ID ontbreekt. Sla eerst de integratie op.';
     renderApp();
@@ -2128,6 +2333,20 @@ const parseDate = (value) => {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
 };
+const parseStatusChangeAt = (raw, fallback) => {
+  if (raw && typeof raw === 'object') {
+    return (
+      parseDate(raw.lastStatusChangeAt) ||
+      parseDate(raw.last_status_change_at) ||
+      parseDate(raw.statusChangeAt) ||
+      parseDate(raw.status_change_at) ||
+      parseDate(raw.lastStatusChangedAt) ||
+      parseDate(raw.last_status_changed_at) ||
+      parseDate(fallback)
+    );
+  }
+  return parseDate(fallback);
+};
 const diffDays = (later, earlier) => {
   if (!later || !earlier) return null;
   return (later.getTime() - earlier.getTime()) / (1000 * 60 * 60 * 24);
@@ -2238,6 +2457,19 @@ const sanitizeSourceNormalizationRules = (value) => {
     .filter(Boolean);
 
   return cleaned.length ? cleaned : null;
+};
+
+const sanitizeCostPerLeadBySource = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const cleaned = {};
+  Object.entries(value).forEach(([key, raw]) => {
+    const source = normalizeSourceLabel(key);
+    if (!source) return;
+    const num = typeof raw === 'number' ? raw : Number(String(raw ?? '').replace(',', '.'));
+    if (!Number.isFinite(num) || num < 0) return;
+    cleaned[source] = num;
+  });
+  return cleaned;
 };
 
 let belivertNormalizationRules = sanitizeSourceNormalizationRules(DEFAULT_BELIVERT_SOURCE_NORMALIZATION_RULES) ?? [];
@@ -2381,6 +2613,178 @@ const applyStatusFilter = (query, patterns) => {
   return query.or(filter);
 };
 
+const useTeamleaderAppointments = () => isBelivertSourceBreakdownMode();
+
+const fetchTeamleaderMeetingsBatch = async (activeLocationId, startIso, endIso, from = null, to = null) => {
+  let query = supabase
+    .from('teamleader_meetings')
+    .select('id,scheduled_at,customer_type,customer_id,title,description')
+    .eq('location_id', activeLocationId)
+    .gte('scheduled_at', startIso)
+    .lt('scheduled_at', endIso)
+    .order('scheduled_at', { ascending: false });
+  if (Number.isFinite(from) && Number.isFinite(to)) {
+    query = query.range(from, to);
+  }
+  const { data, error } = await withTimeout(
+    query,
+    12000,
+    'Supabase query timeout (teamleader meetings).'
+  );
+  if (error) throw error;
+  return Array.isArray(data) ? data : [];
+};
+
+const hydrateTeamleaderMeetingCustomers = async (activeLocationId, meetings) => {
+  if (!Array.isArray(meetings) || meetings.length === 0) return [];
+
+  const contactIds = new Set();
+  const companyIds = new Set();
+  meetings.forEach((row) => {
+    const id = toTrimmedText(row?.customer_id);
+    const type = toTrimmedText(row?.customer_type);
+    if (!id || !type) return;
+    if (type === 'contact') contactIds.add(id);
+    if (type === 'company') companyIds.add(id);
+  });
+
+  const contactsById = new Map();
+  const companiesById = new Map();
+  const chunkSize = 100;
+
+  const contactIdList = Array.from(contactIds);
+  for (let i = 0; i < contactIdList.length; i += chunkSize) {
+    const chunk = contactIdList.slice(i, i + chunkSize);
+    const { data, error } = await withTimeout(
+      supabase
+        .from('teamleader_contacts')
+        .select('id,first_name,last_name,email')
+        .eq('location_id', activeLocationId)
+        .in('id', chunk),
+      12000,
+      'Supabase query timeout (teamleader contacts).'
+    );
+    if (error) throw error;
+    (data || []).forEach((row) => {
+      const id = toTrimmedText(row?.id);
+      if (id) contactsById.set(id, row);
+    });
+  }
+
+  const companyIdList = Array.from(companyIds);
+  for (let i = 0; i < companyIdList.length; i += chunkSize) {
+    const chunk = companyIdList.slice(i, i + chunkSize);
+    const { data, error } = await withTimeout(
+      supabase
+        .from('teamleader_companies')
+        .select('id,name,email')
+        .eq('location_id', activeLocationId)
+        .in('id', chunk),
+      12000,
+      'Supabase query timeout (teamleader companies).'
+    );
+    if (error) throw error;
+    (data || []).forEach((row) => {
+      const id = toTrimmedText(row?.id);
+      if (id) companiesById.set(id, row);
+    });
+  }
+
+  return meetings.map((row) => {
+    const type = toTrimmedText(row?.customer_type);
+    const customerId = toTrimmedText(row?.customer_id);
+    let contactEmail = null;
+    let contactName = null;
+
+    if (type === 'contact' && customerId) {
+      const contact = contactsById.get(customerId);
+      contactEmail = toTrimmedText(contact?.email);
+      contactName = formatFullName(contact?.first_name, contact?.last_name, contactEmail || 'Onbekend');
+    } else if (type === 'company' && customerId) {
+      const company = companiesById.get(customerId);
+      contactEmail = toTrimmedText(company?.email);
+      contactName = toTrimmedText(company?.name) || contactEmail || 'Onbekend';
+    }
+
+    return {
+      ...row,
+      contact_email: contactEmail,
+      contact_name: contactName
+    };
+  });
+};
+
+const buildTeamleaderAppointmentRows = async (activeLocationId, startIso, endIso) => {
+  const meetings = [];
+  const pageSize = 1000;
+  let from = 0;
+  while (true) {
+    const batch = await fetchTeamleaderMeetingsBatch(activeLocationId, startIso, endIso, from, from + pageSize - 1);
+    if (!batch.length) break;
+    meetings.push(...batch);
+    if (batch.length < pageSize) break;
+    from += pageSize;
+  }
+
+  const hydrated = await hydrateTeamleaderMeetingCustomers(activeLocationId, meetings);
+  return hydrated.map((row) => ({
+    id: row?.id ?? '',
+    start_time: row?.scheduled_at ?? null,
+    contact_id: null,
+    contact_name: row?.contact_name ?? null,
+    contact_email: row?.contact_email ?? null,
+    source: null,
+    appointment_status: 'confirmed',
+    appointment_status_raw: null
+  }));
+};
+
+const fetchOpportunitiesByEmails = async (activeLocationId, emails, select, message) => {
+  const rows = [];
+  const unique = Array.from(new Set((emails || []).map((email) => normalizeEmailValue(email)).filter(Boolean)));
+  if (unique.length === 0) return rows;
+  const chunks = chunkValues(unique, 100);
+  for (const chunk of chunks) {
+    const { data, error } = await withTimeout(
+      supabase
+        .from('opportunities_view')
+        .select(select)
+        .eq('location_id', activeLocationId)
+        .in('contact_email', chunk)
+        .order('created_at', { ascending: false }),
+      12000,
+      message || 'Supabase query timeout (opportunities by email).'
+    );
+    if (error) throw error;
+    (data || []).forEach((row) => rows.push(row));
+  }
+  return rows;
+};
+
+const fetchContactsByEmailLookup = async (activeLocationId, emails) => {
+  const byEmail = new Map();
+  const unique = Array.from(new Set((emails || []).map((email) => normalizeEmailValue(email)).filter(Boolean)));
+  if (unique.length === 0) return { byEmail };
+  const chunks = chunkValues(unique, 100);
+  for (const chunk of chunks) {
+    const { data, error } = await withTimeout(
+      supabase
+        .from('contacts_view')
+        .select('id,email,contact_name,first_name,last_name,custom_fields,source_guess')
+        .eq('location_id', activeLocationId)
+        .in('email', chunk),
+      12000,
+      'Supabase query timeout (contacts by email).'
+    );
+    if (error) throw error;
+    (data || []).forEach((row) => {
+      const emailNorm = normalizeEmailValue(row?.email);
+      if (emailNorm && !byEmail.has(emailNorm)) byEmail.set(emailNorm, row);
+    });
+  }
+  return { byEmail };
+};
+
 const fetchOpportunityCount = async (range) => {
   if (!supabase) return null;
 
@@ -2420,6 +2824,27 @@ const fetchAppointmentCounts = async (range) => {
   const activeLocationId = configState.locationId || ghlLocationId;
   if (!activeLocationId) {
     throw new Error('Location ID ontbreekt. Voeg deze toe via de setup (dashboard_config).');
+  }
+
+  if (useTeamleaderAppointments()) {
+    const { count, error } = await withTimeout(
+      supabase
+        .from('teamleader_meetings')
+        .select('id', { count: 'exact', head: true })
+        .eq('location_id', activeLocationId)
+        .gte('scheduled_at', startIso)
+        .lt('scheduled_at', endIso),
+      12000,
+      'Supabase query timeout (teamleader meetings total).'
+    );
+    if (error) throw error;
+    const total = count ?? 0;
+    return {
+      total,
+      cancelled: 0,
+      confirmed: total,
+      noShow: 0
+    };
   }
 
   const buildQuery = (patterns) => {
@@ -2685,6 +3110,8 @@ const fetchSourceBreakdownComputed = async (range, activeLocationId) => {
     return mapBelivertSourceLabel(normalized);
   };
 
+  const useTeamleader = useTeamleaderAppointments();
+
   const opportunities = await fetchAllRows(() =>
     supabase
       .from('opportunities_view')
@@ -2716,21 +3143,35 @@ const fetchSourceBreakdownComputed = async (range, activeLocationId) => {
     if (emailNorm) leadEmails.add(emailNorm);
   });
 
-  const appointments = await fetchAllRows(() =>
-    supabase
-      .from('appointments_view')
-      .select('id,contact_id,contact_email,source,appointment_status,appointment_status_raw,start_time')
-      .eq('location_id', activeLocationId)
-      .gte('start_time', startIso)
-      .lt('start_time', endIso)
-  );
+  const appointments = useTeamleader
+    ? await buildTeamleaderAppointmentRows(activeLocationId, startIso, endIso)
+    : await fetchAllRows(() =>
+        supabase
+          .from('appointments_view')
+          .select('id,contact_id,contact_email,source,appointment_status,appointment_status_raw,start_time')
+          .eq('location_id', activeLocationId)
+          .gte('start_time', startIso)
+          .lt('start_time', endIso)
+      );
 
   const appointmentContactIds = Array.from(
     new Set(appointments.map((row) => toTrimmedText(row?.contact_id)).filter(Boolean))
   );
+  const appointmentEmails = Array.from(
+    new Set(appointments.map((row) => normalizeEmailValue(row?.contact_email)).filter(Boolean))
+  );
 
   let opportunitiesForAppointments = [];
-  if (appointmentContactIds.length) {
+  if (useTeamleader) {
+    if (appointmentEmails.length) {
+      opportunitiesForAppointments = await fetchOpportunitiesByEmails(
+        activeLocationId,
+        appointmentEmails,
+        'contact_id,contact_email,source_guess,created_at',
+        'Supabase query timeout (appointment source lookup).'
+      );
+    }
+  } else if (appointmentContactIds.length) {
     opportunitiesForAppointments = await fetchAllRows(() =>
       supabase
         .from('opportunities_view')
@@ -2757,6 +3198,15 @@ const fetchSourceBreakdownComputed = async (range, activeLocationId) => {
       sourceByEmail.set(emailNorm, source);
     }
   });
+  if (useTeamleader && appointmentEmails.length) {
+    const { byEmail: contactsByEmail } = await fetchContactsByEmailLookup(activeLocationId, appointmentEmails);
+    contactsByEmail.forEach((row, email) => {
+      const source = normalizeSourceOptional(row?.source_guess);
+      if (source && !sourceByEmail.has(email)) {
+        sourceByEmail.set(email, source);
+      }
+    });
+  }
 
   const apptAgg = new Map();
   appointments.forEach((row) => {
@@ -2862,6 +3312,7 @@ const fetchHookPerformanceComputed = async (range, activeLocationId) => {
   const metaOnly = belivertMode;
   const metaBucket = 'Facebook Ads';
   const defaultSource = getDefaultDrilldownSource(belivertMode);
+  const useTeamleader = useTeamleaderAppointments();
   const startIso = toUtcStart(range.start);
   const endIso = toUtcEndExclusive(range.end);
 
@@ -2874,21 +3325,40 @@ const fetchHookPerformanceComputed = async (range, activeLocationId) => {
       .lt('created_at', endIso)
   );
 
-  const appointments = await fetchAllRows(() =>
-    supabase
-      .from('appointments_view')
-      .select('id,contact_id,contact_email,source,appointment_status,appointment_status_raw,custom_fields,start_time')
-      .eq('location_id', activeLocationId)
-      .gte('start_time', startIso)
-      .lt('start_time', endIso)
-  );
+  const appointments = useTeamleader
+    ? await buildTeamleaderAppointmentRows(activeLocationId, startIso, endIso)
+    : await fetchAllRows(() =>
+        supabase
+          .from('appointments_view')
+          .select('id,contact_id,contact_email,source,appointment_status,appointment_status_raw,custom_fields,start_time')
+          .eq('location_id', activeLocationId)
+          .gte('start_time', startIso)
+          .lt('start_time', endIso)
+      );
 
   const appointmentContactIds = Array.from(
     new Set(appointments.map((row) => toTrimmedText(row?.contact_id)).filter(Boolean))
   );
+  const appointmentEmails = Array.from(
+    new Set(appointments.map((row) => normalizeEmailValue(row?.contact_email)).filter(Boolean))
+  );
+  let contactsByEmailLookup = null;
+  if (useTeamleader && appointmentEmails.length) {
+    const { byEmail } = await fetchContactsByEmailLookup(activeLocationId, appointmentEmails);
+    contactsByEmailLookup = byEmail;
+  }
 
   let opportunitiesForAppointments = [];
-  if (appointmentContactIds.length) {
+  if (useTeamleader) {
+    if (appointmentEmails.length) {
+      opportunitiesForAppointments = await fetchOpportunitiesByEmails(
+        activeLocationId,
+        appointmentEmails,
+        'contact_id,contact_email,source_guess,custom_fields,created_at',
+        'Supabase query timeout (appointment source lookup).'
+      );
+    }
+  } else if (appointmentContactIds.length) {
     opportunitiesForAppointments = await fetchAllRows(
       () =>
         supabase
@@ -2903,6 +3373,7 @@ const fetchHookPerformanceComputed = async (range, activeLocationId) => {
 
   const rawSourceByContactId = new Map();
   const rawSourceByEmail = new Map();
+  const opportunityByEmail = new Map();
   opportunitiesForAppointments.forEach((row) => {
     const rawSource = normalizeSourceValue(row?.source_guess);
     if (!rawSource) return;
@@ -2915,6 +3386,9 @@ const fetchHookPerformanceComputed = async (range, activeLocationId) => {
     const emailNorm = normalizeEmailValue(row?.contact_email);
     if (emailNorm && !rawSourceByEmail.has(emailNorm)) {
       rawSourceByEmail.set(emailNorm, rawSource);
+    }
+    if (emailNorm && !opportunityByEmail.has(emailNorm)) {
+      opportunityByEmail.set(emailNorm, row);
     }
   });
 
@@ -2943,22 +3417,38 @@ const fetchHookPerformanceComputed = async (range, activeLocationId) => {
 
     const contactId = toTrimmedText(row?.contact_id);
     const emailNorm = normalizeEmailValue(row?.contact_email);
+    const contactFromEmail = emailNorm && contactsByEmailLookup ? contactsByEmailLookup.get(emailNorm) : null;
+    const contactIdFromEmail = contactFromEmail ? toTrimmedText(contactFromEmail.id) : null;
+    const opportunity = emailNorm ? opportunityByEmail.get(emailNorm) : null;
+    const effectiveContactId = contactId || toTrimmedText(opportunity?.contact_id) || contactIdFromEmail;
     const rawSource =
       normalizeSourceValue(row?.source) ||
-      (contactId ? rawSourceByContactId.get(contactId) : null) ||
-      (emailNorm ? rawSourceByEmail.get(emailNorm) : null);
+      (effectiveContactId ? rawSourceByContactId.get(effectiveContactId) : null) ||
+      (emailNorm ? rawSourceByEmail.get(emailNorm) : null) ||
+      normalizeSourceValue(opportunity?.source_guess) ||
+      normalizeSourceValue(contactFromEmail?.source_guess);
     const bucketSource = toBucketSource(rawSource);
     if (metaOnly && bucketSource !== metaBucket) return;
 
-    metaAppointments.push({ row, rawSource, bucketSource });
+    metaAppointments.push({ row, rawSource, bucketSource, opportunity });
 
-    if (contactId) contactIds.add(contactId);
+    if (effectiveContactId) contactIds.add(effectiveContactId);
   });
 
-  const { byId: contactsById, byEmail: contactsByEmail } = await fetchContactsCustomFieldsLookup(
+  const { byId: contactsById, byEmail: contactsByEmailBase } = await fetchContactsCustomFieldsLookup(
     activeLocationId,
     Array.from(contactIds)
   );
+  let contactsByEmail = contactsByEmailBase;
+  if (useTeamleader && appointmentEmails.length) {
+    const contactsByEmailDirect =
+      contactsByEmailLookup || (await fetchContactsByEmailLookup(activeLocationId, appointmentEmails)).byEmail;
+    const merged = new Map(contactsByEmailBase);
+    contactsByEmailDirect.forEach((value, key) => {
+      if (!merged.has(key)) merged.set(key, value);
+    });
+    contactsByEmail = merged;
+  }
 
   const aggregated = new Map();
   const ensureEntry = (hook, campaign, source) => {
@@ -2985,14 +3475,14 @@ const fetchHookPerformanceComputed = async (range, activeLocationId) => {
     entry.leads += 1;
   });
 
-  metaAppointments.forEach(({ row, rawSource, bucketSource }) => {
-    const contactId = toTrimmedText(row?.contact_id);
+  metaAppointments.forEach(({ row, rawSource, bucketSource, opportunity }) => {
+    const contactId = toTrimmedText(row?.contact_id) || toTrimmedText(opportunity?.contact_id);
     const emailNorm = normalizeEmailValue(row?.contact_email);
     const contact =
       (contactId ? contactsById.get(contactId) : null) || (emailNorm ? contactsByEmail.get(emailNorm) : null);
     const fallbackSource = rawSource || bucketSource || defaultSource;
     const { hook, campaign } = resolveHookFields({
-      customFields: row?.custom_fields,
+      customFields: row?.custom_fields || opportunity?.custom_fields,
       contactCustomFields: contact?.custom_fields,
       hookFieldId,
       campaignFieldId,
@@ -3018,6 +3508,8 @@ const fetchLostReasonsComputed = async (range, activeLocationId) => {
   const startIso = toUtcStart(range.start);
   const endIso = toUtcEndExclusive(range.end);
   const lostReasonFieldId = toTrimmedText(configState.lostReasonFieldId);
+  const rangeStart = parseDate(startIso);
+  const rangeEnd = parseDate(endIso);
 
   const lookupRows = await supabase
     .from('lost_reason_lookup')
@@ -3052,10 +3544,9 @@ const fetchLostReasonsComputed = async (range, activeLocationId) => {
     () =>
       supabase
         .from('opportunities')
-        .select('id,status,contact_id,raw_data,created_at')
+        .select('id,status,contact_id,raw_data,updated_at')
         .eq('location_id', activeLocationId)
-        .gte('created_at', startIso)
-        .lt('created_at', endIso),
+        .gte('updated_at', startIso),
     500
   );
 
@@ -3085,9 +3576,14 @@ const fetchLostReasonsComputed = async (range, activeLocationId) => {
   const counts = new Map();
 
   opportunities.forEach((row) => {
-    if (isWonOrClosedStatus(row?.status)) return;
+    const status = normalizeStatus(row?.status);
+    if (!isLostStatus(status)) return;
     const raw = row?.raw_data || null;
     const contactRaw = contactsById ? contactsById.get(toTrimmedText(row?.contact_id) || '') : null;
+    const statusChangedAt = parseStatusChangeAt(raw, row?.updated_at);
+    if (!statusChangedAt || (rangeStart && statusChangedAt < rangeStart) || (rangeEnd && statusChangedAt >= rangeEnd)) {
+      return;
+    }
     const reasonRaw = extractLostReasonRaw(raw, lostReasonFieldId, contactRaw);
     if (!reasonRaw) return;
 
@@ -3313,6 +3809,245 @@ const fetchSpendBySource = async (range) => {
   return totals;
 };
 
+const resolveSpendSourceLabel = (value, belivertMode) => {
+  const raw = normalizeSourceLabel(value);
+  if (!raw) return belivertMode ? 'Overig' : 'Onbekend';
+  return belivertMode ? mapBelivertSourceLabel(raw) : raw;
+};
+
+const formatMetaEntityLabel = (label, id, fallbackPrefix) => {
+  const name = toTrimmedText(label);
+  if (name) return name;
+  const trimmedId = toTrimmedText(id);
+  if (!trimmedId) return 'Onbekend';
+  const shortId = trimmedId.length > 8 ? `${trimmedId.slice(0, 6)}...` : trimmedId;
+  return `${fallbackPrefix} ${shortId}`;
+};
+
+const fetchFinanceCampaignDrilldownRecords = async ({ activeLocationId, startIso, endIso, source }) => {
+  if (!supabase) return null;
+  const startDate = startIso.slice(0, 10);
+  const endDate = endIso.slice(0, 10);
+  const belivertMode = isBelivertSourceBreakdownMode();
+
+  const { data, error } = await withTimeout(
+    supabase
+      .from('marketing_spend_campaign_daily')
+      .select('date, source, spend, leads, campaign_id, campaign_name')
+      .eq('location_id', activeLocationId)
+      .gte('date', startDate)
+      .lt('date', endDate),
+    12000,
+    'Supabase query timeout (marketing spend campaign drilldown).'
+  );
+  if (error) throw error;
+
+  const grouped = new Map();
+  const useFallback = !data || data.length === 0;
+
+  if (!useFallback) {
+    (data ?? []).forEach((row) => {
+      const label = resolveSpendSourceLabel(row?.source, belivertMode);
+      if (source && label !== source) return;
+      const campaignId = toTrimmedText(row?.campaign_id);
+      const key = `${label}|${campaignId || 'campaign'}`;
+      const spend = Number(row?.spend ?? 0);
+      const leads = Number(row?.leads ?? 0);
+      const current = grouped.get(key) || {
+        source: label,
+        campaign_id: campaignId,
+        campaign_name: row?.campaign_name ?? null,
+        spend: 0,
+        leads: 0
+      };
+      current.spend += spend;
+      current.leads += leads;
+      grouped.set(key, current);
+    });
+  } else {
+    const { data: fallbackRows, error: fallbackError } = await withTimeout(
+      supabase
+        .from('marketing_spend_adset_daily')
+        .select('date, source, spend, leads, campaign_id, campaign_name')
+        .eq('location_id', activeLocationId)
+        .gte('date', startDate)
+        .lt('date', endDate),
+      12000,
+      'Supabase query timeout (marketing spend campaign fallback).'
+    );
+    if (fallbackError) throw fallbackError;
+
+    (fallbackRows ?? []).forEach((row) => {
+      const label = resolveSpendSourceLabel(row?.source, belivertMode);
+      if (source && label !== source) return;
+      const campaignId = toTrimmedText(row?.campaign_id);
+      const key = `${label}|${campaignId || 'campaign'}`;
+      const spend = Number(row?.spend ?? 0);
+      const leads = Number(row?.leads ?? 0);
+      const current = grouped.get(key) || {
+        source: label,
+        campaign_id: campaignId,
+        campaign_name: row?.campaign_name ?? null,
+        spend: 0,
+        leads: 0
+      };
+      current.spend += spend;
+      current.leads += leads;
+      grouped.set(key, current);
+    });
+  }
+
+  return Array.from(grouped.values()).sort((a, b) => {
+    const spendDiff = Number(b.spend ?? 0) - Number(a.spend ?? 0);
+    if (spendDiff !== 0) return spendDiff;
+    return Number(b.leads ?? 0) - Number(a.leads ?? 0);
+  });
+};
+
+const fetchFinanceAdsetDrilldownRecords = async ({ activeLocationId, startIso, endIso, source }) => {
+  if (!supabase) return null;
+  const startDate = startIso.slice(0, 10);
+  const endDate = endIso.slice(0, 10);
+  const belivertMode = isBelivertSourceBreakdownMode();
+
+  const { data, error } = await withTimeout(
+    supabase
+      .from('marketing_spend_adset_daily')
+      .select('date, source, spend, leads, campaign_id, campaign_name, adset_id, adset_name')
+      .eq('location_id', activeLocationId)
+      .gte('date', startDate)
+      .lt('date', endDate),
+    12000,
+    'Supabase query timeout (marketing spend adset drilldown).'
+  );
+  if (error) throw error;
+
+  const grouped = new Map();
+  (data ?? []).forEach((row) => {
+    const label = resolveSpendSourceLabel(row?.source, belivertMode);
+    if (source && label !== source) return;
+    const adsetId = toTrimmedText(row?.adset_id);
+    const campaignId = toTrimmedText(row?.campaign_id);
+    const key = `${label}|${campaignId || 'campaign'}|${adsetId || 'adset'}`;
+    const spend = Number(row?.spend ?? 0);
+    const leads = Number(row?.leads ?? 0);
+    const current = grouped.get(key) || {
+      source: label,
+      campaign_id: campaignId,
+      campaign_name: row?.campaign_name ?? null,
+      adset_id: adsetId,
+      adset_name: row?.adset_name ?? null,
+      spend: 0,
+      leads: 0
+    };
+    current.spend += spend;
+    current.leads += leads;
+    grouped.set(key, current);
+  });
+
+  return Array.from(grouped.values()).sort((a, b) => {
+    const spendDiff = Number(b.spend ?? 0) - Number(a.spend ?? 0);
+    if (spendDiff !== 0) return spendDiff;
+    return Number(b.leads ?? 0) - Number(a.leads ?? 0);
+  });
+};
+
+const fetchFinanceAdDrilldownRecords = async ({ activeLocationId, startIso, endIso, source }) => {
+  if (!supabase) return null;
+  const startDate = startIso.slice(0, 10);
+  const endDate = endIso.slice(0, 10);
+  const belivertMode = isBelivertSourceBreakdownMode();
+
+  const { data, error } = await withTimeout(
+    supabase
+      .from('marketing_spend_ad_daily')
+      .select('date, source, spend, leads, campaign_id, campaign_name, adset_id, adset_name, ad_id, ad_name')
+      .eq('location_id', activeLocationId)
+      .gte('date', startDate)
+      .lt('date', endDate),
+    12000,
+    'Supabase query timeout (marketing spend ad drilldown).'
+  );
+  if (error) throw error;
+
+  const grouped = new Map();
+  (data ?? []).forEach((row) => {
+    const label = resolveSpendSourceLabel(row?.source, belivertMode);
+    if (source && label !== source) return;
+    const adId = toTrimmedText(row?.ad_id);
+    const adsetId = toTrimmedText(row?.adset_id);
+    const campaignId = toTrimmedText(row?.campaign_id);
+    const key = `${label}|${campaignId || 'campaign'}|${adsetId || 'adset'}|${adId || 'ad'}`;
+    const spend = Number(row?.spend ?? 0);
+    const leads = Number(row?.leads ?? 0);
+    const current = grouped.get(key) || {
+      source: label,
+      campaign_id: campaignId,
+      campaign_name: row?.campaign_name ?? null,
+      adset_id: adsetId,
+      adset_name: row?.adset_name ?? null,
+      ad_id: adId,
+      ad_name: row?.ad_name ?? null,
+      spend: 0,
+      leads: 0
+    };
+    current.spend += spend;
+    current.leads += leads;
+    grouped.set(key, current);
+  });
+
+  return Array.from(grouped.values()).sort((a, b) => {
+    const spendDiff = Number(b.spend ?? 0) - Number(a.spend ?? 0);
+    if (spendDiff !== 0) return spendDiff;
+    return Number(b.leads ?? 0) - Number(a.leads ?? 0);
+  });
+};
+
+const fetchFinanceDrilldownRecords = async ({ activeLocationId, startIso, endIso, source, view = 'daily' }) => {
+  if (view === 'adset') {
+    return fetchFinanceAdsetDrilldownRecords({ activeLocationId, startIso, endIso, source });
+  }
+  if (view === 'campaign') {
+    return fetchFinanceCampaignDrilldownRecords({ activeLocationId, startIso, endIso, source });
+  }
+  if (view === 'ad') {
+    return fetchFinanceAdDrilldownRecords({ activeLocationId, startIso, endIso, source });
+  }
+  if (!supabase) return null;
+  const startDate = startIso.slice(0, 10);
+  const endDate = endIso.slice(0, 10);
+  const belivertMode = isBelivertSourceBreakdownMode();
+
+  const { data, error } = await withTimeout(
+    supabase
+      .from('marketing_spend_daily')
+      .select('date, source, spend, leads')
+      .eq('location_id', activeLocationId)
+      .gte('date', startDate)
+      .lt('date', endDate),
+    12000,
+    'Supabase query timeout (marketing spend drilldown).'
+  );
+  if (error) throw error;
+
+  const grouped = new Map();
+  (data ?? []).forEach((row) => {
+    const label = resolveSpendSourceLabel(row?.source, belivertMode);
+    if (source && label !== source) return;
+    const date = row?.date ?? '';
+    if (!date) return;
+    const key = `${date}|${label}`;
+    const spend = Number(row?.spend ?? 0);
+    const leads = Number(row?.leads ?? 0);
+    const current = grouped.get(key) || { date, source: label, spend: 0, leads: 0 };
+    current.spend += spend;
+    current.leads += leads;
+    grouped.set(key, current);
+  });
+
+  return Array.from(grouped.values()).sort((a, b) => (a.date < b.date ? 1 : -1));
+};
+
 const clampLimit = (value, fallback = 200) => {
   const raw = Number(value ?? fallback);
   if (!Number.isFinite(raw)) return Math.min(Math.max(fallback, 1), 500);
@@ -3398,10 +4133,112 @@ const fetchAppointmentDrilldownRecordsComputed = async ({
   limit
 }) => {
   const belivertMode = isBelivertSourceBreakdownMode();
+  const useTeamleader = useTeamleaderAppointments();
   const wantedSource = source ? String(source) : null;
   const effectiveLimit = clampLimit(limit, 200);
   const pageSize = 1000;
   const maxScan = 20000;
+
+  if (useTeamleader) {
+    if (kind === 'appointments_cancelled' || kind === 'appointments_no_show') return [];
+
+    const rows = [];
+    const leadEmails = new Set();
+    let leadInRangeLoaded = false;
+
+    const ensureLeadInRangeEmails = async () => {
+      if (leadInRangeLoaded) return;
+      const { data, error } = await withTimeout(
+        supabase
+          .from('opportunities_view')
+          .select('contact_email')
+          .eq('location_id', activeLocationId)
+          .gte('created_at', startIso)
+          .lt('created_at', endIso),
+        12000,
+        'Supabase query timeout (lead-in-range lookup).'
+      );
+      if (error) throw error;
+      (data ?? []).forEach((row) => {
+        const emailNorm = normalizeEmailValue(row?.contact_email);
+        if (emailNorm) leadEmails.add(emailNorm);
+      });
+      leadInRangeLoaded = true;
+    };
+
+    let from = 0;
+    while (rows.length < effectiveLimit && from < maxScan) {
+      const batch = await fetchTeamleaderMeetingsBatch(activeLocationId, startIso, endIso, from, from + pageSize - 1);
+      if (!batch.length) break;
+
+      const hydrated = await hydrateTeamleaderMeetingCustomers(activeLocationId, batch);
+      const batchEmails = Array.from(
+        new Set(hydrated.map((row) => normalizeEmailValue(row?.contact_email)).filter(Boolean))
+      );
+
+      const opportunitiesForAppointments = await fetchOpportunitiesByEmails(
+        activeLocationId,
+        batchEmails,
+        'contact_email,source_guess,created_at',
+        'Supabase query timeout (appointment source lookup).'
+      );
+      const sourceByEmail = new Map();
+      opportunitiesForAppointments.forEach((row) => {
+        const emailNorm = normalizeEmailValue(row?.contact_email);
+        const mapped = normalizeDrilldownSource(row?.source_guess, belivertMode);
+        if (emailNorm && mapped && !sourceByEmail.has(emailNorm)) {
+          sourceByEmail.set(emailNorm, mapped);
+        }
+      });
+
+      if (kind === 'appointments_without_lead_in_range') {
+        await ensureLeadInRangeEmails();
+      }
+
+      const { byEmail: contactsByEmail } = await fetchContactsByEmailLookup(activeLocationId, batchEmails);
+
+      for (const row of hydrated) {
+        const emailNorm = normalizeEmailValue(row?.contact_email);
+        const contactFromEmail = emailNorm ? contactsByEmail.get(emailNorm) : null;
+        const contactSource = contactFromEmail
+          ? normalizeDrilldownSource(contactFromEmail?.source_guess, belivertMode)
+          : null;
+        const derivedSource =
+          (emailNorm ? sourceByEmail.get(emailNorm) : null) ||
+          contactSource ||
+          getDefaultDrilldownSource(belivertMode);
+        if (wantedSource && derivedSource !== wantedSource) continue;
+
+        if (kind === 'appointments_without_lead_in_range') {
+          if (emailNorm && leadEmails.has(emailNorm)) continue;
+        }
+
+        const contact = contactFromEmail;
+        const contactName =
+          row?.contact_name ||
+          contact?.contact_name ||
+          formatFullName(contact?.first_name, contact?.last_name, row?.contact_email || 'Onbekend');
+
+        rows.push({
+          record_id: row?.id ?? '',
+          record_type: 'appointment',
+          occurred_at: row?.scheduled_at ?? null,
+          contact_id: contact?.id ?? null,
+          contact_name: contactName,
+          contact_email: row?.contact_email ?? null,
+          source: derivedSource,
+          status: 'confirmed'
+        });
+
+        if (rows.length >= effectiveLimit) break;
+      }
+
+      if (batch.length < pageSize) break;
+      from += pageSize;
+    }
+
+    return rows;
+  }
 
   const rows = [];
   const sourceByContactId = new Map();
@@ -3573,6 +4410,142 @@ const fetchSourceRecordsComputed = async ({
   return [];
 };
 
+const fetchLostReasonDrilldownRecordsComputed = async ({
+  activeLocationId,
+  startIso,
+  endIso,
+  reasonLabel,
+  limit
+}) => {
+  const belivertMode = isBelivertSourceBreakdownMode();
+  const wantedReason = reasonLabel ? String(reasonLabel) : null;
+  const effectiveLimit = clampLimit(limit, 200);
+  const pageSize = 1000;
+  const maxScan = 15000;
+  const rangeStart = parseDate(startIso);
+  const rangeEnd = parseDate(endIso);
+  const lostReasonFieldId = toTrimmedText(configState.lostReasonFieldId);
+
+  const lookupRows = await supabase
+    .from('lost_reason_lookup')
+    .select('reason_id,reason_name')
+    .eq('location_id', activeLocationId)
+    .then(({ data, error }) => {
+      if (error) throw error;
+      return data || [];
+    });
+
+  const lookupById = new Map(
+    lookupRows
+      .map((row) => [toTrimmedText(row?.reason_id), toTrimmedText(row?.reason_name)])
+      .filter(([id, name]) => id && name)
+  );
+
+  const { data: overrideRows, error: overrideError } = await supabase
+    .from('lost_reason_overrides')
+    .select('reason_id,reason_name')
+    .eq('location_id', activeLocationId);
+  if (overrideError) {
+    const message = overrideError.message ?? String(overrideError);
+    if (!message.includes('does not exist')) throw overrideError;
+  } else {
+    (overrideRows || [])
+      .map((row) => [toTrimmedText(row?.reason_id), toTrimmedText(row?.reason_name)])
+      .filter(([id, name]) => id && name)
+      .forEach(([id, name]) => lookupById.set(id, name));
+  }
+
+  const rows = [];
+  const contactsById = new Map();
+
+  const hydrateContacts = async (contactIds) => {
+    if (!lostReasonFieldId) return;
+    const unique = Array.from(new Set(contactIds.filter(Boolean))).filter((id) => !contactsById.has(id));
+    if (!unique.length) return;
+    const chunkSize = 100;
+    for (let i = 0; i < unique.length; i += chunkSize) {
+      const chunk = unique.slice(i, i + chunkSize);
+      const { data, error } = await withTimeout(
+        supabase
+          .from('contacts_view')
+          .select('id,custom_fields')
+          .eq('location_id', activeLocationId)
+          .in('id', chunk),
+        12000,
+        'Supabase query timeout (lost reason drilldown contacts).'
+      );
+      if (error) throw error;
+      (data || []).forEach((row) => {
+        const id = toTrimmedText(row?.id);
+        if (id) contactsById.set(id, row);
+      });
+    }
+  };
+
+  let from = 0;
+  while (rows.length < effectiveLimit && from < maxScan) {
+    const { data, error } = await withTimeout(
+      supabase
+        .from('opportunities_view')
+        .select('id,updated_at,contact_id,contact_name,contact_email,source_guess,status,raw_data,custom_fields')
+        .eq('location_id', activeLocationId)
+        .gte('updated_at', startIso)
+        .order('updated_at', { ascending: false })
+        .range(from, from + pageSize - 1),
+      12000,
+      'Supabase query timeout (lost reason drilldown opportunities).'
+    );
+    if (error) throw error;
+    const batch = Array.isArray(data) ? data : [];
+    if (!batch.length) break;
+
+    const batchContactIds = batch.map((row) => toTrimmedText(row?.contact_id)).filter(Boolean);
+    await hydrateContacts(batchContactIds);
+
+    for (const row of batch) {
+      const status = normalizeStatus(row?.status);
+      if (!isLostStatus(status)) continue;
+
+      const raw = row?.raw_data || null;
+      const statusChangedAt = parseStatusChangeAt(raw, row?.updated_at);
+      if (
+        !statusChangedAt ||
+        (rangeStart && statusChangedAt < rangeStart) ||
+        (rangeEnd && statusChangedAt >= rangeEnd)
+      ) {
+        continue;
+      }
+
+      const contactRaw = contactsById ? contactsById.get(toTrimmedText(row?.contact_id) || '') : null;
+      const reasonRaw = extractLostReasonRaw(raw, lostReasonFieldId, contactRaw);
+      if (!reasonRaw) continue;
+      const label = lookupById.get(reasonRaw) || reasonRaw;
+      if (wantedReason && label !== wantedReason) continue;
+
+      const recordSource =
+        normalizeDrilldownSource(row?.source_guess, belivertMode) || getDefaultDrilldownSource(belivertMode);
+
+      rows.push({
+        record_id: row?.id ?? '',
+        record_type: 'lead',
+        occurred_at: statusChangedAt.toISOString(),
+        contact_id: row?.contact_id ?? null,
+        contact_name: row?.contact_name ?? null,
+        contact_email: row?.contact_email ?? null,
+        source: recordSource,
+        status: row?.status ?? null
+      });
+
+      if (rows.length >= effectiveLimit) break;
+    }
+
+    if (batch.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+};
+
 const fetchHookOpportunityDrilldownRecordsComputed = async ({
   activeLocationId,
   startIso,
@@ -3713,10 +4686,106 @@ const fetchHookAppointmentDrilldownRecordsComputed = async ({
   const defaultSource = getDefaultDrilldownSource(belivertMode);
   const pageSize = 1000;
   const maxScan = 20000;
+  const useTeamleader = useTeamleaderAppointments();
   const toBucketSource = (rawSource) => {
     if (!rawSource) return defaultSource;
     return belivertMode ? mapBelivertSourceLabel(rawSource) : rawSource;
   };
+
+  if (useTeamleader) {
+    const rows = [];
+    let from = 0;
+
+    while (rows.length < effectiveLimit && from < maxScan) {
+      const batch = await fetchTeamleaderMeetingsBatch(activeLocationId, startIso, endIso, from, from + pageSize - 1);
+      if (!batch.length) break;
+
+      const hydrated = await hydrateTeamleaderMeetingCustomers(activeLocationId, batch);
+      const batchEmails = Array.from(
+        new Set(hydrated.map((row) => normalizeEmailValue(row?.contact_email)).filter(Boolean))
+      );
+
+      const opportunitiesForAppointments = await fetchOpportunitiesByEmails(
+        activeLocationId,
+        batchEmails,
+        'contact_id,contact_email,source_guess,custom_fields,created_at',
+        'Supabase query timeout (appointment source lookup).'
+      );
+      const opportunityByEmail = new Map();
+      opportunitiesForAppointments.forEach((row) => {
+        const emailNorm = normalizeEmailValue(row?.contact_email);
+        if (emailNorm && !opportunityByEmail.has(emailNorm)) {
+          opportunityByEmail.set(emailNorm, row);
+        }
+      });
+
+      const contactIds = Array.from(
+        new Set(
+          opportunitiesForAppointments
+            .map((row) => toTrimmedText(row?.contact_id))
+            .filter(Boolean)
+        )
+      );
+      const { byId: contactsById, byEmail: contactsByEmailBase } = await fetchContactsCustomFieldsLookup(
+        activeLocationId,
+        contactIds
+      );
+      const { byEmail: contactsByEmailDirect } = await fetchContactsByEmailLookup(activeLocationId, batchEmails);
+      const contactsByEmail = new Map(contactsByEmailBase);
+      contactsByEmailDirect.forEach((value, key) => {
+        if (!contactsByEmail.has(key)) contactsByEmail.set(key, value);
+      });
+
+      for (const row of hydrated) {
+        const emailNorm = normalizeEmailValue(row?.contact_email);
+        const opportunity = emailNorm ? opportunityByEmail.get(emailNorm) : null;
+        const contactFromEmail = emailNorm ? contactsByEmail.get(emailNorm) : null;
+        const rawSource =
+          normalizeSourceValue(opportunity?.source_guess) ||
+          normalizeSourceValue(contactFromEmail?.source_guess);
+        const bucketSource = toBucketSource(rawSource);
+        if (metaOnly && bucketSource !== metaBucket) continue;
+
+        const contactId = toTrimmedText(opportunity?.contact_id) || toTrimmedText(contactFromEmail?.id);
+        const contact = (contactId ? contactsById.get(contactId) : null) || contactFromEmail;
+        const fallbackSource = rawSource || bucketSource || defaultSource;
+        const { hook, campaign } = resolveHookFields({
+          customFields: opportunity?.custom_fields,
+          contactCustomFields: contact?.custom_fields,
+          hookFieldId,
+          campaignFieldId,
+          source: fallbackSource
+        });
+
+        if (wantedHook && hook !== wantedHook && campaign !== wantedHook && bucketSource !== wantedHook) {
+          continue;
+        }
+
+        const contactName =
+          row?.contact_name ||
+          contact?.contact_name ||
+          formatFullName(contact?.first_name, contact?.last_name, row?.contact_email || 'Onbekend');
+
+        rows.push({
+          record_id: row?.id ?? '',
+          record_type: 'appointment',
+          occurred_at: row?.scheduled_at ?? null,
+          contact_id: contactId || contact?.id || null,
+          contact_name: contactName,
+          contact_email: row?.contact_email ?? null,
+          source: bucketSource,
+          status: 'confirmed'
+        });
+
+        if (rows.length >= effectiveLimit) break;
+      }
+
+      if (batch.length < pageSize) break;
+      from += pageSize;
+    }
+
+    return rows;
+  }
 
   const rows = [];
   const contactsById = new Map();
@@ -3886,7 +4955,7 @@ const fetchHookDrilldownRecordsComputed = async ({
   });
 };
 
-const fetchDrilldownRecords = async ({ kind, source, range }) => {
+const fetchDrilldownRecords = async ({ kind, source, range, view }) => {
   if (!supabase) return null;
   const activeLocationId = configState.locationId || ghlLocationId;
   if (!activeLocationId) {
@@ -3909,20 +4978,23 @@ const fetchDrilldownRecords = async ({ kind, source, range }) => {
   }
 
   if (kind === 'lost_reason_leads') {
-    const { data, error } = await withTimeout(
-      supabase.rpc('get_lost_reason_records', {
-        p_location_id: activeLocationId,
-        p_start: startIso,
-        p_end: endIso,
-        p_reason: source || null,
-        p_limit: 200
-      }),
-      12000,
-      'Supabase query timeout (lost reason records).'
-    );
+    return fetchLostReasonDrilldownRecordsComputed({
+      activeLocationId,
+      startIso,
+      endIso,
+      reasonLabel: source || null,
+      limit: 200
+    });
+  }
 
-    if (error) throw error;
-    return data ?? [];
+  if (kind === 'finance_spend') {
+    return fetchFinanceDrilldownRecords({
+      activeLocationId,
+      startIso,
+      endIso,
+      source: source || null,
+      view
+    });
   }
 
   return fetchSourceRecordsComputed({
@@ -4019,6 +5091,8 @@ const hydrateDrilldownContacts = async (rows) => {
   });
 };
 
+const isFinanceDrilldown = (kind) => kind === 'finance_spend';
+
 const buildDrilldownTitle = (kind, source, label) => {
   const base = label || DRILLDOWN_LABELS[kind] || 'Records';
   if (!source) return base;
@@ -4054,6 +5128,9 @@ const openDrilldown = async ({ kind, source, label, range }) => {
   drilldownState.status = 'loading';
   drilldownState.kind = kind;
   drilldownState.source = source || null;
+  if (isFinanceDrilldown(kind)) {
+    drilldownState.financeView = 'daily';
+  }
   drilldownState.title = buildDrilldownTitle(kind, source, label);
   drilldownState.errorMessage = '';
   drilldownState.rows = [];
@@ -4061,8 +5138,9 @@ const openDrilldown = async ({ kind, source, label, range }) => {
   renderApp();
 
   try {
-    const rows = await fetchDrilldownRecords({ kind, source, range });
-    const hydratedRows = await hydrateDrilldownContacts(Array.isArray(rows) ? rows : []);
+    const rows = await fetchDrilldownRecords({ kind, source, range, view: drilldownState.financeView });
+    const baseRows = Array.isArray(rows) ? rows : [];
+    const hydratedRows = isFinanceDrilldown(kind) ? baseRows : await hydrateDrilldownContacts(baseRows);
     drilldownState.status = 'ready';
     drilldownState.rows = Array.isArray(hydratedRows) ? hydratedRows : [];
   } catch (error) {
@@ -5880,10 +6958,11 @@ const renderAdminModal = () => {
 
   const loggedIn = Boolean(authSession);
   const userEmail = authSession?.user?.email || '';
-  const kpiOnlyMode = settingsModeEnabled && !adminModeEnabled;
+  const adminAccessEnabled = isAdminAccessEnabled();
+  const kpiOnlyMode = settingsModeEnabled && !adminAccessEnabled;
   const canManageKpi = loggedIn || kpiOnlyMode;
   const modalTitle = settingsButtonLabel;
-  const modalSubtitle = adminModeEnabled
+  const modalSubtitle = adminAccessEnabled
     ? 'Beheer GHL integratie, kostattributie en KPI targets.'
     : 'Stel Sales KPI targets in voor dit dashboard.';
   const signOutButtonMarkup = loggedIn
@@ -5898,6 +6977,8 @@ const renderAdminModal = () => {
   const sourcesStatusClass = adminState.sources.status === 'error' ? 'error' : 'success';
   const lostBusy = adminState.lostReasons.loading || adminState.lostReasons.saving;
   const lostStatusClass = adminState.lostReasons.status === 'error' ? 'error' : 'success';
+  const leadCostBusy = adminState.leadCost.loading || adminState.leadCost.saving;
+  const leadCostStatusClass = adminState.leadCost.status === 'error' ? 'error' : 'success';
   const sourcesRules = Array.isArray(adminState.sources.rules) ? adminState.sources.rules : [];
   const sourcesRulesRowsMarkup = sourcesRules.length
     ? sourcesRules
@@ -6062,6 +7143,46 @@ const renderAdminModal = () => {
         .join('')
     : '<tr><td colspan="3" class="admin-mapping-empty">Geen lost reasons gevonden in deze periode.</td></tr>';
 
+  const leadCostRows = Array.isArray(adminState.leadCost.rows) ? adminState.leadCost.rows : [];
+  const leadCostRowsMarkup = leadCostRows.length
+    ? leadCostRows
+        .map((row, idx) => {
+          const source = normalizeSourceLabel(row?.source);
+          const cpl = String(row?.cpl ?? '');
+          return `
+            <tr>
+              <td>
+                <input type="text" class="admin-input admin-mapping-input" value="${escapeHtml(source)}" placeholder="Kanaal" list="lead-cost-source-options" data-lead-cost-source="${idx}" ${leadCostBusy ? 'disabled' : ''} />
+              </td>
+              <td>
+                <input type="number" class="admin-input admin-mapping-input" value="${escapeHtml(cpl)}" placeholder="0" min="0" step="0.01" data-lead-cost-cpl="${idx}" ${leadCostBusy ? 'disabled' : ''} />
+              </td>
+            </tr>
+          `;
+        })
+        .join('')
+    : '<tr><td colspan="2" class="admin-mapping-empty">Klik \"+ Kanaal\" om te starten.</td></tr>';
+
+  const leadCostOptionsMarkup = buildSourceOptions(liveState.sourceBreakdown.rows)
+    .map((option) => `<option value="${escapeHtml(option)}"></option>`)
+    .join('');
+  const leadCostOptionsList = leadCostOptionsMarkup
+    ? `<datalist id="lead-cost-source-options">${leadCostOptionsMarkup}</datalist>`
+    : '';
+
+  const savedLeadCost = sanitizeCostPerLeadBySource(configState.costPerLeadBySource) || {};
+  let leadCostMissingSources = [];
+  if (liveState.sourceBreakdown.status === 'ready' && Array.isArray(liveState.sourceBreakdown.rows)) {
+    leadCostMissingSources = (liveState.sourceBreakdown.rows || [])
+      .map((row) => ({ source: normalizeSourceLabel(row?.source), leads: Number(row?.leads ?? 0) }))
+      .filter((entry) => entry.source && entry.leads > 0 && !Object.prototype.hasOwnProperty.call(savedLeadCost, entry.source))
+      .sort((a, b) => (b.leads ?? 0) - (a.leads ?? 0) || a.source.localeCompare(b.source))
+      .map((entry) => entry.source);
+  }
+  const leadCostMissingHintMarkup = leadCostMissingSources.length
+    ? `<div class="admin-meta">Kanalen zonder CPL (in deze periode): ${escapeHtml(leadCostMissingSources.slice(0, 8).join(', '))}${leadCostMissingSources.length > 8 ? '…' : ''}</div>`
+    : '';
+
   const sourceOptionsMarkup = (adminState.mapping.sourceOptions ?? [])
     .map((option) => `<option value="${escapeHtml(option)}"></option>`)
     .join('');
@@ -6149,12 +7270,24 @@ const renderAdminModal = () => {
                   : 'Je hoeft niet in te loggen om KPI targets aan te passen.'
               }</div>
                ${
-                 adminModeEnabled && loggedIn && adminState.loading
+                 adminAccessEnabled && loggedIn && adminState.loading
                    ? '<div class="admin-meta">Integratie wordt geladen...</div>'
                    : ''
                }
                ${
-                 adminModeEnabled && loggedIn
+                 !adminModeEnabled && !adminAccessEnabled
+                   ? loggedIn
+                     ? '<div class="admin-meta">Wil je integratie-instellingen beheren? <button type="button" class="admin-ghost" data-admin-login-toggle>Admin instellingen</button></div>'
+                     : '<div class="admin-meta">Wil je integratie-instellingen beheren? <button type="button" class="admin-ghost" data-admin-login-toggle>Admin login</button></div>'
+                   : ''
+               }
+               ${
+                 !adminModeEnabled && adminAccessEnabled && loggedIn
+                   ? '<div class="admin-meta">Admin instellingen actief. <button type="button" class="admin-ghost" data-admin-login-cancel>Terug naar instellingen</button></div>'
+                   : ''
+               }
+               ${
+                 adminAccessEnabled && loggedIn
                    ? `<form class="admin-form" data-admin-form>
                         <label class="admin-label">
                           Location ID
@@ -6351,8 +7484,46 @@ const renderAdminModal = () => {
                       </div>`
                     : ''
                 }
+                <div class="admin-section">
+                  <div class="admin-section-header">
+                    <div>
+                      <h4 class="admin-section-title">Leadkosten (CPL)</h4>
+                      <p class="admin-section-subtitle">
+                        Stel de kost per lead in per kanaal. Leeg = niet meegerekend. Zet 0 om mee te tellen zonder kost (bv. Organic).
+                      </p>
+                    </div>
+                    <div class="admin-mapping-toolbar">
+                      <button type="button" class="admin-ghost" data-lead-cost-add ${leadCostBusy ? 'disabled' : ''}>+ Kanaal</button>
+                      <button type="button" class="admin-submit" data-lead-cost-save ${leadCostBusy ? 'disabled' : ''}>
+                        ${adminState.leadCost.saving ? 'Opslaan...' : 'Opslaan'}
+                      </button>
+                    </div>
+                  </div>
+                  ${
+                    adminState.leadCost.message
+                      ? `<div class="admin-message ${leadCostStatusClass}">${escapeHtml(adminState.leadCost.message)}</div>`
+                      : ''
+                  }
+                  ${adminState.leadCost.loading ? '<div class="admin-meta">Leadkosten worden geladen...</div>' : ''}
+                  <div class="admin-mapping-block">
+                    <div class="admin-mapping-table-wrapper">
+                      <table class="admin-mapping-table">
+                        <thead>
+                          <tr>
+                            <th>Kanaal</th>
+                            <th>Kost per Lead (EUR)</th>
+                          </tr>
+                        </thead>
+                        <tbody>${leadCostRowsMarkup}</tbody>
+                      </table>
+                    </div>
+                    <div class="admin-meta">Tip: zet Organic op 0 als je dit wil meenemen in de totale kost per lead.</div>
+                    ${leadCostMissingHintMarkup}
+                    ${leadCostOptionsList}
+                  </div>
+                </div>
                 ${
-                  adminModeEnabled && loggedIn
+                  adminAccessEnabled && loggedIn
                     ? `<div class="admin-section">
                         <div class="admin-section-header">
                           <div>
@@ -6455,6 +7626,11 @@ const renderAdminModal = () => {
                  <button type="submit" class="admin-submit" ${adminState.auth.status === 'sending' ? 'disabled' : ''}>
                    ${adminState.auth.status === 'sending' ? 'Versturen...' : 'Stuur magic link'}
                  </button>
+                 ${
+                   !adminModeEnabled && adminState.auth.requested
+                     ? '<button type="button" class="admin-ghost" data-admin-login-cancel>Terug naar instellingen</button>'
+                     : ''
+                 }
                </form>`
         }
       </div>
@@ -7048,25 +8224,89 @@ const applyLiveOverrides = (metrics, range) => {
     }
   }
 
+  const cplConfig = sanitizeCostPerLeadBySource(configState.costPerLeadBySource) || {};
+  const wantsCplFinance = Object.keys(cplConfig).length > 0;
+
+  if (wantsCplFinance) {
+    if (liveState.sourceBreakdown.status === 'ready' && Array.isArray(liveState.sourceBreakdown.rows)) {
+      let spend = 0;
+      let coveredLeads = 0;
+      (liveState.sourceBreakdown.rows || []).forEach((row) => {
+        const source = normalizeSourceLabel(row?.source);
+        const leads = Number(row?.leads ?? 0);
+        if (!source || leads <= 0) return;
+        if (!Object.prototype.hasOwnProperty.call(cplConfig, source)) return;
+        const cpl = Number(cplConfig[source]);
+        if (!Number.isFinite(cpl) || cpl < 0) return;
+        spend += leads * cpl;
+        coveredLeads += leads;
+      });
+
+      if (coveredLeads > 0) {
+        const costPerLead = spend / coveredLeads;
+        metrics.financeMetrics = [
+          {
+            label: 'Totale Leadkosten',
+            value: formatCurrency(spend, 0),
+            icon: icons.dollar('lucide lucide-dollar-sign w-4 h-4 text-primary'),
+            className: '',
+            isMock: false
+          },
+          {
+            label: 'Kost per Lead',
+            value: formatOptionalCurrency(costPerLead, 2),
+            icon: icons.chartColumn('lucide lucide-chart-column w-4 h-4 text-primary'),
+            className: '',
+            isMock: false
+          }
+        ];
+        return metrics;
+      }
+    } else if (liveState.sourceBreakdown.status === 'loading') {
+      metrics.financeMetrics = [
+        {
+          label: 'Totale Leadkosten',
+          value: '...',
+          icon: icons.dollar('lucide lucide-dollar-sign w-4 h-4 text-primary'),
+          className: '',
+          isMock: false
+        },
+        {
+          label: 'Kost per Lead',
+          value: '...',
+          icon: icons.chartColumn('lucide lucide-chart-column w-4 h-4 text-primary'),
+          className: '',
+          isMock: false
+        }
+      ];
+      return metrics;
+    }
+  }
+
   if (liveState.finance.status === 'ready') {
     const totals = liveState.finance.totals || {};
     const spend = Number(totals.total_spend ?? 0);
     const leads = Number(totals.total_leads ?? 0);
     const costPerLead = leads > 0 ? spend / leads : Number.NaN;
+    const financeRawValue = Math.max(spend, leads);
     metrics.financeMetrics = [
       {
         label: 'Totale Leadkosten',
         value: formatCurrency(spend, 0),
         icon: icons.dollar('lucide lucide-dollar-sign w-4 h-4 text-primary'),
         className: '',
-        isMock: false
+        isMock: false,
+        rawValue: financeRawValue,
+        drilldown: { kind: 'finance_spend' }
       },
       {
         label: 'Kost per Lead',
         value: formatOptionalCurrency(costPerLead, 2),
         icon: icons.chartColumn('lucide lucide-chart-column w-4 h-4 text-primary'),
         className: '',
-        isMock: false
+        isMock: false,
+        rawValue: financeRawValue,
+        drilldown: { kind: 'finance_spend' }
       }
     ];
   } else if (liveState.finance.status === 'loading') {
@@ -7204,6 +8444,98 @@ const renderSourceRows = (rows, isLive, belivertMode = false) =>
     })
     .join('');
 
+const renderFinanceDrilldownRows = (rows) =>
+  rows
+    .map((row) => {
+      const date = row?.date ? formatDisplayDate(row.date) : '--';
+      const source = row?.source ? escapeHtml(row.source) : 'Onbekend';
+      const spend = formatCurrency(Number(row?.spend ?? 0), 2);
+      const leads = formatNumber(Number(row?.leads ?? 0));
+      const cplValue = Number(row?.leads ?? 0) > 0 ? Number(row?.spend ?? 0) / Number(row.leads ?? 0) : Number.NaN;
+      const cpl = formatOptionalCurrency(cplValue, 2);
+
+      return `<tr class="border-b last:border-0">
+          <td class="px-3 py-2 text-sm text-foreground">${date}</td>
+          <td class="px-3 py-2 text-sm text-foreground">${source}</td>
+          <td class="px-3 py-2 text-sm text-foreground text-right">${spend}</td>
+          <td class="px-3 py-2 text-sm text-foreground text-right">${leads}</td>
+          <td class="px-3 py-2 text-sm text-muted-foreground text-right">${cpl}</td>
+        </tr>`;
+    })
+    .join('');
+
+const renderFinanceAdsetDrilldownRows = (rows) =>
+  rows
+    .map((row) => {
+      const source = row?.source ? escapeHtml(row.source) : 'Onbekend';
+      const campaign = escapeHtml(
+        formatMetaEntityLabel(row?.campaign_name, row?.campaign_id, 'Campagne')
+      );
+      const adset = escapeHtml(formatMetaEntityLabel(row?.adset_name, row?.adset_id, 'Adset'));
+      const spend = formatCurrency(Number(row?.spend ?? 0), 2);
+      const leads = formatNumber(Number(row?.leads ?? 0));
+      const cplValue = Number(row?.leads ?? 0) > 0 ? Number(row?.spend ?? 0) / Number(row.leads ?? 0) : Number.NaN;
+      const cpl = formatOptionalCurrency(cplValue, 2);
+
+      return `<tr class="border-b last:border-0">
+          <td class="px-3 py-2 text-sm text-foreground">${source}</td>
+          <td class="px-3 py-2 text-sm text-foreground">${campaign}</td>
+          <td class="px-3 py-2 text-sm text-foreground">${adset}</td>
+          <td class="px-3 py-2 text-sm text-foreground text-right">${spend}</td>
+          <td class="px-3 py-2 text-sm text-foreground text-right">${leads}</td>
+          <td class="px-3 py-2 text-sm text-muted-foreground text-right">${cpl}</td>
+        </tr>`;
+    })
+    .join('');
+
+const renderFinanceCampaignDrilldownRows = (rows) =>
+  rows
+    .map((row) => {
+      const source = row?.source ? escapeHtml(row.source) : 'Onbekend';
+      const campaign = escapeHtml(
+        formatMetaEntityLabel(row?.campaign_name, row?.campaign_id, 'Campagne')
+      );
+      const spend = formatCurrency(Number(row?.spend ?? 0), 2);
+      const leads = formatNumber(Number(row?.leads ?? 0));
+      const cplValue = Number(row?.leads ?? 0) > 0 ? Number(row?.spend ?? 0) / Number(row.leads ?? 0) : Number.NaN;
+      const cpl = formatOptionalCurrency(cplValue, 2);
+
+      return `<tr class="border-b last:border-0">
+          <td class="px-3 py-2 text-sm text-foreground">${source}</td>
+          <td class="px-3 py-2 text-sm text-foreground">${campaign}</td>
+          <td class="px-3 py-2 text-sm text-foreground text-right">${spend}</td>
+          <td class="px-3 py-2 text-sm text-foreground text-right">${leads}</td>
+          <td class="px-3 py-2 text-sm text-muted-foreground text-right">${cpl}</td>
+        </tr>`;
+    })
+    .join('');
+
+const renderFinanceAdDrilldownRows = (rows) =>
+  rows
+    .map((row) => {
+      const source = row?.source ? escapeHtml(row.source) : 'Onbekend';
+      const campaign = escapeHtml(
+        formatMetaEntityLabel(row?.campaign_name, row?.campaign_id, 'Campagne')
+      );
+      const adset = escapeHtml(formatMetaEntityLabel(row?.adset_name, row?.adset_id, 'Adset'));
+      const ad = escapeHtml(formatMetaEntityLabel(row?.ad_name, row?.ad_id, 'Ad'));
+      const spend = formatCurrency(Number(row?.spend ?? 0), 2);
+      const leads = formatNumber(Number(row?.leads ?? 0));
+      const cplValue = Number(row?.leads ?? 0) > 0 ? Number(row?.spend ?? 0) / Number(row.leads ?? 0) : Number.NaN;
+      const cpl = formatOptionalCurrency(cplValue, 2);
+
+      return `<tr class="border-b last:border-0">
+          <td class="px-3 py-2 text-sm text-foreground">${source}</td>
+          <td class="px-3 py-2 text-sm text-foreground">${campaign}</td>
+          <td class="px-3 py-2 text-sm text-foreground">${adset}</td>
+          <td class="px-3 py-2 text-sm text-foreground">${ad}</td>
+          <td class="px-3 py-2 text-sm text-foreground text-right">${spend}</td>
+          <td class="px-3 py-2 text-sm text-foreground text-right">${leads}</td>
+          <td class="px-3 py-2 text-sm text-muted-foreground text-right">${cpl}</td>
+        </tr>`;
+    })
+    .join('');
+
 const renderDrilldownRows = (rows, options = {}) =>
   rows
     .map((row) => {
@@ -7257,7 +8589,17 @@ const renderDrilldownModal = () => {
   const rangeLabel = range ? `${formatDisplayDate(range.start)} -> ${formatDisplayDate(range.end)}` : '';
   const sourceLabel = getDrilldownFilterLabel(drilldownState.kind, drilldownState.source);
   const subtitle = [rangeLabel, sourceLabel].filter(Boolean).join(' | ');
-  const showTeamleaderLink = String(drilldownState.kind || '').startsWith('sales_');
+  const isFinance = isFinanceDrilldown(drilldownState.kind);
+  const financeView = drilldownState.financeView || 'daily';
+  const financeToggle = isFinance
+    ? `<div class="drilldown-toggle">
+         <button type="button" class="drilldown-toggle-btn${financeView === 'daily' ? ' active' : ''}" data-finance-view="daily">Per dag</button>
+         <button type="button" class="drilldown-toggle-btn${financeView === 'campaign' ? ' active' : ''}" data-finance-view="campaign">Per campagne</button>
+         <button type="button" class="drilldown-toggle-btn${financeView === 'adset' ? ' active' : ''}" data-finance-view="adset">Per adset</button>
+         <button type="button" class="drilldown-toggle-btn${financeView === 'ad' ? ' active' : ''}" data-finance-view="ad">Per ad</button>
+       </div>`
+    : '';
+  const showTeamleaderLink = !isFinance && String(drilldownState.kind || '').startsWith('sales_');
 
   let body = '';
   if (drilldownState.status === 'loading') {
@@ -7266,6 +8608,62 @@ const renderDrilldownModal = () => {
     body = `<div class="drilldown-error">${escapeHtml(drilldownState.errorMessage || 'Onbekende fout')}</div>`;
   } else if (!drilldownState.rows?.length) {
     body = '<div class="drilldown-empty">Geen records gevonden voor deze selectie.</div>';
+  } else if (isFinance) {
+    body = `
+      <div class="drilldown-table-wrapper">
+        <table class="drilldown-table">
+          <thead>
+            ${
+              financeView === 'ad'
+                ? `<tr>
+                     <th>Bron</th>
+                     <th>Campagne</th>
+                     <th>Adset</th>
+                     <th>Ad</th>
+                     <th class="text-right">Kosten</th>
+                     <th class="text-right">Leads</th>
+                     <th class="text-right">Kost/Lead</th>
+                   </tr>`
+                : financeView === 'adset'
+                  ? `<tr>
+                       <th>Bron</th>
+                       <th>Campagne</th>
+                       <th>Adset</th>
+                       <th class="text-right">Kosten</th>
+                       <th class="text-right">Leads</th>
+                       <th class="text-right">Kost/Lead</th>
+                     </tr>`
+                  : financeView === 'campaign'
+                    ? `<tr>
+                         <th>Bron</th>
+                         <th>Campagne</th>
+                         <th class="text-right">Kosten</th>
+                         <th class="text-right">Leads</th>
+                         <th class="text-right">Kost/Lead</th>
+                       </tr>`
+                    : `<tr>
+                         <th>Datum</th>
+                         <th>Bron</th>
+                         <th class="text-right">Kosten</th>
+                         <th class="text-right">Leads</th>
+                         <th class="text-right">Kost/Lead</th>
+                       </tr>`
+            }
+          </thead>
+          <tbody>
+            ${
+              financeView === 'ad'
+                ? renderFinanceAdDrilldownRows(drilldownState.rows)
+                : financeView === 'adset'
+                  ? renderFinanceAdsetDrilldownRows(drilldownState.rows)
+                  : financeView === 'campaign'
+                    ? renderFinanceCampaignDrilldownRows(drilldownState.rows)
+                    : renderFinanceDrilldownRows(drilldownState.rows)
+            }
+          </tbody>
+        </table>
+      </div>
+    `;
   } else {
     body = `
       <div class="drilldown-table-wrapper">
@@ -7279,7 +8677,6 @@ const renderDrilldownModal = () => {
               <th>Source</th>
               <th>Status</th>
               ${showTeamleaderLink ? '<th>Teamleader</th>' : ''}
-              
             </tr>
           </thead>
           <tbody>
@@ -7298,6 +8695,7 @@ const renderDrilldownModal = () => {
           <div>
             <h3 class="drilldown-title">${escapeHtml(drilldownState.title || 'Records')}</h3>
             ${subtitle ? `<p class="drilldown-subtitle">${subtitle}</p>` : ''}
+            ${financeToggle}
           </div>
           <button type="button" class="drilldown-close" data-drilldown-close>Sluit</button>
         </div>
@@ -8123,6 +9521,10 @@ const getRequiredLiveData = (layoutOverride) => {
       required.spendBySource = true;
     } else if (kind === 'finance_metrics') {
       required.finance = true;
+      const cplConfig = sanitizeCostPerLeadBySource(configState.costPerLeadBySource) || {};
+      if (Object.keys(cplConfig).length) {
+        required.sourceBreakdown = true;
+      }
     } else if (kind === 'hook_performance') {
       required.hookPerformance = true;
       required.spendBySource = true;
@@ -8345,7 +9747,9 @@ const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
       <aside class="fixed lg:sticky lg:top-0 z-50 h-screen bg-sidebar border-r border-sidebar-border transition-all duration-300 flex flex-col overflow-hidden w-64 translate-x-0 sidebar-panel">
         <div class="h-14 flex items-center justify-between px-4 border-b border-sidebar-border">
           <div class="flex items-center gap-3">
-            <img src="${sidebarBranding.logoUrl}" alt="${sidebarBranding.logoAlt}" class="h-8 w-auto" />
+            <div class="flex items-center rounded-lg bg-white/90 px-3 py-1.5 shadow-sm ring-1 ring-black/5">
+              <img src="${sidebarBranding.logoUrl}" alt="${sidebarBranding.logoAlt}" class="h-9 w-auto object-contain" />
+            </div>
           </div>
           <button class="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground hidden lg:flex" data-sidebar-toggle>
             ${icons.chevronLeft('lucide lucide-chevron-left w-4 h-4 transition-transform')}
@@ -8360,19 +9764,21 @@ const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
           </div>
         </nav>
         <div class="p-4 border-t border-sidebar-border">
-          <p class="text-xs text-muted-foreground text-center">${sidebarFooter}</p>
+          <p class="text-xs text-sidebar-foreground/60 text-center">${sidebarFooter}</p>
         </div>
       </aside>
       <div class="flex-1 flex flex-col min-w-0">
         <header class="h-14 border-b border-border bg-card/50 backdrop-blur-sm flex items-center justify-between px-6 sticky top-0 z-40">
           <div class="flex items-center gap-4">
-            <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 lg:hidden hover:bg-secondary" aria-label="Sluit menu" data-sidebar-toggle>
+            <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 lg:hidden hover:bg-accent" aria-label="Sluit menu" data-sidebar-toggle>
               ${icons.menu('lucide lucide-menu h-5 w-5')}
             </button>
             <div class="flex items-center gap-3">
-              <img src="${branding.logoUrl}" alt="${branding.logoAlt}" class="h-10 w-auto object-contain" />
+              <div class="flex items-center rounded-xl bg-white/80 px-3.5 py-2 shadow-sm ring-1 ring-black/5">
+                <img src="${branding.logoUrl}" alt="${branding.logoAlt}" class="h-10 w-auto object-contain" />
+              </div>
               <div class="hidden sm:block">
-                <div class="text-lg font-bold text-foreground tracking-tight">${branding.title}</div>
+                <div class="text-lg font-bold text-primary tracking-tight">${branding.title}</div>
                 <p class="text-xs text-muted-foreground -mt-0.5">${branding.headerSubtitle}</p>
               </div>
             </div>
@@ -8387,7 +9793,7 @@ const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
                 ? `<button class="admin-trigger" type="button" data-admin-open>${settingsButtonLabel}</button>`
                 : ''
             }
-            <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 hover:bg-secondary" title="Herlaad pagina" data-action="refresh">
+            <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 hover:bg-accent" title="Herlaad pagina" data-action="refresh">
               ${icons.refresh('lucide lucide-refresh-cw h-4 w-4')}
             </button>
           </div>
@@ -8615,6 +10021,36 @@ const bindInteractions = () => {
     });
   });
 
+  document.querySelectorAll('[data-finance-view]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const view = button.getAttribute('data-finance-view');
+      if (!view || drilldownState.financeView === view) return;
+      if (!isFinanceDrilldown(drilldownState.kind)) return;
+      if (!drilldownState.range) return;
+      drilldownState.financeView = view;
+      drilldownState.status = 'loading';
+      drilldownState.errorMessage = '';
+      drilldownState.rows = [];
+      renderApp();
+
+      try {
+        const rows = await fetchDrilldownRecords({
+          kind: drilldownState.kind,
+          source: drilldownState.source,
+          range: drilldownState.range,
+          view: drilldownState.financeView
+        });
+        drilldownState.status = 'ready';
+        drilldownState.rows = Array.isArray(rows) ? rows : [];
+      } catch (error) {
+        drilldownState.status = 'error';
+        drilldownState.errorMessage = error instanceof Error ? error.message : 'Onbekende fout';
+      }
+
+      renderApp();
+    });
+  });
+
   if (settingsEnabled) {
     document.querySelectorAll('[data-admin-open]').forEach((button) => {
       button.addEventListener('click', () => {
@@ -8623,23 +10059,27 @@ const bindInteractions = () => {
         adminState.message = '';
         adminState.auth.message = '';
         adminState.auth.status = 'idle';
+        adminState.auth.requested = false;
         adminState.loading = false;
         adminState.kpi.message = '';
         adminState.lostReasons.message = '';
         adminState.sources.message = '';
+        adminState.leadCost.message = '';
         renderApp();
         if (authSession) {
-          if (adminModeEnabled) {
+          if (isAdminAccessEnabled()) {
             loadAdminIntegration();
             loadSpendMapping();
           }
           loadKpiSettings();
           loadLostReasonMappings(dateRange);
           loadSourceNormalizationSettings();
-        } else if (settingsModeEnabled && !adminModeEnabled) {
+          loadLeadCostSettings();
+        } else if (settingsModeEnabled && !isAdminAccessEnabled()) {
           loadKpiSettings();
           loadLostReasonMappings(dateRange);
           loadSourceNormalizationSettings();
+          loadLeadCostSettings();
         }
       });
     });
@@ -8648,6 +10088,29 @@ const bindInteractions = () => {
       button.addEventListener('click', () => {
         adminState.open = false;
         adminState.loading = false;
+        adminState.auth.requested = false;
+        renderApp();
+      });
+    });
+
+    document.querySelectorAll('[data-admin-login-toggle]').forEach((button) => {
+      button.addEventListener('click', () => {
+        adminState.auth.requested = true;
+        adminState.auth.status = 'idle';
+        adminState.auth.message = '';
+        renderApp();
+        if (authSession) {
+          loadAdminIntegration();
+          loadSpendMapping();
+        }
+      });
+    });
+
+    document.querySelectorAll('[data-admin-login-cancel]').forEach((button) => {
+      button.addEventListener('click', () => {
+        adminState.auth.requested = false;
+        adminState.auth.status = 'idle';
+        adminState.auth.message = '';
         renderApp();
       });
     });
@@ -8806,6 +10269,7 @@ const bindInteractions = () => {
         resetKpiState();
         resetLostReasonsState();
         resetSourceNormalizationState();
+        resetLeadCostState();
         resetBillingState();
         renderApp();
       });
@@ -8988,6 +10452,51 @@ const bindInteractions = () => {
           patterns
         };
         adminState.sources.hasChanges = true;
+      });
+    });
+
+    const leadCostAdd = document.querySelector('[data-lead-cost-add]');
+    if (leadCostAdd) {
+      leadCostAdd.addEventListener('click', () => {
+        if (!Array.isArray(adminState.leadCost.rows)) adminState.leadCost.rows = [];
+        adminState.leadCost.rows = [...adminState.leadCost.rows, { source: '', cpl: '' }];
+        adminState.leadCost.hasChanges = true;
+        renderApp();
+      });
+    }
+
+    const leadCostSave = document.querySelector('[data-lead-cost-save]');
+    if (leadCostSave) {
+      leadCostSave.addEventListener('click', () => {
+        saveLeadCostSettings();
+      });
+    }
+
+    document.querySelectorAll('[data-lead-cost-source]').forEach((input) => {
+      input.addEventListener('input', (event) => {
+        const index = Number(input.getAttribute('data-lead-cost-source'));
+        if (!Number.isFinite(index)) return;
+        if (!Array.isArray(adminState.leadCost.rows)) adminState.leadCost.rows = [];
+        const existing = adminState.leadCost.rows[index] ?? { source: '', cpl: '' };
+        adminState.leadCost.rows[index] = {
+          ...existing,
+          source: event.target.value
+        };
+        adminState.leadCost.hasChanges = true;
+      });
+    });
+
+    document.querySelectorAll('[data-lead-cost-cpl]').forEach((input) => {
+      input.addEventListener('input', (event) => {
+        const index = Number(input.getAttribute('data-lead-cost-cpl'));
+        if (!Number.isFinite(index)) return;
+        if (!Array.isArray(adminState.leadCost.rows)) adminState.leadCost.rows = [];
+        const existing = adminState.leadCost.rows[index] ?? { source: '', cpl: '' };
+        adminState.leadCost.rows[index] = {
+          ...existing,
+          cpl: event.target.value
+        };
+        adminState.leadCost.hasChanges = true;
       });
     });
   }

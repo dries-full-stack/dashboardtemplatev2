@@ -51,7 +51,12 @@ const requireUser = async (req: Request) => {
 
   const { data, error } = await supabase.auth.getUser(token);
   if (error || !data?.user) {
-    return { error: jsonResponse(401, { error: 'Invalid user session' }) };
+    return {
+      error: jsonResponse(401, {
+        error: 'Invalid user session',
+        detail: error?.message ?? null
+      })
+    };
   }
 
   return { user: data.user };
