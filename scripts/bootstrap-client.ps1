@@ -18,6 +18,20 @@ param(
   [string]$TeamleaderClientSecret,
   [string]$TeamleaderRedirectUrl,
   [string]$TeamleaderScopes,
+  [switch]$EnableMetaSpend,
+  [string]$MetaAccessToken,
+  [string]$MetaAdAccountId,
+  [string]$MetaTimezone,
+  [string]$GoogleSpendMode,
+  [string]$GoogleDeveloperToken,
+  [string]$GoogleClientId,
+  [string]$GoogleClientSecret,
+  [string]$GoogleRefreshToken,
+  [string]$GoogleCustomerId,
+  [string]$GoogleLoginCustomerId,
+  [string]$GoogleTimezone,
+  [string]$SheetCsvUrl,
+  [int]$SheetHeaderRow,
   [switch]$ApplyConfig,
   [switch]$CreateBranch,
   [string]$BranchName,
@@ -385,6 +399,17 @@ if (-not $NoLayout) {
     [ordered]@{ id = 'call-center'; label = 'Call Center'; enabled = $selectedTabs -contains 'call-center' }
   )
 
+  $behaviorObject = [ordered]@{
+    appointments_provider = if ($themeKey -eq 'belivert') { 'teamleader_meetings' } else { 'ghl' }
+    source_breakdown = [ordered]@{
+      variant = if ($themeKey -eq 'belivert') { 'deals' } else { 'default' }
+      cost_denominator = if ($themeKey -eq 'belivert') { 'deals' } else { 'confirmed' }
+    }
+    hook_performance = [ordered]@{
+      source_bucket_filter = if ($themeKey -eq 'belivert') { 'Facebook Ads' } else { $null }
+    }
+  }
+
   $layoutObject = [ordered]@{
     dashboards = $dashboards
     sections = @(
@@ -402,6 +427,7 @@ if (-not $NoLayout) {
       [ordered]@{ kind = 'hook_performance'; title = 'Ad Hook Performance' },
       [ordered]@{ kind = 'lost_reasons'; title = 'Verliesredenen' }
     )
+    behavior = $behaviorObject
   }
   if (-not [string]::IsNullOrWhiteSpace($themeKey)) {
     $layoutObject.theme = $themeKey
@@ -530,6 +556,181 @@ if ($hasTeamleaderSecrets) {
     Write-Host 'Teamleader secrets gezet via Supabase.'
   }
 }
+
+if ($EnableMetaSpend) {
+  if ([string]::IsNullOrWhiteSpace($AccessToken)) {
+    Write-Host 'Skip Meta secrets: Supabase access token ontbreekt.'
+  } elseif ([string]::IsNullOrWhiteSpace($MetaAccessToken) -or [string]::IsNullOrWhiteSpace($MetaAdAccountId)) {
+    Write-Host 'Skip Meta secrets: access token of ad account ID ontbreken.'
+  } else {
+    $secretArgs = @(
+      "META_ACCESS_TOKEN=$MetaAccessToken",
+      "META_AD_ACCOUNT_ID=$MetaAdAccountId",
+      "META_LOCATION_ID=$LocationId"
+    )
+    if (-not [string]::IsNullOrWhiteSpace($MetaTimezone)) {
+      $secretArgs += "META_TIMEZONE=$MetaTimezone"
+    }
+    & supabase secrets set --project-ref $ProjectRef @secretArgs
+    Write-Host 'Meta secrets gezet via Supabase.'
+  }
+}
+
+$googleMode = if ([string]::IsNullOrWhiteSpace($GoogleSpendMode)) { 'none' } else { $GoogleSpendMode.Trim().ToLower() }
+if ($googleMode -eq 'api') {
+  if ([string]::IsNullOrWhiteSpace($AccessToken)) {
+    Write-Host 'Skip Google Ads secrets: Supabase access token ontbreekt.'
+  } elseif (
+    [string]::IsNullOrWhiteSpace($GoogleDeveloperToken) -or
+    [string]::IsNullOrWhiteSpace($GoogleClientId) -or
+    [string]::IsNullOrWhiteSpace($GoogleClientSecret) -or
+    [string]::IsNullOrWhiteSpace($GoogleRefreshToken) -or
+    [string]::IsNullOrWhiteSpace($GoogleCustomerId)
+  ) {
+    Write-Host 'Skip Google Ads secrets: verplichte velden ontbreken.'
+  } else {
+    $secretArgs = @(
+      "GOOGLE_ADS_DEVELOPER_TOKEN=$GoogleDeveloperToken",
+      "GOOGLE_ADS_CLIENT_ID=$GoogleClientId",
+      "GOOGLE_ADS_CLIENT_SECRET=$GoogleClientSecret",
+      "GOOGLE_ADS_REFRESH_TOKEN=$GoogleRefreshToken",
+      "GOOGLE_ADS_CUSTOMER_ID=$GoogleCustomerId",
+      "GOOGLE_LOCATION_ID=$LocationId"
+    )
+    if (-not [string]::IsNullOrWhiteSpace($GoogleLoginCustomerId)) {
+      $secretArgs += "GOOGLE_ADS_LOGIN_CUSTOMER_ID=$GoogleLoginCustomerId"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($GoogleTimezone)) {
+      $secretArgs += "GOOGLE_TIMEZONE=$GoogleTimezone"
+    }
+    & supabase secrets set --project-ref $ProjectRef @secretArgs
+    Write-Host 'Google Ads secrets gezet via Supabase.'
+  }
+} elseif ($googleMode -eq 'sheet') {
+  if ([string]::IsNullOrWhiteSpace($AccessToken)) {
+    Write-Host 'Skip Google Sheet secrets: Supabase access token ontbreekt.'
+  } elseif ([string]::IsNullOrWhiteSpace($SheetCsvUrl)) {
+    Write-Host 'Skip Google Sheet secrets: CSV URL ontbreekt.'
+  } else {
+    $secretArgs = @(
+      "SHEET_CSV_URL=$SheetCsvUrl",
+      "SHEET_LOCATION_ID=$LocationId"
+    )
+    if ($SheetHeaderRow -gt 0) {
+      $secretArgs += "SHEET_HEADER_ROW=$SheetHeaderRow"
+    }
+    & supabase secrets set --project-ref $ProjectRef @secretArgs
+    Write-Host 'Google Sheet secrets gezet via Supabase.'
+  }
+}
+
+$enableTeamleaderSchedule = -not [string]::IsNullOrWhiteSpace($TeamleaderClientId) -and -not [string]::IsNullOrWhiteSpace($TeamleaderClientSecret)
+$enableMetaSchedule = $EnableMetaSpend -and -not [string]::IsNullOrWhiteSpace($MetaAccessToken) -and -not [string]::IsNullOrWhiteSpace($MetaAdAccountId)
+$enableGoogleApiSchedule = $googleMode -eq 'api' -and -not [string]::IsNullOrWhiteSpace($GoogleDeveloperToken) -and -not [string]::IsNullOrWhiteSpace($GoogleClientId) -and -not [string]::IsNullOrWhiteSpace($GoogleClientSecret) -and -not [string]::IsNullOrWhiteSpace($GoogleRefreshToken) -and -not [string]::IsNullOrWhiteSpace($GoogleCustomerId)
+$enableGoogleSheetSchedule = $googleMode -eq 'sheet' -and -not [string]::IsNullOrWhiteSpace($SheetCsvUrl)
+
+$scheduleBlocks = @()
+$scheduleBlocks += @'
+-- Schedule GHL sync every 15 minutes (requires pg_cron + pg_net extensions enabled).
+-- Replace PROJECT_REF before running (done automatically in clients/<slug>/schedule.sql).
+
+select
+  cron.schedule(
+    'ghl-sync-15m',
+    '*/15 * * * *',
+    $$
+    select
+      net.http_post(
+        url := 'https://PROJECT_REF.supabase.co/functions/v1/ghl-sync',
+        headers := jsonb_build_object('Content-Type', 'application/json'),
+        body := jsonb_build_object('entities', array['contacts','opportunities','appointments','lost_reasons'])
+      ) as request_id;
+    $$
+  );
+'@
+
+if ($enableTeamleaderSchedule) {
+  $scheduleBlocks += @'
+-- Schedule Teamleader sync every 15 minutes (requires pg_cron + pg_net extensions enabled).
+select
+  cron.schedule(
+    'teamleader-sync-15m',
+    '*/15 * * * *',
+    $$
+    select
+      net.http_post(
+        url := 'https://PROJECT_REF.supabase.co/functions/v1/teamleader-sync',
+        headers := jsonb_build_object('Content-Type', 'application/json'),
+        body := jsonb_build_object(
+          'lookback_months', 12,
+          'entities', array['users','contacts','companies','deal_pipelines','deal_phases','lost_reasons','deals','meetings']
+        )
+      ) as request_id;
+    $$
+  );
+'@
+}
+
+if ($enableMetaSchedule) {
+  $scheduleBlocks += @'
+-- Schedule Meta spend sync daily (pg_cron runs in UTC; adjust for CET/CEST).
+select
+  cron.schedule(
+    'meta-sync-daily',
+    '15 2 * * *',
+    $$
+    select
+      net.http_post(
+        url := 'https://PROJECT_REF.supabase.co/functions/v1/meta-sync',
+        headers := jsonb_build_object('Content-Type', 'application/json'),
+        body := jsonb_build_object('lookback_days', 7, 'end_offset_days', 1)
+      ) as request_id;
+    $$
+  );
+'@
+}
+
+if ($enableGoogleApiSchedule) {
+  $scheduleBlocks += @'
+-- Schedule Google Ads API spend sync daily (pg_cron runs in UTC; adjust for CET/CEST).
+select
+  cron.schedule(
+    'google-sync-daily',
+    '15 2 * * *',
+    $$
+    select
+      net.http_post(
+        url := 'https://PROJECT_REF.supabase.co/functions/v1/google-sync',
+        headers := jsonb_build_object('Content-Type', 'application/json'),
+        body := jsonb_build_object('lookback_days', 7, 'end_offset_days', 1)
+      ) as request_id;
+    $$
+  );
+'@
+} elseif ($enableGoogleSheetSchedule) {
+  $scheduleBlocks += @'
+-- Schedule Google Sheets spend sync daily (same schedule as Meta; pg_cron runs in UTC; adjust for CET/CEST).
+select
+  cron.schedule(
+    'google-sheet-sync-daily',
+    '15 2 * * *',
+    $$
+    select
+      net.http_post(
+        url := 'https://PROJECT_REF.supabase.co/functions/v1/google-sheet-sync',
+        headers := jsonb_build_object('Content-Type', 'application/json'),
+        body := jsonb_build_object('lookback_days', 7, 'end_offset_days', 1)
+      ) as request_id;
+    $$
+  );
+'@
+}
+
+$scheduleSql = ($scheduleBlocks -join "`n`n") + "`n"
+if (-not [string]::IsNullOrWhiteSpace($ProjectRef)) {
+  $scheduleSql = $scheduleSql.Replace('PROJECT_REF', $ProjectRef)
+}
+Set-Content -Path (Join-Path $clientDir 'schedule.sql') -Value $scheduleSql -Encoding utf8
 
 $shouldCreateBranch = $false
 if ($PSBoundParameters.ContainsKey('CreateBranch')) {
@@ -860,8 +1061,9 @@ Write-Host 'Volgende stappen:'
 Write-Host "1) Run base schema: supabase login (1x) -> supabase link --project-ref $ProjectRef -> supabase db push"
 Write-Host "2) Run client config: clients\\$Slug\\dashboard_config.sql (of -ApplyConfig met ServiceRoleKey)"
 Write-Host "3) Deploy functions: supabase functions deploy ghl-sync --project-ref $ProjectRef (idem voor meta-sync/google-sync/google-sheet-sync/teamleader-oauth/teamleader-sync)"
-Write-Host "4) Netlify env sync (optioneel): netlify env:import clients\\$Slug\\env.dashboard.example"
-Write-Host "5) Git branch (optioneel): git branch $BranchName origin/$BaseBranch && git push -u origin $BranchName"
+Write-Host "4) Cron jobs (optioneel): enable pg_cron + pg_net extensions en run clients\\$Slug\\schedule.sql"
+Write-Host "5) Netlify env sync (optioneel): netlify env:import clients\\$Slug\\env.dashboard.example"
+Write-Host "6) Git branch (optioneel): git branch $BranchName origin/$BaseBranch && git push -u origin $BranchName"
 
 if ($LinkProject -or $PushSchema -or $DeployFunctions) {
   if ($LinkProject -or $PushSchema) {

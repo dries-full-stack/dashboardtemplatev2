@@ -70,6 +70,16 @@ values (
                          "title":  "Verliesredenen"
                      }
                  ],
+    "behavior":  {
+                     "appointments_provider":  "teamleader_meetings",
+                     "source_breakdown":  {
+                                             "variant":  "deals",
+                                             "cost_denominator":  "deals"
+                                         },
+                     "hook_performance":  {
+                                              "source_bucket_filter":  "Facebook Ads"
+                                          }
+                 },
     "theme":  "belivert"
 }
 $$

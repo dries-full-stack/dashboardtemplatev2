@@ -33,7 +33,7 @@ select
     $$
   );
 
--- Schedule Meta + Google Ads sync daily at the same time (pg_cron runs in UTC; adjust for CET/CEST).
+-- Schedule Meta spend sync daily (pg_cron runs in UTC; adjust for CET/CEST).
 select
   cron.schedule(
     'meta-sync-daily',
@@ -47,6 +47,21 @@ select
       ) as request_id;
     $$
   );
+
+-- Schedule Google Ads API spend sync daily (enable this OR the Google Sheets sync below).
+-- select
+--   cron.schedule(
+--     'google-sync-daily',
+--     '15 2 * * *',
+--     $$
+--     select
+--       net.http_post(
+--         url := 'https://PROJECT_REF.supabase.co/functions/v1/google-sync',
+--         headers := jsonb_build_object('Content-Type', 'application/json'),
+--         body := jsonb_build_object('lookback_days', 7, 'end_offset_days', 1)
+--       ) as request_id;
+--     $$
+--   );
 
 -- Schedule Google Sheets spend sync daily (same schedule as Meta; pg_cron runs in UTC; adjust for CET/CEST).
 select

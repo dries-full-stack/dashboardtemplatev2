@@ -131,11 +131,102 @@
               Na koppeling automatisch eerste Teamleader sync starten
             </label>
           </div>
+
+          <div class="divider"></div>
+
+          <h3>Marketing kosten</h3>
+          <p class="muted">Optioneel: laad Meta/Google spend in voor kosten KPI's (Totale leadkosten, Kost per lead).</p>
+
+          <h4>Meta Ads</h4>
+          <label class="checkbox">
+            <input type="checkbox" id="enableMetaSpend" name="enableMetaSpend" />
+            Meta kosten sync
+          </label>
+          <div class="grid" data-meta>
+            <label>
+              Meta access token
+              <span class="hint">Long-lived token met toegang tot het ad account.</span>
+              <input name="metaAccessToken" type="password" placeholder="EAAG..." />
+            </label>
+            <label>
+              Meta ad account ID
+              <span class="hint">Gebruik <code>act_123...</code> (of enkel cijfers).</span>
+              <input name="metaAdAccountId" placeholder="act_1234567890" />
+            </label>
+            <label>
+              Meta timezone (optioneel)
+              <input name="metaTimezone" placeholder="Europe/Brussels" />
+            </label>
+          </div>
+
+          <div class="divider"></div>
+
+          <h4>Google Ads</h4>
+          <p class="muted">Kies 1 methode (API of Google Sheets). Niet alle klanten hebben meteen een Google developer token.</p>
+          <div class="options">
+            <label class="checkbox">
+              <input type="radio" name="googleSpendMode" value="none" checked />
+              Geen Google kosten sync
+            </label>
+            <label class="checkbox">
+              <input type="radio" name="googleSpendMode" value="api" />
+              Google Ads API
+            </label>
+            <label class="checkbox">
+              <input type="radio" name="googleSpendMode" value="sheet" />
+              Google Sheets (CSV)
+            </label>
+          </div>
+
+          <div class="grid" data-google-api>
+            <label>
+              Google developer token
+              <input name="googleDeveloperToken" type="password" placeholder="developer token" />
+            </label>
+            <label>
+              Google OAuth client ID
+              <input name="googleClientId" placeholder="xxxx.apps.googleusercontent.com" />
+            </label>
+            <label>
+              Google OAuth client secret
+              <input name="googleClientSecret" type="password" placeholder="client secret" />
+            </label>
+            <label>
+              Google refresh token
+              <input name="googleRefreshToken" type="password" placeholder="refresh token" />
+            </label>
+            <label>
+              Google Ads customer ID
+              <span class="hint">Zonder streepjes, bv. <code>1234567890</code>.</span>
+              <input name="googleCustomerId" placeholder="1234567890" />
+            </label>
+            <label>
+              Google login customer ID (MCC, optioneel)
+              <input name="googleLoginCustomerId" placeholder="1234567890" />
+            </label>
+            <label>
+              Google timezone (optioneel)
+              <input name="googleTimezone" placeholder="Europe/Brussels" />
+            </label>
+          </div>
+
+          <div class="grid" data-google-sheet>
+            <label>
+              Google Sheet CSV URL
+              <span class="hint">Gebruik de export link met <code>format=csv</code>.</span>
+              <input name="sheetCsvUrl" placeholder="https://docs.google.com/spreadsheets/d/.../export?format=csv&gid=..." />
+            </label>
+            <label>
+              Header row (optioneel)
+              <span class="hint">0 = eerste rij is header. Zet bv. 3 als er eerst titelregels staan.</span>
+              <input name="sheetHeaderRow" placeholder="0" />
+            </label>
+          </div>
         </section>
 
         <section class="wizard-panel" data-step="4">
           <div class="notice">
-            <p class="muted">Aanrader: config, functies én base schema laten zetten.</p>
+            <p class="muted">Aanrader: config, functies en base schema laten zetten.</p>
             <label class="checkbox">
               <input type="checkbox" id="advancedMode" />
               Toon geavanceerde opties
@@ -169,6 +260,22 @@
             <label class="checkbox">
               <input type="checkbox" name="autoGhlSync" checked />
               Start eerste GHL sync na onboarding
+            </label>
+            <label class="checkbox">
+              <input type="checkbox" name="autoMetaSync" />
+              Start eerste Meta kosten sync na onboarding
+            </label>
+            <label class="checkbox">
+              <input type="checkbox" name="autoGoogleSpendSync" />
+              Start eerste Google kosten sync na onboarding
+            </label>
+            <label class="checkbox">
+              <input type="checkbox" name="installCronSchedules" checked />
+              Installeer cron jobs (pg_cron + pg_net)
+            </label>
+            <label class="checkbox">
+              <input type="checkbox" name="autoHealthCheck" checked />
+              Run health check na onboarding
             </label>
           </div>
 
@@ -395,6 +502,20 @@
             <span id="sourceSuggestStatus" class="status-inline"></span>
             <div id="sourceSuggestContent" class="normalization-content"></div>
           </div>
+
+          <div class="divider"></div>
+
+          <div class="normalization-card">
+            <div class="normalization-head">
+              <div>
+                <h3>Preflight checks</h3>
+                <p class="muted">Controleer CLI + Supabase toegang voor je start.</p>
+              </div>
+              <button type="button" class="button-secondary" id="preflightRun">Run checks</button>
+            </div>
+            <span id="preflightStatus" class="status-inline"></span>
+            <div id="preflightContent" class="normalization-content"></div>
+          </div>
         </section>
 
         <div class="wizard-nav">
@@ -433,6 +554,58 @@
             <button type="button" id="syncNow">Start sync</button>
             <span id="syncStatus" class="status-inline"></span>
           </div>
+        </div>
+        <div id="metaSyncAction" class="sync-action hidden">
+          <div>
+            <h3>Start Meta spend sync</h3>
+            <p>Laad meteen de Meta kosten in.</p>
+          </div>
+          <div class="sync-controls">
+            <button type="button" id="metaSyncNow">Start Meta sync</button>
+            <span id="metaSyncStatus" class="status-inline"></span>
+          </div>
+        </div>
+        <div id="googleSyncAction" class="sync-action hidden">
+          <div>
+            <h3>Start Google Ads spend sync</h3>
+            <p>Laad meteen de Google Ads kosten in.</p>
+          </div>
+          <div class="sync-controls">
+            <button type="button" id="googleSyncNow">Start Google sync</button>
+            <span id="googleSyncStatus" class="status-inline"></span>
+          </div>
+        </div>
+        <div id="googleSheetSyncAction" class="sync-action hidden">
+          <div>
+            <h3>Start Google Sheet spend sync</h3>
+            <p>Laad meteen de Google Sheet kosten in.</p>
+          </div>
+          <div class="sync-controls">
+            <button type="button" id="googleSheetSyncNow">Start Sheet sync</button>
+            <span id="googleSheetSyncStatus" class="status-inline"></span>
+          </div>
+        </div>
+        <div id="cronInstallAction" class="sync-action hidden">
+          <div>
+            <h3>Installeer cron jobs</h3>
+            <p>Plan automatische syncs (GHL/Teamleader/Meta/Google) via pg_cron + pg_net.</p>
+          </div>
+          <div class="sync-controls">
+            <button type="button" id="cronInstallNow">Installeer cron</button>
+            <span id="cronInstallStatus" class="status-inline"></span>
+          </div>
+        </div>
+
+        <div id="healthCard" class="normalization-card hidden">
+          <div class="normalization-head">
+            <div>
+              <h3>Health check</h3>
+              <p class="muted">Controleer schema, config, cron en spend data.</p>
+            </div>
+            <button type="button" class="button-secondary" id="healthRun">Run health check</button>
+          </div>
+          <span id="healthStatus" class="status-inline"></span>
+          <div id="healthContent" class="normalization-content"></div>
         </div>
         <div class="inline-check">
           <span class="muted">Dashboard:</span>

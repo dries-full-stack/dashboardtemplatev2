@@ -1812,7 +1812,6 @@ const cloneNormalizationRules = (rules) =>
 
 const loadSourceNormalizationSettings = async () => {
   if (!settingsEnabled) return;
-  if (!isBelivertSourceBreakdownMode()) return;
   if (adminState.sources.loading) return;
 
   adminState.sources.loading = true;
@@ -1821,10 +1820,7 @@ const loadSourceNormalizationSettings = async () => {
   renderApp();
 
   try {
-    const rules =
-      sanitizeSourceNormalizationRules(configState.sourceNormalizationRules) ||
-      sanitizeSourceNormalizationRules(DEFAULT_BELIVERT_SOURCE_NORMALIZATION_RULES) ||
-      [];
+    const rules = sanitizeSourceNormalizationRules(configState.sourceNormalizationRules) || [];
 
     adminState.sources.rules = cloneNormalizationRules(rules);
     adminState.sources.hasChanges = false;
@@ -1844,7 +1840,6 @@ const loadSourceNormalizationSettings = async () => {
 
 const loadSourceNormalizationSamples = async () => {
   if (!supabase || !settingsEnabled) return;
-  if (!isBelivertSourceBreakdownMode()) return;
   if (adminState.sources.samplesLoading) return;
   const activeLocationId = configState.locationId || ghlLocationId;
   if (!activeLocationId) {
@@ -1886,7 +1881,7 @@ const loadSourceNormalizationSamples = async () => {
       .map(([raw, count]) => ({
         raw,
         count,
-        bucket: mapBelivertSourceLabel(raw)
+        bucket: mapSourceToBucketLabel(raw)
       }))
       .sort((a, b) => (b.count ?? 0) - (a.count ?? 0));
 
@@ -1902,7 +1897,6 @@ const loadSourceNormalizationSamples = async () => {
 
 const saveSourceNormalizationSettings = async () => {
   if (!supabase || !settingsEnabled) return;
-  if (!isBelivertSourceBreakdownMode()) return;
   if (adminState.sources.saving) return;
 
   const adminAccessEnabled = isAdminAccessEnabled();
@@ -2398,15 +2392,135 @@ const classifyMetaAdset = (value) => {
   // Default to NL when no FR signal is found (NL adsets often omit "NL").
   return 'nl';
 };
+
+const getLayoutRoot = () => {
+  const layout = configState.dashboardLayout;
+  if (!layout || typeof layout !== 'object' || Array.isArray(layout)) return null;
+  return layout;
+};
+
+const getLayoutBehavior = () => {
+  const layout = getLayoutRoot();
+  if (!layout) return null;
+  const behavior = layout.behavior || layout.options || layout.config;
+  if (!behavior || typeof behavior !== 'object' || Array.isArray(behavior)) return null;
+  return behavior;
+};
+
+const normalizeBehaviorKey = (value) =>
+  String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '_');
+
+const resolveSourceBreakdownVariant = () => {
+  const behavior = getLayoutBehavior();
+  const sourceCfg =
+    behavior?.source_breakdown && typeof behavior.source_breakdown === 'object' && !Array.isArray(behavior.source_breakdown)
+      ? behavior.source_breakdown
+      : null;
+
+  const raw =
+    behavior?.source_breakdown_variant ??
+    behavior?.sourceBreakdownVariant ??
+    sourceCfg?.variant ??
+    sourceCfg?.mode ??
+    '';
+
+  const key = normalizeBehaviorKey(raw);
+  if (key === 'deals' || key === 'deal') return 'deals';
+  if (key === 'default' || key === 'standard') return 'default';
+
+  // Legacy fallback: Belivert used a deals-focused breakdown layout.
+  if (resolveBrandTheme() === 'belivert') return 'deals';
+
+  return 'default';
+};
+
+const resolveSourceBreakdownCostDenominator = () => {
+  const behavior = getLayoutBehavior();
+  const sourceCfg =
+    behavior?.source_breakdown && typeof behavior.source_breakdown === 'object' && !Array.isArray(behavior.source_breakdown)
+      ? behavior.source_breakdown
+      : null;
+
+  const raw =
+    behavior?.source_breakdown_cost_denominator ??
+    behavior?.sourceBreakdownCostDenominator ??
+    sourceCfg?.cost_denominator ??
+    sourceCfg?.costDenominator ??
+    sourceCfg?.denominator ??
+    '';
+
+  const key = normalizeBehaviorKey(raw);
+  if (key === 'deals' || key === 'deal') return 'deals';
+  if (key === 'appointments' || key === 'appointment' || key === 'total') return 'appointments';
+  if (key === 'confirmed' || key === 'confirmed_appointments' || key === 'confirmedappointments') return 'confirmed';
+
+  return resolveSourceBreakdownVariant() === 'deals' ? 'deals' : 'confirmed';
+};
+
+const resolveHookPerformanceSourceBucketFilter = () => {
+  const behavior = getLayoutBehavior();
+  const hookCfg =
+    behavior?.hook_performance && typeof behavior.hook_performance === 'object' && !Array.isArray(behavior.hook_performance)
+      ? behavior.hook_performance
+      : behavior?.hookPerformance && typeof behavior.hookPerformance === 'object' && !Array.isArray(behavior.hookPerformance)
+        ? behavior.hookPerformance
+        : null;
+
+  const raw =
+    behavior?.hook_source_bucket_filter ??
+    behavior?.hookSourceBucketFilter ??
+    hookCfg?.source_bucket_filter ??
+    hookCfg?.sourceBucketFilter ??
+    hookCfg?.bucket ??
+    hookCfg?.filter_bucket ??
+    '';
+  const filter = normalizeSourceLabel(raw);
+  if (filter) return filter;
+
+  // Legacy fallback: Belivert focused hook performance on Meta only.
+  if (resolveBrandTheme() === 'belivert') return 'Facebook Ads';
+
+  return null;
+};
+
+const resolveAppointmentProvider = () => {
+  const behavior = getLayoutBehavior();
+  const raw =
+    behavior?.appointments_provider ??
+    behavior?.appointmentsProvider ??
+    behavior?.appointment_provider ??
+    behavior?.appointmentProvider ??
+    behavior?.appointments ??
+    behavior?.appointmentSource ??
+    '';
+  const key = normalizeBehaviorKey(raw);
+
+  if (key.includes('teamleader')) return 'teamleader_meetings';
+  if (key.includes('ghl') || key.includes('highlevel')) return 'ghl';
+
+  // Legacy fallback: Belivert used Teamleader meetings as appointments.
+  if (resolveBrandTheme() === 'belivert') return 'teamleader_meetings';
+
+  return 'ghl';
+};
+
 const applySourceSpendToSourceRows = (rows, spendBySource) => {
   if (!Array.isArray(rows)) return rows;
-  const belivertMode = isBelivertSourceBreakdownMode();
+
+  const denominatorKind = resolveSourceBreakdownCostDenominator();
 
   return rows.map((row) => {
     const spend = Number(spendBySource?.[row.source] ?? 0);
-    const denominator = belivertMode
-      ? Number(row.rawDeals ?? 0)
-      : Number(row.rawConfirmedAppointments ?? row.rawAppointments ?? 0);
+    const denominator =
+      denominatorKind === 'deals'
+        ? Number(row.rawDeals ?? 0)
+        : denominatorKind === 'appointments'
+          ? Number(row.rawAppointments ?? 0)
+          : Number(row.rawConfirmedAppointments ?? row.rawAppointments ?? 0);
+
     if (spend <= 0 || denominator <= 0) return { ...row, cost: '--' };
     return { ...row, cost: formatOptionalCurrency(spend / denominator, 2) };
   });
@@ -2417,16 +2531,6 @@ const MAPPING_PLATFORMS = {
 };
 const normalizeMappingPlatform = (value) => String(value ?? '').trim().toLowerCase();
 const normalizeSourceLabel = (value) => String(value ?? '').trim();
-const isBelivertSourceBreakdownMode = () => resolveBrandTheme() === 'belivert';
-const DEFAULT_BELIVERT_SOURCE_NORMALIZATION_RULES = [
-  { bucket: 'Solvari', patterns: ['solvari'] },
-  { bucket: 'Bobex', patterns: ['bobex'] },
-  { bucket: 'Trustlocal', patterns: ['trustlocal', 'trust local'] },
-  { bucket: 'Bambelo', patterns: ['bambelo'] },
-  { bucket: 'Facebook Ads', patterns: ['facebook', 'instagram', 'meta', 'fbclid', 'meta - calculator', 'meta ads - calculator'] },
-  { bucket: 'Google Ads', patterns: ['google', 'adwords', 'gclid', 'cpc', 'google - woning prijsberekening'] },
-  { bucket: 'Organic', patterns: ['organic', 'seo', 'direct', 'referral', '(none)', 'website'] }
-];
 
 const sanitizeSourceNormalizationRules = (value) => {
   if (!Array.isArray(value)) return null;
@@ -2472,57 +2576,112 @@ const sanitizeCostPerLeadBySource = (value) => {
   return cleaned;
 };
 
-let belivertNormalizationRules = sanitizeSourceNormalizationRules(DEFAULT_BELIVERT_SOURCE_NORMALIZATION_RULES) ?? [];
-let belivertNormalizationConfigRef = null;
-let belivertNormalizationConfig = null;
-const getBelivertNormalizationRules = () => {
+let sourceNormalizationRulesRef = null;
+let sourceNormalizationRulesCache = [];
+const getSourceNormalizationRules = () => {
   const raw = configState.sourceNormalizationRules;
-  if (raw !== belivertNormalizationConfigRef) {
-    belivertNormalizationConfigRef = raw;
-    belivertNormalizationConfig = sanitizeSourceNormalizationRules(raw);
+  if (raw !== sourceNormalizationRulesRef) {
+    sourceNormalizationRulesRef = raw;
+    sourceNormalizationRulesCache = sanitizeSourceNormalizationRules(raw) || [];
   }
-
-  return belivertNormalizationConfig && belivertNormalizationConfig.length
-    ? belivertNormalizationConfig
-    : belivertNormalizationRules;
+  return sourceNormalizationRulesCache;
 };
 
-const getBelivertSourceBreakdownOrder = () => {
-  const order = [...BELIVERT_SOURCE_ORDER];
-  const rules = getBelivertNormalizationRules();
-  rules.forEach((rule) => {
-    const bucket = normalizeSourceLabel(rule?.bucket);
-    if (!bucket) return;
-    if (bucket === 'Overig') return;
-    if (order.includes(bucket)) return;
-    const overigIndex = order.indexOf('Overig');
-    const insertAt = overigIndex >= 0 ? overigIndex : order.length;
-    order.splice(insertAt, 0, bucket);
-  });
-  if (!order.includes('Organic')) order.push('Organic');
-  if (!order.includes('Overig')) order.push('Overig');
-  return order;
+const DEFAULT_UNKNOWN_SOURCE_TOKENS = new Set([
+  'onbekend',
+  'unknown',
+  'n/a',
+  'na',
+  'none',
+  '(none)',
+  'not set',
+  'undefined',
+  'null'
+]);
+
+const resolveSourceBucketingConfig = () => {
+  const behavior = getLayoutBehavior();
+  const cfg =
+    behavior?.source_bucketing && typeof behavior.source_bucketing === 'object' && !Array.isArray(behavior.source_bucketing)
+      ? behavior.source_bucketing
+      : behavior?.sourceBucketing && typeof behavior.sourceBucketing === 'object' && !Array.isArray(behavior.sourceBucketing)
+        ? behavior.sourceBucketing
+        : null;
+
+  const rules = getSourceNormalizationRules();
+  const enabled = rules.length > 0 && cfg?.enabled !== false;
+
+  const unmatchedKey = normalizeBehaviorKey(cfg?.unmatched ?? cfg?.unmatched_mode ?? cfg?.unmatchedMode ?? '');
+  const unmatchedMode = unmatchedKey === 'keep' || unmatchedKey === 'passthrough' ? 'keep' : 'fallback';
+
+  const fallbackBucket = normalizeSourceLabel(cfg?.fallback_bucket ?? cfg?.fallbackBucket ?? cfg?.fallback ?? '') || 'Overig';
+
+  const hasOrganicBucket = rules.some((rule) => normalizeSourceLabel(rule?.bucket).toLowerCase() === 'organic');
+  const emptyBucket =
+    normalizeSourceLabel(cfg?.empty_bucket ?? cfg?.emptyBucket ?? cfg?.empty ?? '') ||
+    (hasOrganicBucket ? 'Organic' : fallbackBucket || 'Onbekend');
+
+  const unknownTokensRaw = cfg?.unknown_tokens ?? cfg?.unknownTokens;
+  const unknownTokens = new Set(
+    Array.isArray(unknownTokensRaw)
+      ? unknownTokensRaw.map((token) => normalizeSourceLabel(token).toLowerCase()).filter(Boolean)
+      : Array.from(DEFAULT_UNKNOWN_SOURCE_TOKENS)
+  );
+
+  const orderRaw = cfg?.order ?? cfg?.bucket_order ?? cfg?.bucketOrder;
+  const order = Array.isArray(orderRaw) ? orderRaw.map((value) => normalizeSourceLabel(value)).filter(Boolean) : [];
+
+  return { enabled, rules, unmatchedMode, fallbackBucket, emptyBucket, unknownTokens, order };
 };
 
-const mapBelivertSourceLabel = (value) => {
-  const raw = normalizeSourceLabel(value);
-  const source = raw.toLowerCase();
-  if (!source) return 'Organic';
-  if (source === 'onbekend' || source === 'unknown' || source === 'n/a') return 'Overig';
+const isSourceBucketingEnabled = () => resolveSourceBucketingConfig().enabled;
 
-  const rules = getBelivertNormalizationRules();
-  for (const rule of rules) {
+const mapSourceToBucketLabel = (value) => {
+  const cfg = resolveSourceBucketingConfig();
+  const normalized = normalizeSourceLabel(normalizeSourceValue(value));
+  if (!cfg.enabled) return normalized;
+
+  if (!normalized) return cfg.emptyBucket || 'Onbekend';
+
+  const lowered = normalized.toLowerCase();
+  if (cfg.unknownTokens.has(lowered)) return cfg.fallbackBucket;
+
+  for (const rule of cfg.rules) {
     const bucket = normalizeSourceLabel(rule?.bucket);
     if (!bucket) continue;
     const patterns = Array.isArray(rule?.patterns) ? rule.patterns : [];
     for (const pattern of patterns) {
-      if (pattern && source.includes(pattern)) return bucket;
+      if (pattern && lowered.includes(pattern)) return bucket;
     }
   }
 
-  return 'Overig';
+  return cfg.unmatchedMode === 'keep' ? normalized : cfg.fallbackBucket;
 };
-const getSourceBreakdownOrder = () => (isBelivertSourceBreakdownMode() ? getBelivertSourceBreakdownOrder() : SOURCE_ORDER);
+
+const getSourceBreakdownOrder = () => {
+  const cfg = resolveSourceBucketingConfig();
+  if (!cfg.enabled) return SOURCE_ORDER;
+
+  const order = [];
+  const add = (value) => {
+    const label = normalizeSourceLabel(value);
+    if (!label) return;
+    if (order.includes(label)) return;
+    order.push(label);
+  };
+
+  if (cfg.order.length) {
+    cfg.order.forEach(add);
+  } else {
+    cfg.rules.forEach((rule) => add(rule?.bucket));
+  }
+
+  // Ensure empty + fallback buckets are present for a stable breakdown table.
+  add(cfg.emptyBucket);
+  if (cfg.unmatchedMode !== 'keep') add(cfg.fallbackBucket);
+
+  return order;
+};
 const buildMappingKey = (platform, campaignId, adsetId) => {
   const normalized = normalizeMappingPlatform(platform);
   if (normalized === MAPPING_PLATFORMS.google) {
@@ -2545,9 +2704,7 @@ const buildSourceOptions = (rows) => {
   (rows ?? []).forEach((row) => {
     if (row?.source) options.add(row.source);
   });
-  if (isBelivertSourceBreakdownMode()) {
-    getBelivertSourceBreakdownOrder().forEach((source) => options.add(source));
-  }
+  getSourceBreakdownOrder().forEach((source) => options.add(source));
   options.add(META_SOURCE_BY_LANG.nl);
   options.add(META_SOURCE_BY_LANG.fr);
   options.add(GOOGLE_SOURCE_LABEL);
@@ -2613,7 +2770,7 @@ const applyStatusFilter = (query, patterns) => {
   return query.or(filter);
 };
 
-const useTeamleaderAppointments = () => isBelivertSourceBreakdownMode();
+const useTeamleaderAppointments = () => resolveAppointmentProvider() === 'teamleader_meetings';
 
 const fetchTeamleaderMeetingsBatch = async (activeLocationId, startIso, endIso, from = null, to = null) => {
   let query = supabase
@@ -3101,13 +3258,12 @@ const extractLostReasonRaw = (opportunityRaw, lostReasonFieldId, contactRaw) => 
 const fetchSourceBreakdownComputed = async (range, activeLocationId) => {
   const startIso = toUtcStart(range.start);
   const endIso = toUtcEndExclusive(range.end);
-  const belivertMode = isBelivertSourceBreakdownMode();
-  const defaultSource = belivertMode ? 'Organic' : 'Onbekend';
+  const bucketingConfig = resolveSourceBucketingConfig();
+  const defaultSource = bucketingConfig.enabled ? bucketingConfig.emptyBucket || 'Onbekend' : 'Onbekend';
   const normalizeSourceOptional = (value) => {
     const normalized = normalizeSourceValue(value);
     if (!normalized) return null;
-    if (!belivertMode) return normalized;
-    return mapBelivertSourceLabel(normalized);
+    return mapSourceToBucketLabel(normalized);
   };
 
   const useTeamleader = useTeamleaderAppointments();
@@ -3249,9 +3405,18 @@ const fetchSourceBreakdownComputed = async (range, activeLocationId) => {
     };
   });
 
-  if (belivertMode) {
+  if (bucketingConfig.enabled) {
     const rowsBySource = new Map(rows.map((row) => [row.source, row]));
-    return getBelivertSourceBreakdownOrder().map((source) => ({
+    const preferredOrder = getSourceBreakdownOrder();
+    const extras = Array.from(rowsBySource.keys()).filter((source) => !preferredOrder.includes(source));
+    extras.sort((a, b) => {
+      const leadDiff = (rowsBySource.get(b)?.leads ?? 0) - (rowsBySource.get(a)?.leads ?? 0);
+      if (leadDiff) return leadDiff;
+      return String(a ?? '').localeCompare(String(b ?? ''));
+    });
+    const orderedSources = [...preferredOrder, ...extras];
+
+    return orderedSources.map((source) => ({
       source,
       leads: rowsBySource.get(source)?.leads || 0,
       appointments: rowsBySource.get(source)?.appointments || 0,
@@ -3308,10 +3473,8 @@ const fetchHookPerformanceComputed = async (range, activeLocationId) => {
   const campaignFieldId = toTrimmedText(configState.campaignFieldId);
   if (!hookFieldId && !campaignFieldId) return [];
 
-  const belivertMode = isBelivertSourceBreakdownMode();
-  const metaOnly = belivertMode;
-  const metaBucket = 'Facebook Ads';
-  const defaultSource = getDefaultDrilldownSource(belivertMode);
+  const filterBucket = resolveHookPerformanceSourceBucketFilter();
+  const defaultSource = getDefaultDrilldownSource();
   const useTeamleader = useTeamleaderAppointments();
   const startIso = toUtcStart(range.start);
   const endIso = toUtcEndExclusive(range.end);
@@ -3393,8 +3556,8 @@ const fetchHookPerformanceComputed = async (range, activeLocationId) => {
   });
 
   const toBucketSource = (rawSource) => {
-    if (!rawSource) return defaultSource;
-    return belivertMode ? mapBelivertSourceLabel(rawSource) : rawSource;
+    const bucket = mapSourceToBucketLabel(rawSource);
+    return bucket || defaultSource;
   };
 
   const metaOpportunities = [];
@@ -3404,7 +3567,7 @@ const fetchHookPerformanceComputed = async (range, activeLocationId) => {
   opportunities.forEach((row) => {
     const rawSource = normalizeSourceValue(row?.source_guess);
     const bucketSource = toBucketSource(rawSource);
-    if (metaOnly && bucketSource !== metaBucket) return;
+    if (filterBucket && bucketSource !== filterBucket) return;
 
     metaOpportunities.push({ row, rawSource, bucketSource });
 
@@ -3428,7 +3591,7 @@ const fetchHookPerformanceComputed = async (range, activeLocationId) => {
       normalizeSourceValue(opportunity?.source_guess) ||
       normalizeSourceValue(contactFromEmail?.source_guess);
     const bucketSource = toBucketSource(rawSource);
-    if (metaOnly && bucketSource !== metaBucket) return;
+    if (filterBucket && bucketSource !== filterBucket) return;
 
     metaAppointments.push({ row, rawSource, bucketSource, opportunity });
 
@@ -3667,7 +3830,7 @@ const fetchSpendBySource = async (range) => {
   if (!activeLocationId) {
     throw new Error('Location ID ontbreekt. Voeg deze toe via de setup (dashboard_config).');
   }
-  const belivertMode = isBelivertSourceBreakdownMode();
+  const bucketingEnabled = isSourceBucketingEnabled();
 
   const startDate = range.start;
   const endDate = toDateEndExclusive(range.end);
@@ -3713,7 +3876,7 @@ const fetchSpendBySource = async (range) => {
   });
 
   const addSpend = (label, amount) => {
-    const key = belivertMode ? mapBelivertSourceLabel(label) : normalizeSourceLabel(label);
+    const key = mapSourceToBucketLabel(label);
     if (!key) return;
     totals[key] = (totals[key] ?? 0) + amount;
   };
@@ -3782,7 +3945,10 @@ const fetchSpendBySource = async (range) => {
     });
   }
 
-  if (belivertMode) {
+  if (bucketingEnabled) {
+    const metaBucketLabel = normalizeSourceLabel(mapSourceToBucketLabel(META_SOURCE_BY_LANG.nl));
+    const googleBucketLabel = normalizeSourceLabel(mapSourceToBucketLabel(GOOGLE_SOURCE_LABEL));
+
     const { data: externalRows, error: externalError } = await withTimeout(
       supabase
         .from('marketing_spend_daily')
@@ -3796,12 +3962,12 @@ const fetchSpendBySource = async (range) => {
     if (externalError) throw externalError;
 
     (externalRows ?? []).forEach((row) => {
-      const bucket = mapBelivertSourceLabel(row?.source);
-      if (bucket === 'Facebook Ads' || bucket === 'Google Ads') return;
+      const bucket = normalizeSourceLabel(mapSourceToBucketLabel(row?.source));
+      if (bucket && (bucket === metaBucketLabel || bucket === googleBucketLabel)) return;
       addSpend(row?.source, Number(row?.spend ?? 0));
     });
 
-    getBelivertSourceBreakdownOrder().forEach((source) => {
+    getSourceBreakdownOrder().forEach((source) => {
       if (!Object.prototype.hasOwnProperty.call(totals, source)) totals[source] = 0;
     });
   }
@@ -3809,10 +3975,10 @@ const fetchSpendBySource = async (range) => {
   return totals;
 };
 
-const resolveSpendSourceLabel = (value, belivertMode) => {
+const resolveSpendSourceLabel = (value) => {
   const raw = normalizeSourceLabel(value);
-  if (!raw) return belivertMode ? 'Overig' : 'Onbekend';
-  return belivertMode ? mapBelivertSourceLabel(raw) : raw;
+  if (!raw) return getDefaultDrilldownSource();
+  return mapSourceToBucketLabel(raw);
 };
 
 const formatMetaEntityLabel = (label, id, fallbackPrefix) => {
@@ -3828,7 +3994,6 @@ const fetchFinanceCampaignDrilldownRecords = async ({ activeLocationId, startIso
   if (!supabase) return null;
   const startDate = startIso.slice(0, 10);
   const endDate = endIso.slice(0, 10);
-  const belivertMode = isBelivertSourceBreakdownMode();
 
   const { data, error } = await withTimeout(
     supabase
@@ -3847,7 +4012,7 @@ const fetchFinanceCampaignDrilldownRecords = async ({ activeLocationId, startIso
 
   if (!useFallback) {
     (data ?? []).forEach((row) => {
-      const label = resolveSpendSourceLabel(row?.source, belivertMode);
+      const label = resolveSpendSourceLabel(row?.source);
       if (source && label !== source) return;
       const campaignId = toTrimmedText(row?.campaign_id);
       const key = `${label}|${campaignId || 'campaign'}`;
@@ -3878,7 +4043,7 @@ const fetchFinanceCampaignDrilldownRecords = async ({ activeLocationId, startIso
     if (fallbackError) throw fallbackError;
 
     (fallbackRows ?? []).forEach((row) => {
-      const label = resolveSpendSourceLabel(row?.source, belivertMode);
+      const label = resolveSpendSourceLabel(row?.source);
       if (source && label !== source) return;
       const campaignId = toTrimmedText(row?.campaign_id);
       const key = `${label}|${campaignId || 'campaign'}`;
@@ -3908,7 +4073,6 @@ const fetchFinanceAdsetDrilldownRecords = async ({ activeLocationId, startIso, e
   if (!supabase) return null;
   const startDate = startIso.slice(0, 10);
   const endDate = endIso.slice(0, 10);
-  const belivertMode = isBelivertSourceBreakdownMode();
 
   const { data, error } = await withTimeout(
     supabase
@@ -3924,7 +4088,7 @@ const fetchFinanceAdsetDrilldownRecords = async ({ activeLocationId, startIso, e
 
   const grouped = new Map();
   (data ?? []).forEach((row) => {
-    const label = resolveSpendSourceLabel(row?.source, belivertMode);
+    const label = resolveSpendSourceLabel(row?.source);
     if (source && label !== source) return;
     const adsetId = toTrimmedText(row?.adset_id);
     const campaignId = toTrimmedText(row?.campaign_id);
@@ -3956,7 +4120,6 @@ const fetchFinanceAdDrilldownRecords = async ({ activeLocationId, startIso, endI
   if (!supabase) return null;
   const startDate = startIso.slice(0, 10);
   const endDate = endIso.slice(0, 10);
-  const belivertMode = isBelivertSourceBreakdownMode();
 
   const { data, error } = await withTimeout(
     supabase
@@ -3972,7 +4135,7 @@ const fetchFinanceAdDrilldownRecords = async ({ activeLocationId, startIso, endI
 
   const grouped = new Map();
   (data ?? []).forEach((row) => {
-    const label = resolveSpendSourceLabel(row?.source, belivertMode);
+    const label = resolveSpendSourceLabel(row?.source);
     if (source && label !== source) return;
     const adId = toTrimmedText(row?.ad_id);
     const adsetId = toTrimmedText(row?.adset_id);
@@ -4016,7 +4179,6 @@ const fetchFinanceDrilldownRecords = async ({ activeLocationId, startIso, endIso
   if (!supabase) return null;
   const startDate = startIso.slice(0, 10);
   const endDate = endIso.slice(0, 10);
-  const belivertMode = isBelivertSourceBreakdownMode();
 
   const { data, error } = await withTimeout(
     supabase
@@ -4032,7 +4194,7 @@ const fetchFinanceDrilldownRecords = async ({ activeLocationId, startIso, endIso
 
   const grouped = new Map();
   (data ?? []).forEach((row) => {
-    const label = resolveSpendSourceLabel(row?.source, belivertMode);
+    const label = resolveSpendSourceLabel(row?.source);
     if (source && label !== source) return;
     const date = row?.date ?? '';
     if (!date) return;
@@ -4054,13 +4216,16 @@ const clampLimit = (value, fallback = 200) => {
   return Math.min(Math.max(Math.floor(raw), 1), 500);
 };
 
-const getDefaultDrilldownSource = (belivertMode = isBelivertSourceBreakdownMode()) =>
-  belivertMode ? 'Organic' : 'Onbekend';
+const getDefaultDrilldownSource = () => {
+  const cfg = resolveSourceBucketingConfig();
+  if (cfg.enabled) return cfg.emptyBucket || 'Onbekend';
+  return 'Onbekend';
+};
 
-const normalizeDrilldownSource = (value, belivertMode = isBelivertSourceBreakdownMode()) => {
+const normalizeDrilldownSource = (value) => {
   const normalized = normalizeSourceValue(value);
   if (!normalized) return null;
-  return belivertMode ? mapBelivertSourceLabel(normalized) : normalized;
+  return mapSourceToBucketLabel(normalized);
 };
 
 const fetchOpportunityDrilldownRecordsComputed = async ({
@@ -4071,7 +4236,6 @@ const fetchOpportunityDrilldownRecordsComputed = async ({
   source,
   limit
 }) => {
-  const belivertMode = isBelivertSourceBreakdownMode();
   const wantedSource = source ? String(source) : null;
   const effectiveLimit = clampLimit(limit, 200);
   const pageSize = 1000;
@@ -4100,7 +4264,7 @@ const fetchOpportunityDrilldownRecordsComputed = async ({
     for (const row of batch) {
       if (kind === 'deals' && !isWonOrClosedStatus(row?.status)) continue;
 
-      const recordSource = normalizeDrilldownSource(row?.source_guess, belivertMode) || getDefaultDrilldownSource(belivertMode);
+      const recordSource = normalizeDrilldownSource(row?.source_guess) || getDefaultDrilldownSource();
       if (wantedSource && recordSource !== wantedSource) continue;
 
       rows.push({
@@ -4132,7 +4296,6 @@ const fetchAppointmentDrilldownRecordsComputed = async ({
   source,
   limit
 }) => {
-  const belivertMode = isBelivertSourceBreakdownMode();
   const useTeamleader = useTeamleaderAppointments();
   const wantedSource = source ? String(source) : null;
   const effectiveLimit = clampLimit(limit, 200);
@@ -4185,7 +4348,7 @@ const fetchAppointmentDrilldownRecordsComputed = async ({
       const sourceByEmail = new Map();
       opportunitiesForAppointments.forEach((row) => {
         const emailNorm = normalizeEmailValue(row?.contact_email);
-        const mapped = normalizeDrilldownSource(row?.source_guess, belivertMode);
+        const mapped = normalizeDrilldownSource(row?.source_guess);
         if (emailNorm && mapped && !sourceByEmail.has(emailNorm)) {
           sourceByEmail.set(emailNorm, mapped);
         }
@@ -4201,12 +4364,12 @@ const fetchAppointmentDrilldownRecordsComputed = async ({
         const emailNorm = normalizeEmailValue(row?.contact_email);
         const contactFromEmail = emailNorm ? contactsByEmail.get(emailNorm) : null;
         const contactSource = contactFromEmail
-          ? normalizeDrilldownSource(contactFromEmail?.source_guess, belivertMode)
+          ? normalizeDrilldownSource(contactFromEmail?.source_guess)
           : null;
         const derivedSource =
           (emailNorm ? sourceByEmail.get(emailNorm) : null) ||
           contactSource ||
-          getDefaultDrilldownSource(belivertMode);
+          getDefaultDrilldownSource();
         if (wantedSource && derivedSource !== wantedSource) continue;
 
         if (kind === 'appointments_without_lead_in_range') {
@@ -4311,7 +4474,7 @@ const fetchAppointmentDrilldownRecordsComputed = async ({
       );
       if (error) throw error;
       (data ?? []).forEach((row) => {
-        const mapped = normalizeDrilldownSource(row?.source_guess, belivertMode);
+        const mapped = normalizeDrilldownSource(row?.source_guess);
         if (!mapped) return;
 
         const contactId = toTrimmedText(row?.contact_id);
@@ -4358,10 +4521,10 @@ const fetchAppointmentDrilldownRecordsComputed = async ({
       const emailNorm = normalizeEmailValue(row?.contact_email);
 
       const derivedSource =
-        normalizeDrilldownSource(row?.source, belivertMode) ||
+        normalizeDrilldownSource(row?.source) ||
         (contactId ? sourceByContactId.get(contactId) : null) ||
         (emailNorm ? sourceByEmail.get(emailNorm) : null) ||
-        getDefaultDrilldownSource(belivertMode);
+        getDefaultDrilldownSource();
 
       if (wantedSource && derivedSource !== wantedSource) continue;
 
@@ -4417,7 +4580,6 @@ const fetchLostReasonDrilldownRecordsComputed = async ({
   reasonLabel,
   limit
 }) => {
-  const belivertMode = isBelivertSourceBreakdownMode();
   const wantedReason = reasonLabel ? String(reasonLabel) : null;
   const effectiveLimit = clampLimit(limit, 200);
   const pageSize = 1000;
@@ -4523,7 +4685,7 @@ const fetchLostReasonDrilldownRecordsComputed = async ({
       if (wantedReason && label !== wantedReason) continue;
 
       const recordSource =
-        normalizeDrilldownSource(row?.source_guess, belivertMode) || getDefaultDrilldownSource(belivertMode);
+        normalizeDrilldownSource(row?.source_guess) || getDefaultDrilldownSource();
 
       rows.push({
         record_id: row?.id ?? '',
@@ -4557,17 +4719,15 @@ const fetchHookOpportunityDrilldownRecordsComputed = async ({
   const campaignFieldId = toTrimmedText(configState.campaignFieldId);
   if (!hookFieldId && !campaignFieldId) return [];
 
-  const belivertMode = isBelivertSourceBreakdownMode();
-  const metaOnly = belivertMode;
-  const metaBucket = 'Facebook Ads';
+  const filterBucket = resolveHookPerformanceSourceBucketFilter();
   const wantedHook = hookLabel ? String(hookLabel) : null;
   const effectiveLimit = clampLimit(limit, 200);
-  const defaultSource = getDefaultDrilldownSource(belivertMode);
+  const defaultSource = getDefaultDrilldownSource();
   const pageSize = 1000;
   const maxScan = 15000;
   const toBucketSource = (rawSource) => {
-    if (!rawSource) return defaultSource;
-    return belivertMode ? mapBelivertSourceLabel(rawSource) : rawSource;
+    const bucket = mapSourceToBucketLabel(rawSource);
+    return bucket || defaultSource;
   };
 
   const rows = [];
@@ -4624,7 +4784,7 @@ const fetchHookOpportunityDrilldownRecordsComputed = async ({
     for (const row of batch) {
       const rawSource = normalizeSourceValue(row?.source_guess);
       const recordSource = toBucketSource(rawSource);
-      if (metaOnly && recordSource !== metaBucket) continue;
+      if (filterBucket && recordSource !== filterBucket) continue;
       const contactId = toTrimmedText(row?.contact_id);
       const emailNorm = normalizeEmailValue(row?.contact_email);
       const contact = (contactId ? contactsById.get(contactId) : null) || (emailNorm ? contactsByEmail.get(emailNorm) : null);
@@ -4678,18 +4838,16 @@ const fetchHookAppointmentDrilldownRecordsComputed = async ({
   const campaignFieldId = toTrimmedText(configState.campaignFieldId);
   if (!hookFieldId && !campaignFieldId) return [];
 
-  const belivertMode = isBelivertSourceBreakdownMode();
-  const metaOnly = belivertMode;
-  const metaBucket = 'Facebook Ads';
+  const filterBucket = resolveHookPerformanceSourceBucketFilter();
   const wantedHook = hookLabel ? String(hookLabel) : null;
   const effectiveLimit = clampLimit(limit, 200);
-  const defaultSource = getDefaultDrilldownSource(belivertMode);
+  const defaultSource = getDefaultDrilldownSource();
   const pageSize = 1000;
   const maxScan = 20000;
   const useTeamleader = useTeamleaderAppointments();
   const toBucketSource = (rawSource) => {
-    if (!rawSource) return defaultSource;
-    return belivertMode ? mapBelivertSourceLabel(rawSource) : rawSource;
+    const bucket = mapSourceToBucketLabel(rawSource);
+    return bucket || defaultSource;
   };
 
   if (useTeamleader) {
@@ -4744,7 +4902,7 @@ const fetchHookAppointmentDrilldownRecordsComputed = async ({
           normalizeSourceValue(opportunity?.source_guess) ||
           normalizeSourceValue(contactFromEmail?.source_guess);
         const bucketSource = toBucketSource(rawSource);
-        if (metaOnly && bucketSource !== metaBucket) continue;
+        if (filterBucket && bucketSource !== filterBucket) continue;
 
         const contactId = toTrimmedText(opportunity?.contact_id) || toTrimmedText(contactFromEmail?.id);
         const contact = (contactId ? contactsById.get(contactId) : null) || contactFromEmail;
@@ -4887,7 +5045,7 @@ const fetchHookAppointmentDrilldownRecordsComputed = async ({
         (emailNorm ? rawSourceByEmail.get(emailNorm) : null);
 
       const recordSource = toBucketSource(rawSource);
-      if (metaOnly && recordSource !== metaBucket) continue;
+      if (filterBucket && recordSource !== filterBucket) continue;
       const fallbackSource = rawSource || recordSource || defaultSource;
 
       const { hook, campaign } = resolveHookFields({
@@ -6979,6 +7137,14 @@ const renderAdminModal = () => {
   const lostStatusClass = adminState.lostReasons.status === 'error' ? 'error' : 'success';
   const leadCostBusy = adminState.leadCost.loading || adminState.leadCost.saving;
   const leadCostStatusClass = adminState.leadCost.status === 'error' ? 'error' : 'success';
+  const sourceBucketingCfg = resolveSourceBucketingConfig();
+  const sourcesFallbackBucket = normalizeSourceLabel(sourceBucketingCfg.fallbackBucket) || 'Overig';
+  const sourcesEmptyBucket = normalizeSourceLabel(sourceBucketingCfg.emptyBucket) || 'Onbekend';
+  const sourcesSubtitle = `Koppel raw sources aan vaste kanalen. Lege source telt als ${escapeHtml(sourcesEmptyBucket)}. ${
+    sourceBucketingCfg.unmatchedMode === 'keep'
+      ? 'Alles wat niet matcht blijft zijn eigen source.'
+      : `Alles wat niet matcht valt onder ${escapeHtml(sourcesFallbackBucket)}.`
+  }`;
   const sourcesRules = Array.isArray(adminState.sources.rules) ? adminState.sources.rules : [];
   const sourcesRulesRowsMarkup = sourcesRules.length
     ? sourcesRules
@@ -7004,8 +7170,12 @@ const renderAdminModal = () => {
         .map((row) => {
           const raw = escapeHtml(row?.raw ?? '');
           const count = formatNumber(row?.count ?? 0);
-          const bucket = escapeHtml(row?.bucket ?? '');
-          const bucketMarkup = bucket === 'Overig' ? `<span class="text-destructive">${bucket}</span>` : bucket;
+          const bucketRaw = normalizeSourceLabel(row?.bucket);
+          const bucket = escapeHtml(bucketRaw);
+          const bucketDisplay = bucket || '--';
+          const highlightFallback =
+            sourceBucketingCfg.unmatchedMode !== 'keep' && bucketRaw && bucketRaw === sourcesFallbackBucket;
+          const bucketMarkup = highlightFallback ? `<span class="text-destructive">${bucketDisplay}</span>` : bucketDisplay;
           return `
             <tr>
               <td>${raw || '--'}</td>
@@ -7424,13 +7594,13 @@ const renderAdminModal = () => {
                   </div>
                 </div>
                 ${
-                  isBelivertSourceBreakdownMode()
+                  settingsEnabled
                     ? `<div class="admin-section">
                         <div class="admin-section-header">
                           <div>
                             <h4 class="admin-section-title">Source normalisatie</h4>
                             <p class="admin-section-subtitle">
-                              Koppel raw sources aan vaste kanalen. Lege source telt als Organic. Alles wat niet matcht valt onder Overig.
+                              ${sourcesSubtitle}
                             </p>
                           </div>
                           <div class="admin-mapping-toolbar">
@@ -7732,12 +7902,11 @@ const computeMetrics = (range) => {
     { label: 'Lead -> Afspraak', value: formatPercent(conversionRate, 1), icon: icons.target('lucide lucide-target w-4 h-4 text-primary'), className: '' }
   ];
 
-  const belivertSourceMode = isBelivertSourceBreakdownMode();
+  const defaultSource = getDefaultDrilldownSource();
+  const denominatorKind = resolveSourceBreakdownCostDenominator();
   const sourceTotalsByLabel = new Map();
   filtered.forEach((entry) => {
-    const source =
-      (belivertSourceMode ? mapBelivertSourceLabel(entry.source) : normalizeSourceLabel(entry.source)) ||
-      (belivertSourceMode ? 'Organic' : 'Onbekend');
+    const source = mapSourceToBucketLabel(entry.source) || defaultSource;
     const current = sourceTotalsByLabel.get(source) || {
       leads: 0,
       appointments: 0,
@@ -7763,7 +7932,12 @@ const computeMetrics = (range) => {
       deals: 0,
       cost: 0
     };
-    const costDenominator = belivertSourceMode ? sourceTotals.deals : sourceTotals.confirmed;
+    const costDenominator =
+      denominatorKind === 'deals'
+        ? sourceTotals.deals
+        : denominatorKind === 'appointments'
+          ? sourceTotals.appointments
+          : sourceTotals.confirmed;
 
     return {
       source,
@@ -8169,7 +8343,7 @@ const applyLiveOverrides = (metrics, range) => {
   }
 
   if (liveState.sourceBreakdown.status === 'ready' && Array.isArray(liveState.sourceBreakdown.rows)) {
-    const belivertMode = isBelivertSourceBreakdownMode();
+    const defaultSource = getDefaultDrilldownSource();
     let liveRows = liveState.sourceBreakdown.rows.map((row) => {
       const leads = Number(row.leads ?? 0);
       const appointments = Number(row.appointments ?? 0);
@@ -8178,7 +8352,7 @@ const applyLiveOverrides = (metrics, range) => {
       const deals = Number(row.deals ?? 0);
 
       return {
-        source: row.source ?? (belivertMode ? 'Organic' : 'Onbekend'),
+        source: row.source ?? defaultSource,
         leads: formatNumber(leads),
         appointments: formatNumber(appointments),
         confirmed: formatNumber(confirmed),
@@ -8376,8 +8550,9 @@ const renderKpiCards = (cards) =>
     })
     .join('');
 
-const renderSourceRows = (rows, isLive, belivertMode = false) =>
-  rows
+const renderSourceRows = (rows, isLive) => {
+  const dealsMode = resolveSourceBreakdownVariant() === 'deals';
+  return rows
     .map((row) => {
       const sourceText = row.source ? escapeHtml(row.source) : 'Onbekend';
       const leadsValue = renderDrilldownValue({
@@ -8412,7 +8587,8 @@ const renderSourceRows = (rows, isLive, belivertMode = false) =>
         enabled: isLive && Number(row.rawNoLeadInRange) > 0,
         className: 'drilldown-cell'
       });
-      if (belivertMode) {
+
+      if (dealsMode) {
         const dealsValue = renderDrilldownValue({
           value: row.deals,
           kind: 'deals',
@@ -8443,6 +8619,7 @@ const renderSourceRows = (rows, isLive, belivertMode = false) =>
         </tr>`;
     })
     .join('');
+};
 
 const renderFinanceDrilldownRows = (rows) =>
   rows
@@ -9354,11 +9531,19 @@ const renderFinanceSection = (section, metrics) => {
 };
 
 const renderSourceBreakdownSection = (section, metrics) => {
-  const belivertMode = isBelivertSourceBreakdownMode();
+  const variant = resolveSourceBreakdownVariant();
+  const dealsMode = variant === 'deals';
+  const denominatorKind = resolveSourceBreakdownCostDenominator();
+  const costLabel =
+    denominatorKind === 'deals'
+      ? 'Cost per Deal'
+      : denominatorKind === 'appointments'
+        ? 'Cost per Afspraak'
+        : 'Cost per Confirmed';
   const title = escapeHtml(resolveSectionText(section?.title, 'Source Breakdown'));
   const description = resolveSectionText(
     section?.description,
-    belivertMode
+    dealsMode
       ? 'Prestaties per leadgenerator'
       : 'Prestaties per leadgenerator - Leads = opportunities in periode - extra kolom = afspraken zonder lead in periode'
   );
@@ -9381,24 +9566,24 @@ const renderSourceBreakdownSection = (section, metrics) => {
                 <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Leads</th>
                 <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Appointments</th>
                 ${
-                  belivertMode
+                  dealsMode
                     ? `
                 <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Inplan %</th>
                 <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Deals</th>
                 <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">% naar Deals</th>
-                <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Cost per Deal</th>
+                <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">${escapeHtml(costLabel)}</th>
                 `
                     : `
                 <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Confirmed</th>
                 <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Afspraken zonder lead in periode</th>
                 <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Inplan %</th>
-                <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Cost per Afspraak</th>
+                <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">${escapeHtml(costLabel)}</th>
                 `
                 }
               </tr>
             </thead>
             <tbody class="[&_tr:last-child]:border-0">
-              ${renderSourceRows(metrics.sourceRows, metrics.sourceRowsLive, belivertMode)}
+              ${renderSourceRows(metrics.sourceRows, metrics.sourceRowsLive)}
             </tbody>
           </table>
         </div>
