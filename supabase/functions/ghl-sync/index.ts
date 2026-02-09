@@ -640,26 +640,46 @@ const parseBoolValue = (value: unknown): boolean => {
   return false;
 };
 
-const getFullSyncFlags = (state: SyncState | null, forceFullSync: boolean) => {
+const parsePositiveInt = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return Math.floor(value);
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed > 0) return Math.floor(parsed);
+  }
+  return null;
+};
+
+const getFullSyncFlags = (
+  state: SyncState | null,
+  forceFullSync: boolean,
+  syncStartedAt?: string,
+  initialWindowDays?: number | null
+) => {
   const now = Date.now();
+  const allowInitialWindow = Number.isFinite(initialWindowDays) && initialWindowDays > 0;
   const lastFullSyncAt = state?.cursor && typeof state.cursor.lastFullSyncAt === 'string'
     ? (state.cursor.lastFullSyncAt as string)
     : null;
-  const lastFullSyncMs = lastFullSyncAt ? Date.parse(lastFullSyncAt) : NaN;
+  const effectiveLastFullSyncAt =
+    !state && allowInitialWindow && !forceFullSync && !env.FULL_SYNC && syncStartedAt
+      ? syncStartedAt
+      : lastFullSyncAt;
+  const lastFullSyncMs = effectiveLastFullSyncAt ? Date.parse(effectiveLastFullSyncAt) : NaN;
   const fullSyncIntervalMs = env.FULL_SYNC_INTERVAL_HOURS * 60 * 60 * 1000;
   const shouldFullByInterval = env.FULL_SYNC_INTERVAL_HOURS > 0 && (
-    !lastFullSyncAt || Number.isNaN(lastFullSyncMs) || now - lastFullSyncMs >= fullSyncIntervalMs
+    !effectiveLastFullSyncAt || Number.isNaN(lastFullSyncMs) || now - lastFullSyncMs >= fullSyncIntervalMs
   );
-  const isFullSync = env.FULL_SYNC || forceFullSync || !state || shouldFullByInterval;
+  const isFullSync = env.FULL_SYNC || forceFullSync || (!state && !allowInitialWindow) || shouldFullByInterval;
 
-  return { isFullSync, lastFullSyncAt };
+  return { isFullSync, lastFullSyncAt: effectiveLastFullSyncAt };
 };
 
 const syncContacts = async (
   client: GhlClient,
   locationId: string,
   forceFullSync: boolean,
-  budget: SyncBudget
+  budget: SyncBudget,
+  initialWindowDays: number | null = null
 ) => {
   const state = await getSyncState('contacts', locationId);
   const now = Date.now();
@@ -669,7 +689,12 @@ const syncContacts = async (
     cursor && typeof cursor.fullSyncStartedAt === 'string' ? (cursor.fullSyncStartedAt as string) : null;
   const fullSyncInProgress = cursor?.fullSyncInProgress === true && Boolean(cursorFullSyncStartedAt);
 
-  const { isFullSync: shouldFullSync, lastFullSyncAt } = getFullSyncFlags(state, forceFullSync);
+  const { isFullSync: shouldFullSync, lastFullSyncAt } = getFullSyncFlags(
+    state,
+    forceFullSync,
+    invocationStartedAt,
+    initialWindowDays
+  );
   const freshFullSync = shouldFullSync && !fullSyncInProgress;
   const isFullSync = shouldFullSync || fullSyncInProgress;
   const fullSyncStartedAt = isFullSync ? cursorFullSyncStartedAt || invocationStartedAt : null;
@@ -687,6 +712,18 @@ const syncContacts = async (
   if (freshFullSync) {
     startAfter = null;
     startAfterId = null;
+  } else if (
+    !state &&
+    !isFullSync &&
+    allowStartAfter &&
+    Number.isFinite(initialWindowDays) &&
+    initialWindowDays > 0
+  ) {
+    const refreshStart = now - initialWindowDays * 24 * 60 * 60 * 1000;
+    if (!startAfter || startAfter > refreshStart) {
+      startAfter = refreshStart;
+      startAfterId = null;
+    }
   } else if (!isFullSync && allowStartAfter && env.CONTACTS_REFRESH_DAYS > 0) {
     const refreshStart = now - env.CONTACTS_REFRESH_DAYS * 24 * 60 * 60 * 1000;
     if (!startAfter || startAfter > refreshStart) {
@@ -853,7 +890,8 @@ const syncOpportunities = async (
   client: GhlClient,
   locationId: string,
   forceFullSync: boolean,
-  budget: SyncBudget
+  budget: SyncBudget,
+  initialWindowDays: number | null = null
 ) => {
   const state = await getSyncState('opportunities', locationId);
   const now = Date.now();
@@ -862,7 +900,12 @@ const syncOpportunities = async (
   const cursorFullSyncStartedAt =
     cursor && typeof cursor.fullSyncStartedAt === 'string' ? (cursor.fullSyncStartedAt as string) : null;
   const fullSyncInProgress = cursor?.fullSyncInProgress === true && Boolean(cursorFullSyncStartedAt);
-  const { isFullSync: shouldFullSync, lastFullSyncAt } = getFullSyncFlags(state, forceFullSync);
+  const { isFullSync: shouldFullSync, lastFullSyncAt } = getFullSyncFlags(
+    state,
+    forceFullSync,
+    invocationStartedAt,
+    initialWindowDays
+  );
   const freshFullSync = shouldFullSync && !fullSyncInProgress;
   const isFullSync = shouldFullSync || fullSyncInProgress;
   const fullSyncStartedAt = isFullSync ? cursorFullSyncStartedAt || invocationStartedAt : null;
@@ -878,6 +921,12 @@ const syncOpportunities = async (
   if (freshFullSync) {
     startAfter = null;
     startAfterId = null;
+  } else if (!state && !isFullSync && Number.isFinite(initialWindowDays) && initialWindowDays > 0) {
+    const refreshStart = now - initialWindowDays * 24 * 60 * 60 * 1000;
+    if (!startAfter || startAfter > refreshStart) {
+      startAfter = refreshStart;
+      startAfterId = null;
+    }
   } else if (!isFullSync && env.OPPORTUNITIES_REFRESH_DAYS > 0) {
     const refreshStart = now - env.OPPORTUNITIES_REFRESH_DAYS * 24 * 60 * 60 * 1000;
     if (!startAfter || startAfter > refreshStart) {
@@ -1287,8 +1336,11 @@ const parseRequestConfig = async (req: Request) => {
   const url = new URL(req.url);
   const entitiesParam = url.searchParams.get('entities');
   const fullSyncParam = url.searchParams.get('full_sync') ?? url.searchParams.get('fullSync');
+  const initialWindowParam =
+    url.searchParams.get('initial_window_days') ?? url.searchParams.get('initialWindowDays');
   const entities = new Set<string>();
   let fullSyncFromBody: unknown;
+  let initialWindowFromBody: unknown;
 
   if (entitiesParam) {
     for (const entry of entitiesParam.split(',')) {
@@ -1306,21 +1358,26 @@ const parseRequestConfig = async (req: Request) => {
         body.entities.split(',').forEach((entry: string) => entities.add(entry.trim().toLowerCase()));
       }
       fullSyncFromBody = body?.full_sync ?? body?.fullSync;
+      initialWindowFromBody = body?.initial_window_days ?? body?.initialWindowDays;
     } catch {
       // ignore body parse errors
     }
   }
 
+  const initialWindowDays = parsePositiveInt(initialWindowParam ?? initialWindowFromBody);
+
   if (entities.size === 0 || entities.has('all')) {
     return {
       entities: ['contacts', 'opportunities', 'appointments', 'lost_reasons'],
-      forceFullSync: parseBoolValue(fullSyncParam ?? fullSyncFromBody)
+      forceFullSync: parseBoolValue(fullSyncParam ?? fullSyncFromBody),
+      initialWindowDays
     };
   }
 
   return {
     entities: Array.from(entities),
-    forceFullSync: parseBoolValue(fullSyncParam ?? fullSyncFromBody)
+    forceFullSync: parseBoolValue(fullSyncParam ?? fullSyncFromBody),
+    initialWindowDays
   };
 };
 
@@ -1340,7 +1397,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { entities, forceFullSync } = await parseRequestConfig(req);
+    const { entities, forceFullSync, initialWindowDays } = await parseRequestConfig(req);
     const integration = await loadIntegration();
     const client = new GhlClient(env.GHL_BASE_URL, integration.token);
     const budget = createSyncBudget();
@@ -1362,9 +1419,21 @@ Deno.serve(async (req) => {
       }
       try {
         if (entity === 'contacts') {
-          results.contacts = await syncContacts(client, integration.locationId, forceFullSync, budget);
+          results.contacts = await syncContacts(
+            client,
+            integration.locationId,
+            forceFullSync,
+            budget,
+            initialWindowDays
+          );
         } else if (entity === 'opportunities') {
-          results.opportunities = await syncOpportunities(client, integration.locationId, forceFullSync, budget);
+          results.opportunities = await syncOpportunities(
+            client,
+            integration.locationId,
+            forceFullSync,
+            budget,
+            initialWindowDays
+          );
         } else if (entity === 'appointments') {
           results.appointments = await syncAppointments(client, integration.locationId, forceFullSync, budget);
         } else if (entity === 'lost_reasons') {
@@ -1386,7 +1455,8 @@ Deno.serve(async (req) => {
       skipped,
       partial: skipped.length > 0,
       deadline_ms: budget.deadlineMs,
-      force_full_sync: forceFullSync
+      force_full_sync: forceFullSync,
+      initial_window_days: initialWindowDays
     }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' }

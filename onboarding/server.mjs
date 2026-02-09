@@ -810,8 +810,28 @@ const server = createServer(async (req, res) => {
         headers['x-sync-secret'] = syncSecret;
       }
 
+      const initialWindowRaw = data.initialWindowDays ?? data.initial_window_days;
+      const initialWindowDays = Number(initialWindowRaw);
+
+      const requestBody = {};
+      if (Array.isArray(data.entities)) {
+        const entities = data.entities.map(sanitizeString).filter(Boolean);
+        if (entities.length) {
+          requestBody.entities = entities;
+        }
+      } else if (typeof data.entities === 'string' && data.entities.trim()) {
+        requestBody.entities = data.entities.trim();
+      }
+      if (Number.isFinite(initialWindowDays) && initialWindowDays > 0) {
+        requestBody.initial_window_days = Math.floor(initialWindowDays);
+      }
+
       isSyncing = true;
-      const response = await fetch(syncUrl, { method: 'POST', headers });
+      const response = await fetch(syncUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(requestBody)
+      });
       const text = await response.text();
       let parsed = null;
       try {

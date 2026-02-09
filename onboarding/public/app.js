@@ -54,7 +54,7 @@ const sourceSuggestContentNode = document.getElementById('sourceSuggestContent')
 
 const BASIC_STORAGE_KEY = 'onboard-basic';
 const BASIC_FIELDS = ['slug', 'supabaseUrl', 'locationId', 'dashboardTitle', 'dashboardSubtitle', 'logoUrl'];
-const BASIC_CHECKS = ['dashboardLead', 'dashboardSales', 'dashboardCallCenter'];
+const BASIC_CHECKS = ['dashboardLead', 'dashboardSales', 'dashboardCallCenter', 'autoGhlSync'];
 const DEFAULT_CUSTOM_DOMAIN_SUFFIX = 'profitpulse.be';
 const DEFAULT_NETLIFY_SITE_PREFIX = 'dashboard-';
 let currentStep = 1;
@@ -571,6 +571,59 @@ const setSyncStatus = (text, tone = 'muted') => {
   if (tone === 'error') syncStatusNode.classList.add('error');
 };
 
+const triggerGhlSync = async ({
+  fullSync = false,
+  initialWindowDays = 60,
+  entities = ['contacts', 'opportunities', 'appointments', 'lost_reasons'],
+  statusText = 'Sync gestart...'
+} = {}) => {
+  const ref = extractProjectRef(supabaseUrlInput?.value || '');
+  if (!ref) {
+    setSyncStatus('Vul een geldige Supabase URL in.', 'error');
+    return { ok: false };
+  }
+
+  if (syncNowBtn) syncNowBtn.disabled = true;
+  setSyncStatus(statusText, 'muted');
+
+  const safeInitialWindowDays = Number.isFinite(Number(initialWindowDays)) ? Number(initialWindowDays) : 0;
+
+  try {
+    const response = await fetch('/api/ghl-sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        projectRef: ref,
+        supabaseUrl: supabaseUrlInput?.value || '',
+        syncSecret: getFieldValue('syncSecret'),
+        fullSync: Boolean(fullSync),
+        initialWindowDays: safeInitialWindowDays > 0 ? safeInitialWindowDays : undefined,
+        entities
+      })
+    });
+
+    const result = await response.json();
+    if (!response.ok || !result?.ok) {
+      const detail = result?.error ? ` (${result.error})` : '';
+      setSyncStatus(`Sync faalde${detail}`, 'error');
+      return { ok: false, result };
+    }
+
+    const summary = result?.data?.results
+      ? Object.entries(result.data.results)
+          .map(([key, value]) => `${key}: ${value}`)
+          .join(', ')
+      : '';
+    setSyncStatus(summary ? `Sync klaar: ${summary}` : 'Sync klaar.', 'ok');
+    return { ok: true, result };
+  } catch (error) {
+    setSyncStatus(error instanceof Error ? error.message : 'Sync faalde.', 'error');
+    return { ok: false, error };
+  } finally {
+    if (syncNowBtn) syncNowBtn.disabled = false;
+  }
+};
+
 const setTeamleaderSyncStatus = (text, tone = 'muted') => {
   if (!teamleaderSyncStatusNode) return;
   teamleaderSyncStatusNode.textContent = text;
@@ -862,6 +915,7 @@ const buildSummary = () => {
     { label: 'Deploy functions', value: yesNo(isFieldChecked('deployFunctions')) },
     { label: 'Dashboard .env', value: yesNo(isFieldChecked('writeDashboardEnv')) },
     { label: 'Open dashboard', value: yesNo(isFieldChecked('openDashboard')) },
+    { label: 'Auto GHL sync', value: yesNo(isFieldChecked('autoGhlSync')) },
     { label: 'Auto fetch keys', value: yesNo(isFieldChecked('autoFetchKeys')) },
     { label: 'Access token', value: maskedWithHint(getFieldValue('accessToken'), 'supabaseAccessToken') },
     { label: 'Server key', value: maskedWithHint(getFieldValue('serviceRoleKey'), 'supabaseServiceRoleJwt') },
@@ -1168,45 +1222,11 @@ nextStepBtn?.addEventListener('click', () => {
 initUi();
 
 syncNowBtn?.addEventListener('click', async () => {
-  const ref = extractProjectRef(supabaseUrlInput?.value || '');
-  if (!ref) {
-    setSyncStatus('Vul een geldige Supabase URL in.', 'error');
-    return;
-  }
-
-  syncNowBtn.disabled = true;
-  setSyncStatus('Sync gestart...', 'muted');
-
-  try {
-    const response = await fetch('/api/ghl-sync', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        projectRef: ref,
-        supabaseUrl: supabaseUrlInput?.value || '',
-        syncSecret: getFieldValue('syncSecret'),
-        fullSync: true
-      })
-    });
-
-    const result = await response.json();
-    if (!response.ok || !result?.ok) {
-      const detail = result?.error ? ` (${result.error})` : '';
-      setSyncStatus(`Sync faalde${detail}`, 'error');
-      return;
-    }
-
-    const summary = result?.data?.results
-      ? Object.entries(result.data.results)
-          .map(([key, value]) => `${key}: ${value}`)
-          .join(', ')
-      : '';
-    setSyncStatus(summary ? `Sync klaar: ${summary}` : 'Sync klaar.', 'ok');
-  } catch (error) {
-    setSyncStatus(error instanceof Error ? error.message : 'Sync faalde.', 'error');
-  } finally {
-    syncNowBtn.disabled = false;
-  }
+  await triggerGhlSync({
+    fullSync: false,
+    initialWindowDays: 60,
+    statusText: 'Sync gestart (laatste 60 dagen)...'
+  });
 });
 
 teamleaderSyncNowBtn?.addEventListener('click', async () => {
@@ -1254,6 +1274,16 @@ form.addEventListener('submit', async (event) => {
     if (shouldAutoSync) {
       startTeamleaderAutopilot();
     }
+
+    const shouldAutoGhlSync = result.ok && isFieldChecked('autoGhlSync');
+    if (shouldAutoGhlSync) {
+      await triggerGhlSync({
+        fullSync: false,
+        initialWindowDays: 60,
+        statusText: 'Auto sync gestart (laatste 60 dagen)...'
+      });
+    }
+
     if (isFieldChecked('openDashboard')) {
       setDashboardStatus('Dashboard starten...', 'muted');
       const dashboardStart = await startDashboardDev();
