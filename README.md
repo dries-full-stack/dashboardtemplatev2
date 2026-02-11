@@ -66,6 +66,9 @@ of voer je gerichte SQL uit via de editor.
 3. Koppel Teamleader via:
    - `https://YOUR_PROJECT_REF.supabase.co/functions/v1/teamleader-oauth/start?location_id=YOUR_LOCATION_ID`
 4. Plan de sync (15 min) via `supabase/schedule.sql`.
+5. Plan daarnaast een dagelijkse reconcile-run voor deals (aanbevolen tegen stale/deleted deals):
+   - `POST https://YOUR_PROJECT_REF.supabase.co/functions/v1/teamleader-sync`
+   - body: `{"entities":["deals"],"lookback_months":2,"reconcile_deals_window":true,"deal_info_max":0}`
 
 Optionele sync settings (Supabase secrets):
 `TEAMLEADER_LOOKBACK_MONTHS`, `TEAMLEADER_PAGE_SIZE`, `TEAMLEADER_UPSERT_BATCH_SIZE`, `SYNC_OVERLAP_MINUTES`.
@@ -414,6 +417,75 @@ Naast `location_id` kun je in `dashboard_config` ook de dashboard content/metric
 - `billing_checkout_url` (text, Stripe Payment Link / checkout URL)
 - `billing_checkout_embed` (boolean, toon checkout URL als embed in dashboard)
 
+### Seats billing flow (kaart eerst, bedrag later)
+
+Voor sales seats (per vertegenwoordiger) kan je de nieuwe flow gebruiken:
+
+1. Klant kiest seats op `/billing-seats-setup.html?client=belivert-sales`
+2. Stripe Checkout draait in `setup` mode (kaart koppelen, geen directe seat-afrekening)
+3. Backoffice finaliseert seats via `/billing-seats-admin.html?client=belivert-sales`
+4. Backend maakt/updated Stripe subscription met `quantity = seats`
+
+Publieke entrypoints:
+
+- `/billing-belivert.html` (Belivert overzichtspagina)
+- `/billing-belivert-sales.html` (Belivert Sales seats landing)
+
+Tip voor betaal-links:
+
+- Zet `billing_flow: "seats_setup"` in `dashboard/public/billing-clients.json` voor het klantprofiel.
+- `billing-checkout.html` detecteert dit en redirect automatisch naar `billing-seats-setup.html`.
+
+Optionele seats UI config (`billing-clients.json`, defaults of profiel):
+
+- `seats_price_hint` (vrije tekst, bv. "EUR 99 per vertegenwoordiger per maand. Je wordt later gefactureerd.")
+- `seats_price_per_rep` + `seats_price_currency` + `seats_price_interval` (automatische prijs-hint zonder totaal)
+
+Benodigde edge function: `supabase/functions/stripe-seats-billing/index.ts`
+
+Vereiste function env vars:
+
+- `STRIPE_SECRET_KEY`
+- `STRIPE_WEBHOOK_SECRET`
+- `STRIPE_SALES_PRICE_ID` (default recurring price per vertegenwoordiger)
+- `BILLING_ADMIN_TOKEN` (vereist voor finalize endpoint)
+
+Webhook endpoint in Stripe:
+
+- `POST https://PROJECT_REF.supabase.co/functions/v1/stripe-seats-billing`
+
+Deze function verwacht:
+
+- gewone JSON requests voor `action=create_setup_session` en `action=finalize_subscription`
+- intern overzicht via `action=admin_overview` (vereist `x-admin-token`)
+- Stripe webhook events op hetzelfde endpoint (met `Stripe-Signature` header)
+
+Interne overzichtspagina:
+
+- `/billing-overview-admin.html`
+- toont publieke betaal-links uit `billing-clients.json`
+- haalt subscription-overzicht uit `billing_customers` via `admin_overview`
+
+Interne operations hub (voor `app.profitpulse.be`):
+
+- `/hub.html` (billing + onboarding navigatie)
+- `/onboarding-hub.html` (gehoste onboarding wizard met snippets/checklists voor nieuwe klanten)
+
+Provision endpoint (Netlify Function):
+
+- `POST /.netlify/functions/provision-client`
+- Vereist header: `x-admin-token`
+- Vereiste Netlify env var: `PROVISION_ADMIN_TOKEN` (of fallback `BILLING_ADMIN_TOKEN`)
+- Optionele env vars voor automatische checks:
+  - `NETLIFY_AUTH_TOKEN`
+  - `SUPABASE_ACCESS_TOKEN`
+  - `STRIPE_SECRET_KEY`
+  - `INTERNAL_NETLIFY_SITE_ID`
+  - `DEFAULT_CUSTOMER_NETLIFY_SITE_ID`
+- Write-acties vanuit onboarding-hub:
+  - `create_customer_site` (maakt/update klantsite via Netlify API)
+  - `write_supabase_secrets` (zet function secrets in Supabase project)
+
 `dashboard_layout` kan een array zijn of een object met `sections`. Elke section:
 
 - `kind`: `funnel_metrics` | `source_breakdown` | `finance_metrics` | `hook_performance` | `lost_reasons`
@@ -609,4 +681,3 @@ git push --force --tags origin
 - Deze template gebruikt de **officiele GHL API v2** met Private Integration Token.
 - Voor contacts is de Search endpoint niet volledig gespecificeerd in de officiele OpenAPI spec; daarom is de deprecated list endpoint gebruikt voor bulk sync.
 - Appointments worden opgehaald via `GET /calendars/events`, omdat er geen globale “list all appointments” endpoint beschikbaar is.
-

@@ -558,6 +558,40 @@ const extractLostReasonsFromPipelines = (payload: unknown): { id: string; name: 
   return reasons;
 };
 
+const extractPipelinesFromPayload = (payload: unknown): { id: string; name: string }[] => {
+  const pipelines = Array.isArray(payload)
+    ? payload
+    : (payload as Record<string, unknown>)?.pipelines ??
+      (payload as Record<string, unknown>)?.data ??
+      [];
+
+  const list = Array.isArray(pipelines) ? pipelines : [];
+  const items: { id: string; name: string }[] = [];
+
+  list.forEach((entry) => {
+    const pipeline = entry as PipelineRecord;
+    const id = normalizeString(
+      pipeline.id ??
+      (pipeline as Record<string, unknown>)?.pipelineId ??
+      (pipeline as Record<string, unknown>)?.pipeline_id ??
+      (pipeline as Record<string, unknown>)?.value
+    );
+    if (!id) return;
+
+    const name = normalizeString(
+      pipeline.name ??
+      (pipeline as Record<string, unknown>)?.pipelineName ??
+      (pipeline as Record<string, unknown>)?.pipeline_name ??
+      (pipeline as Record<string, unknown>)?.label ??
+      (pipeline as Record<string, unknown>)?.title
+    );
+
+    items.push({ id, name: name || id });
+  });
+
+  return items;
+};
+
 const dedupeReasons = (items: { id: string; name: string }[]) => {
   const map = new Map<string, { id: string; name: string }>();
   items.forEach((item) => {
@@ -572,6 +606,47 @@ const dedupeReasons = (items: { id: string; name: string }[]) => {
     }
   });
   return Array.from(map.values());
+};
+
+const dedupePipelines = (items: { id: string; name: string }[]) => {
+  const map = new Map<string, { id: string; name: string }>();
+  items.forEach((item) => {
+    if (!item?.id || !item?.name) return;
+    if (!map.has(item.id)) {
+      map.set(item.id, item);
+      return;
+    }
+    const existing = map.get(item.id);
+    if (existing && existing.name.length < item.name.length) {
+      map.set(item.id, item);
+    }
+  });
+  return Array.from(map.values());
+};
+
+const upsertOpportunityPipelineLookup = async (
+  locationId: string,
+  items: { id: string; name: string }[]
+) => {
+  const pipelines = dedupePipelines(items);
+  if (!pipelines.length) return 0;
+
+  const updatedAt = new Date().toISOString();
+  const rows = pipelines.map((pipeline) => ({
+    location_id: locationId,
+    pipeline_id: pipeline.id,
+    pipeline_name: pipeline.name,
+    updated_at: updatedAt
+  }));
+
+  for (const chunk of chunkArray(rows, 500)) {
+    const { error } = await supabase.from('opportunity_pipeline_lookup').upsert(chunk, {
+      onConflict: 'location_id,pipeline_id'
+    });
+    if (error) throw error;
+  }
+
+  return rows.length;
 };
 
 const getSyncState = async (entity: string, locationId: string): Promise<SyncState | null> => {
@@ -1263,6 +1338,7 @@ const syncAppointments = async (
 const syncLostReasonLookup = async (client: GhlClient, locationId: string) => {
   console.log('Syncing lost reason lookup...');
   const collected: { id: string; name: string }[] = [];
+  let pipelineLookupSynced = 0;
 
   try {
     const pipelineResponse = await client.getPipelines({ locationId });
@@ -1272,6 +1348,17 @@ const syncLostReasonLookup = async (client: GhlClient, locationId: string) => {
         (pipelineResponse as Record<string, unknown>)?.data ??
         []);
     console.log(`Lost reason lookup: pipelines fetched (${Array.isArray(pipelinesList) ? pipelinesList.length : 0}).`);
+    try {
+      pipelineLookupSynced = await upsertOpportunityPipelineLookup(
+        locationId,
+        extractPipelinesFromPayload(pipelineResponse)
+      );
+      if (pipelineLookupSynced > 0) {
+        console.log(`Pipeline lookup sync complete. Total records: ${pipelineLookupSynced}.`);
+      }
+    } catch (pipelineLookupError) {
+      console.warn('Pipeline lookup sync failed.', pipelineLookupError);
+    }
     collected.push(...extractLostReasonsFromPipelines(pipelineResponse));
   } catch (error) {
     console.warn('Lost reason lookup: pipeline fetch failed.', error);

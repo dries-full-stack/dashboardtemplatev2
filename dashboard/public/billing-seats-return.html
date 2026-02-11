@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kaartkoppeling voltooid</title>
+    <meta name="description" content="Bevestiging na Stripe kaartkoppeling voor seats-based facturatie." />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');
+
+      :root {
+        --bg: #f4f8ff;
+        --ink: #13253f;
+        --muted: #526a8b;
+        --line: #d9e4f2;
+        --primary: #173968;
+        --accent: #16b4a8;
+        --ok-bg: #e1f7f4;
+        --ok-ink: #0f6d67;
+        --warn-bg: #fff4e6;
+        --warn-ink: #975a16;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 14% 14%, rgba(22, 180, 168, 0.2), transparent 32%),
+          radial-gradient(circle at 86% 16%, rgba(23, 57, 104, 0.17), transparent 30%),
+          linear-gradient(160deg, #f9fcff 0%, var(--bg) 100%);
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+
+      .card {
+        width: min(700px, 100%);
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        background: #fff;
+        overflow: hidden;
+        box-shadow: 0 22px 52px rgba(16, 38, 66, 0.14);
+      }
+
+      .bar {
+        height: 6px;
+        background: linear-gradient(90deg, var(--primary), var(--accent));
+      }
+
+      .content {
+        padding: 30px 28px 24px;
+      }
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: 8px 12px;
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+      }
+
+      .chip.ok {
+        background: var(--ok-bg);
+        color: var(--ok-ink);
+        border: 1px solid #b6ebe5;
+      }
+
+      .chip.warn {
+        background: var(--warn-bg);
+        color: var(--warn-ink);
+        border: 1px solid #f0dbbf;
+      }
+
+      h1 {
+        margin: 14px 0 8px;
+        font-size: clamp(24px, 5vw, 34px);
+        line-height: 1.1;
+        letter-spacing: -0.02em;
+      }
+
+      p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .meta {
+        margin-top: 18px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 12px;
+        background: #fbfdff;
+        font-size: 13px;
+        color: #476183;
+      }
+
+      .actions {
+        margin-top: 18px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .btn {
+        height: 44px;
+        border-radius: 12px;
+        border: 1px solid var(--line);
+        padding: 0 16px;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .btn.primary {
+        background: var(--primary);
+        border-color: var(--primary);
+        color: #fff;
+      }
+
+      .btn.secondary {
+        background: #fff;
+        color: var(--ink);
+      }
+
+      @media (max-width: 680px) {
+        .content {
+          padding: 24px 20px 18px;
+        }
+
+        .actions .btn {
+          width: 100%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card" role="main">
+      <div class="bar"></div>
+      <div class="content">
+        <div id="chip" class="chip ok">Kaart gekoppeld</div>
+        <h1 id="title">Je kaart is succesvol gekoppeld</h1>
+        <p id="subtitle">
+          Bedankt. Je aanvraag staat klaar. We finaliseren intern het aantal vertegenwoordigers en
+          starten daarna de afrekening.
+        </p>
+
+        <div id="meta" class="meta"></div>
+
+        <div class="actions">
+          <a id="back-link" class="btn primary" href="/">Terug naar dashboard</a>
+          <a id="retry-link" class="btn secondary" href="/billing-seats-setup.html">Opnieuw proberen</a>
+        </div>
+      </div>
+    </main>
+
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      const status = String(params.get('status') || 'success').toLowerCase();
+      const slug = params.get('client') || '';
+      const sessionId = params.get('session_id') || '';
+
+      const chip = document.getElementById('chip');
+      const title = document.getElementById('title');
+      const subtitle = document.getElementById('subtitle');
+      const meta = document.getElementById('meta');
+      const backLink = document.getElementById('back-link');
+      const retryLink = document.getElementById('retry-link');
+
+      retryLink.href = slug ? `/billing-seats-setup.html?client=${encodeURIComponent(slug)}` : '/billing-seats-setup.html';
+
+      if (status === 'cancel') {
+        chip.className = 'chip warn';
+        chip.textContent = 'Kaartkoppeling geannuleerd';
+        title.textContent = 'Geen probleem, je hebt de flow geannuleerd';
+        subtitle.textContent = 'Je kaart is nog niet gekoppeld. Je kan de flow opnieuw starten wanneer je wil.';
+      }
+
+      const lines = [];
+      if (slug) lines.push(`Klantprofiel: ${slug}`);
+      if (sessionId && sessionId !== '{CHECKOUT_SESSION_ID}') lines.push(`Stripe sessie: ${sessionId}`);
+      lines.push(`Status: ${status === 'cancel' ? 'geannuleerd' : 'succes'}`);
+      meta.textContent = lines.join(' | ');
+
+      if (slug === 'belivert-sales') {
+        backLink.href = '/sales-resultaten';
+      }
+    </script>
+  </body>
+</html>

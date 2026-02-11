@@ -33,6 +33,27 @@ select
     $$
   );
 
+-- Optional: reconcile deleted Teamleader deals nightly within a recent window.
+-- This prevents stale rows from lingering when a deal disappears from Teamleader.
+-- select
+--   cron.schedule(
+--     'teamleader-sync-deals-reconcile-nightly',
+--     '10 1 * * *',
+--     $$
+--     select
+--       net.http_post(
+--         url := 'https://PROJECT_REF.supabase.co/functions/v1/teamleader-sync',
+--         headers := jsonb_build_object('Content-Type', 'application/json'),
+--         body := jsonb_build_object(
+--           'entities', array['deals'],
+--           'lookback_months', 2,
+--           'reconcile_deals_window', true,
+--           'deal_info_max', 0
+--         )
+--       ) as request_id;
+--     $$
+--   );
+
 -- Schedule Meta spend sync daily (pg_cron runs in UTC; adjust for CET/CEST).
 select
   cron.schedule(

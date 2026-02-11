@@ -1,4 +1,4 @@
-﻿-- Client dashboard_config for belivert
+-- Client dashboard_config for belivert
 -- Run this in Supabase SQL editor (or via CLI).
 insert into public.dashboard_config (
   id,

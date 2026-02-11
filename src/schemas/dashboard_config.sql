@@ -8,6 +8,8 @@ create table if not exists public.dashboard_config (
   sales_monthly_deals_targets jsonb not null default '{}'::jsonb,
   -- Teamleader deal phase threshold: deals at/after this phase are counted as "offertes" on the Sales dashboard.
   sales_quotes_from_phase_id text,
+  -- Deal titles containing one of these words/phrases are excluded from Sales KPIs.
+  sales_excluded_deal_keywords jsonb not null default '[]'::jsonb,
   billing_portal_url text,
   billing_checkout_url text,
   billing_checkout_embed boolean not null default false,
@@ -29,6 +31,7 @@ alter table public.dashboard_config
   add column if not exists sales_monthly_deals_target integer not null default 25,
   add column if not exists sales_monthly_deals_targets jsonb not null default '{}'::jsonb,
   add column if not exists sales_quotes_from_phase_id text,
+  add column if not exists sales_excluded_deal_keywords jsonb not null default '[]'::jsonb,
   add column if not exists billing_portal_url text,
   add column if not exists billing_checkout_url text,
   add column if not exists billing_checkout_embed boolean not null default false,
@@ -59,6 +62,7 @@ grant update (
   sales_monthly_deals_target,
   sales_monthly_deals_targets,
   sales_quotes_from_phase_id,
+  sales_excluded_deal_keywords,
   billing_portal_url,
   billing_checkout_url,
   billing_checkout_embed,

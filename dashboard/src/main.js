@@ -89,6 +89,7 @@ const ALL_DASHBOARD_TABS = [
 ];
 
 const DASHBOARD_LOOKUP = new Map(ALL_DASHBOARD_TABS.map((tab) => [tab.id, tab]));
+const DEFAULT_DASHBOARD_TABS = ALL_DASHBOARD_TABS.filter((tab) => tab.id !== 'call-center');
 
 const normalizePath = (value = '') => {
   if (!value) return '/';
@@ -115,11 +116,11 @@ const getRouteId = (availableTabs = ALL_DASHBOARD_TABS) => {
 };
 
 const DEFAULT_BRANDING = {
-  title: 'Your Company',
-  headerSubtitle: 'Performance Dashboard',
-  pageSubtitle: 'Performance Dashboard - Leads, Afspraken & ROI',
-  logoUrl: '/assets/logos/placeholder-logo.svg',
-  logoAlt: 'Company logo'
+  title: 'Belivert',
+  headerSubtitle: 'Lead & Marketing Dashboard',
+  pageSubtitle: 'Lead & Marketing Dashboard - Leads, Afspraken & ROI',
+  logoUrl: 'https://belivert.be/wp-content/uploads/2025/12/Belivert-logo-Z-rgb.jpg',
+  logoAlt: 'Belivert logo'
 };
 
 const DEFAULT_SIDEBAR_BRANDING = {
@@ -171,6 +172,8 @@ const readEnvString = (value) => {
 const MOCK_ENABLED = import.meta.env.VITE_ENABLE_MOCK_DATA === 'true';
 const SALES_RANGE_MONTHS = 6;
 const SALES_TARGET_MONTHLY_DEALS = 25;
+const SALES_SELLER_MONTHLY_REVENUE_TARGET = 75000;
+const BELIVERT_DEFAULT_EXCLUDED_DEAL_KEYWORDS = ['service'];
 const SALES_MAIN_MARKUP = salesMainMarkup.trim();
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -299,6 +302,213 @@ const DRILLDOWN_LABELS = {
   hook_appointments: 'Afspraken',
   lost_reason_leads: 'Verloren leads',
   finance_spend: 'Leadkosten'
+};
+
+const METRIC_INFO_BY_LABEL = {
+  'totaal leads':
+    'Het aantal unieke klanten dat in deze periode als lead is binnengekomen. Als dezelfde klant meerdere offertes kreeg, telt die klant maar 1 keer mee.',
+  'totaal afspraken':
+    'Hoeveel afspraken effectief gepland/gehouden zijn in deze periode.',
+  confirmed:
+    'Afspraken die bevestigd zijn. Dit zijn de afspraken met de hoogste kans om door te gaan.',
+  cancelled:
+    'Afspraken die geannuleerd zijn. Een stijging hier wijst vaak op timing- of verwachtingsproblemen.',
+  'no-show':
+    'Afspraken waar de klant niet is opgedaagd. Dit is direct verlies op je planning en opvolging.',
+  'lead -> afspraak':
+    'Van alle binnengekomen leads: welk percentage wordt een afspraak. Hoe hoger, hoe beter je intake en opvolging werken.',
+  'totale leadkosten':
+    'Totaal advertentiebudget dat in deze periode is uitgegeven om leads binnen te halen.',
+  'kost per lead':
+    'Gemiddelde kost om 1 lead binnen te halen. Formule: totale leadkosten gedeeld door aantal leads.',
+  'offertes gemaakt':
+    'Aantal unieke offertetrajecten in de periode. Meerdere offerteversies voor dezelfde klant worden samengenomen.',
+  'gem. tijd tot offerte':
+    'Gemiddelde snelheid waarmee een lead tot offerte wordt gebracht (in dagen). Lager is meestal beter.',
+  'goedgekeurde offertes':
+    'Aantal offertetrajecten die effectief gewonnen zijn. Dit zijn je gerealiseerde deals.',
+  'deal ratio':
+    'Welk deel van je offertes effectief wordt gewonnen. Formule: gewonnen offertes / gemaakte offertes.',
+  'gem. sales cycle':
+    'Gemiddelde tijd van eerste trajectstart tot deal-winst. Geeft de snelheid van je salesproces weer.',
+  'hangende offertes':
+    'Offertes die nog openstaan. Dit is je actieve pipeline en toekomstige potentie.',
+  'afgekeurde offertes':
+    'Offertetrajecten die niet doorgingen. Belangrijk om verliesredenen op te volgen en bij te sturen.',
+  'kost per klant':
+    'Gemiddelde marketingkost om 1 gewonnen klant binnen te halen. Formule: totale leadkosten / gewonnen deals.'
+};
+
+const normalizeMetricInfoKey = (value) =>
+  String(value || '')
+    .toLowerCase()
+    .replace(/\u2192/g, '->')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const getMetricInfoText = (label) => {
+  const normalized = normalizeMetricInfoKey(label);
+  if (!normalized) return '';
+  return METRIC_INFO_BY_LABEL[normalized] || '';
+};
+
+const METRIC_INFO_TOOLTIP_ID = 'metric-info-tooltip';
+const METRIC_INFO_TOOLTIP_OFFSET = 10;
+let metricInfoTooltipEl = null;
+let metricInfoTooltipTarget = null;
+let metricInfoTooltipGlobalsBound = false;
+
+const positionMetricInfoTooltip = () => {
+  if (!metricInfoTooltipEl || !metricInfoTooltipTarget) return;
+  if (!document.body.contains(metricInfoTooltipTarget)) {
+    metricInfoTooltipTarget = null;
+    metricInfoTooltipEl.classList.remove('open');
+    metricInfoTooltipEl.setAttribute('aria-hidden', 'true');
+    return;
+  }
+
+  const targetRect = metricInfoTooltipTarget.getBoundingClientRect();
+  const tooltipRect = metricInfoTooltipEl.getBoundingClientRect();
+  const viewportPadding = 8;
+
+  let top = targetRect.top - tooltipRect.height - METRIC_INFO_TOOLTIP_OFFSET;
+  if (top < viewportPadding) {
+    top = targetRect.bottom + METRIC_INFO_TOOLTIP_OFFSET;
+  }
+
+  let left = targetRect.left + targetRect.width / 2 - tooltipRect.width / 2;
+  const maxLeft = window.innerWidth - tooltipRect.width - viewportPadding;
+  left = Math.max(viewportPadding, Math.min(left, Math.max(viewportPadding, maxLeft)));
+
+  const maxTop = window.innerHeight - tooltipRect.height - viewportPadding;
+  top = Math.max(viewportPadding, Math.min(top, Math.max(viewportPadding, maxTop)));
+
+  metricInfoTooltipEl.style.top = `${Math.round(top)}px`;
+  metricInfoTooltipEl.style.left = `${Math.round(left)}px`;
+};
+
+const ensureMetricInfoTooltip = () => {
+  if (!metricInfoTooltipEl || !document.body.contains(metricInfoTooltipEl)) {
+    const tooltip = document.createElement('div');
+    tooltip.id = METRIC_INFO_TOOLTIP_ID;
+    tooltip.className = 'metric-info-tooltip';
+    tooltip.setAttribute('role', 'tooltip');
+    tooltip.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(tooltip);
+    metricInfoTooltipEl = tooltip;
+  }
+
+  if (!metricInfoTooltipGlobalsBound) {
+    const syncTooltipPosition = () => {
+      if (!metricInfoTooltipTarget) return;
+      positionMetricInfoTooltip();
+    };
+
+    window.addEventListener('resize', syncTooltipPosition);
+    window.addEventListener('scroll', syncTooltipPosition, true);
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        hideMetricInfoTooltip();
+      }
+    });
+    document.addEventListener('pointerdown', (event) => {
+      if (!metricInfoTooltipTarget || !metricInfoTooltipEl) return;
+      const eventTarget = event.target;
+      if (!(eventTarget instanceof Node)) {
+        hideMetricInfoTooltip();
+        return;
+      }
+      if (metricInfoTooltipEl.contains(eventTarget)) return;
+      if (metricInfoTooltipTarget.contains(eventTarget)) return;
+      hideMetricInfoTooltip();
+    });
+
+    metricInfoTooltipGlobalsBound = true;
+  }
+
+  return metricInfoTooltipEl;
+};
+
+const showMetricInfoTooltip = (target) => {
+  if (!target) return;
+  const infoText = target.getAttribute('data-metric-info-text') || '';
+  if (!infoText) return;
+
+  const tooltip = ensureMetricInfoTooltip();
+  metricInfoTooltipTarget = target;
+  tooltip.textContent = infoText;
+  tooltip.setAttribute('aria-hidden', 'false');
+  tooltip.classList.add('open');
+  target.setAttribute('aria-describedby', METRIC_INFO_TOOLTIP_ID);
+  positionMetricInfoTooltip();
+};
+
+const hideMetricInfoTooltip = () => {
+  if (metricInfoTooltipTarget) {
+    metricInfoTooltipTarget.removeAttribute('aria-describedby');
+  }
+  metricInfoTooltipTarget = null;
+  if (!metricInfoTooltipEl) return;
+  metricInfoTooltipEl.classList.remove('open');
+  metricInfoTooltipEl.setAttribute('aria-hidden', 'true');
+};
+
+const applyMetricInfoTooltips = () => {
+  hideMetricInfoTooltip();
+
+  document.querySelectorAll('.metric-label').forEach((labelNode) => {
+    const label = labelNode.textContent || '';
+    const infoText = getMetricInfoText(label);
+    if (!infoText) return;
+
+    const container = labelNode.parentElement;
+    if (!container) return;
+    const infoIcon = container.querySelector('.lucide-info');
+    if (!infoIcon) return;
+
+    infoIcon.classList.add('metric-info-icon');
+    infoIcon.setAttribute('tabindex', '0');
+    infoIcon.setAttribute('role', 'button');
+    infoIcon.setAttribute('aria-haspopup', 'true');
+    infoIcon.setAttribute('data-metric-info-text', infoText);
+    infoIcon.setAttribute('aria-label', infoText);
+    infoIcon.setAttribute('title', infoText);
+
+    if (infoIcon.dataset.metricInfoBound === 'true') return;
+    infoIcon.dataset.metricInfoBound = 'true';
+
+    infoIcon.addEventListener('mouseenter', () => showMetricInfoTooltip(infoIcon));
+    infoIcon.addEventListener('mouseleave', () => {
+      if (metricInfoTooltipTarget === infoIcon) hideMetricInfoTooltip();
+    });
+    infoIcon.addEventListener('focus', () => showMetricInfoTooltip(infoIcon));
+    infoIcon.addEventListener('blur', () => {
+      if (metricInfoTooltipTarget === infoIcon) hideMetricInfoTooltip();
+    });
+    infoIcon.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (metricInfoTooltipTarget === infoIcon) {
+        hideMetricInfoTooltip();
+      } else {
+        showMetricInfoTooltip(infoIcon);
+      }
+    });
+    infoIcon.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        hideMetricInfoTooltip();
+        return;
+      }
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        if (metricInfoTooltipTarget === infoIcon) {
+          hideMetricInfoTooltip();
+        } else {
+          showMetricInfoTooltip(infoIcon);
+        }
+      }
+    });
+  });
 };
 
 const DEFAULT_BOUNDS = { min: '2018-01-01', max: '2035-12-31' };
@@ -483,6 +693,36 @@ let pickerState = { open: false, selecting: 'start', viewMonth: DEFAULT_RANGE.st
 
 const mockBadge = MOCK_ENABLED ? '<span class="mock-badge">Mock data</span>' : '';
 const DEBUG_ENABLED = false;
+const METRICS_DEBUG_MODE_STORAGE_KEY = 'dashboard_metrics_debug_mode';
+
+const readCachedMetricsDebugMode = () => {
+  try {
+    const raw = localStorage.getItem(METRICS_DEBUG_MODE_STORAGE_KEY);
+    return raw === '1' || raw === 'true';
+  } catch (_error) {
+    return false;
+  }
+};
+
+const writeCachedMetricsDebugMode = (enabled) => {
+  try {
+    if (enabled) {
+      localStorage.setItem(METRICS_DEBUG_MODE_STORAGE_KEY, '1');
+    } else {
+      localStorage.removeItem(METRICS_DEBUG_MODE_STORAGE_KEY);
+    }
+  } catch (_error) {
+    // Ignore storage errors (privacy mode, blocked storage, etc.).
+  }
+};
+
+let metricsDebugModeEnabled = readCachedMetricsDebugMode();
+let metricsComputationVersion = 0;
+const isMetricsDebugModeEnabled = () => metricsDebugModeEnabled;
+const bumpMetricsComputationVersion = () => {
+  metricsComputationVersion += 1;
+  return metricsComputationVersion;
+};
 
 const liveState = {
   opportunities: {
@@ -550,6 +790,85 @@ const salesState = {
   inFlight: false
 };
 
+const leadPipelineFilterState = {
+  status: 'idle',
+  options: [],
+  errorMessage: '',
+  inFlight: false,
+  locationId: '',
+  // `null` means: follow dashboard_config default. Empty string means: explicit "Alle pipelines".
+  overrideId: null
+};
+
+const resetLeadPipelineDependentLiveState = () => {
+  closeDrilldown();
+  liveState.opportunities = {
+    status: 'idle',
+    count: null,
+    rangeKey: '',
+    errorMessage: '',
+    inFlight: false
+  };
+  liveState.sourceBreakdown = {
+    status: 'idle',
+    rows: null,
+    rangeKey: '',
+    errorMessage: '',
+    inFlight: false
+  };
+  liveState.hookPerformance = {
+    status: 'idle',
+    rows: null,
+    rangeKey: '',
+    errorMessage: '',
+    inFlight: false
+  };
+  liveState.appointments = {
+    status: 'idle',
+    counts: null,
+    rangeKey: '',
+    errorMessage: '',
+    inFlight: false
+  };
+  liveState.lostReasons = {
+    status: 'idle',
+    rows: null,
+    rangeKey: '',
+    errorMessage: '',
+    inFlight: false
+  };
+};
+
+const resetRuleDrivenMetricsState = () => {
+  liveState.sourceBreakdown = {
+    status: 'idle',
+    rows: null,
+    rangeKey: '',
+    errorMessage: '',
+    inFlight: false
+  };
+  liveState.hookPerformance = {
+    status: 'idle',
+    rows: null,
+    rangeKey: '',
+    errorMessage: '',
+    inFlight: false
+  };
+  liveState.spendBySource = {
+    status: 'idle',
+    totals: null,
+    rangeKey: '',
+    errorMessage: '',
+    inFlight: false
+  };
+  salesState.status = 'idle';
+  salesState.data = null;
+  salesState.rangeKey = '';
+  salesState.errorMessage = '';
+  salesState.inFlight = false;
+  closeDrilldown();
+};
+
 let renderQueued = false;
 const scheduleRender = () => {
   if (renderQueued) return;
@@ -570,6 +889,7 @@ const configState = {
   salesMonthlyDealsTarget: null,
   salesMonthlyDealsTargets: null,
   salesQuotesFromPhaseId: null,
+  salesExcludedDealKeywords: null,
   sourceNormalizationRules: null,
   costPerLeadBySource: null,
   billingPortalUrl: null,
@@ -620,6 +940,11 @@ const adminState = {
     monthlyDealsTargets: {},
     lostReasonFieldId: '',
     quotesFromPhaseId: '',
+    leadOpportunityPipelineId: '',
+    excludedDealKeywordsText: '',
+    matthiasDealKeywords: [],
+    matthiasDealKeywordsLoading: false,
+    leadOpportunityPipelineOptions: [],
     quotesPhaseOptions: [],
     hasChanges: false
   },
@@ -690,6 +1015,11 @@ const resetKpiState = () => {
     monthlyDealsTargets: {},
     lostReasonFieldId: '',
     quotesFromPhaseId: '',
+    leadOpportunityPipelineId: '',
+    excludedDealKeywordsText: '',
+    matthiasDealKeywords: [],
+    matthiasDealKeywordsLoading: false,
+    leadOpportunityPipelineOptions: [],
     quotesPhaseOptions: [],
     hasChanges: false
   };
@@ -859,6 +1189,7 @@ const loadLocationConfig = async () => {
     typeof data?.sales_quotes_from_phase_id === 'string' && data.sales_quotes_from_phase_id.trim()
       ? data.sales_quotes_from_phase_id.trim()
       : null;
+  configState.salesExcludedDealKeywords = sanitizeSalesExcludedDealKeywords(data?.sales_excluded_deal_keywords);
   configState.sourceNormalizationRules = data?.source_normalization_rules ?? null;
   configState.costPerLeadBySource =
     data?.cost_per_lead_by_source &&
@@ -1264,6 +1595,169 @@ const saveSpendMapping = async () => {
   }
 };
 
+const loadLeadOpportunityPipelineOptions = async (locationId) => {
+  if (!supabase) return [];
+  const activeLocationId = toTrimmedText(locationId);
+  if (!activeLocationId) return [];
+
+  const extractPipelineNameFromRawData = (rawData) => {
+    if (!rawData || typeof rawData !== 'object' || Array.isArray(rawData)) return '';
+    const pipelineNode =
+      rawData.pipeline && typeof rawData.pipeline === 'object' && !Array.isArray(rawData.pipeline)
+        ? rawData.pipeline
+        : null;
+
+    return (
+      toTrimmedText(rawData.pipelineName) ||
+      toTrimmedText(rawData.pipeline_name) ||
+      toTrimmedText(rawData.pipelineTitle) ||
+      toTrimmedText(rawData.pipeline_title) ||
+      toTrimmedText(rawData.pipelineLabel) ||
+      toTrimmedText(pipelineNode?.name) ||
+      toTrimmedText(pipelineNode?.title) ||
+      toTrimmedText(pipelineNode?.label) ||
+      ''
+    );
+  };
+
+  const mergeOption = (byId, idValue, nameValue, countDelta = 0) => {
+    const id = normalizePipelineId(idValue);
+    if (!id) return;
+    const name = toTrimmedText(nameValue);
+    const prev = byId.get(id) || { id, name: id, count: 0 };
+    if (name) prev.name = name;
+    if (Number.isFinite(countDelta) && countDelta > 0) {
+      prev.count += countDelta;
+    }
+    byId.set(id, prev);
+  };
+
+  const byId = new Map();
+
+  try {
+    const { data: lookupRows, error: lookupError } = await withTimeout(
+      supabase
+        .from('opportunity_pipeline_lookup')
+        .select('pipeline_id,pipeline_name')
+        .eq('location_id', activeLocationId)
+        .order('pipeline_name', { ascending: true }),
+      12000,
+      'Supabase query timeout (lead pipeline lookup tabel).'
+    );
+    if (lookupError) throw lookupError;
+
+    (lookupRows || []).forEach((row) => {
+      mergeOption(byId, row?.pipeline_id, row?.pipeline_name, 0);
+    });
+  } catch (lookupError) {
+    const message = lookupError instanceof Error ? lookupError.message : String(lookupError ?? '');
+    if (!message.includes('opportunity_pipeline_lookup') || !message.includes('does not exist')) {
+      console.warn('Unable to load lead pipeline lookup table', lookupError);
+    }
+  }
+
+  const { data, error } = await withTimeout(
+    supabase
+      .from('opportunities_view')
+      .select('pipeline_id,pipeline_name,updated_at')
+      .eq('location_id', activeLocationId)
+      .not('pipeline_id', 'is', null)
+      .order('updated_at', { ascending: false })
+      .limit(4000),
+    12000,
+    'Supabase query timeout (lead pipeline lijst).'
+  );
+  if (error) throw error;
+
+  (data || []).forEach((row) => {
+    mergeOption(byId, row?.pipeline_id, row?.pipeline_name, 1);
+  });
+
+  const unresolvedIds = new Set(
+    Array.from(byId.values())
+      .filter((option) => !toTrimmedText(option?.name) || option?.name === option?.id)
+      .map((option) => option.id)
+  );
+
+  if (byId.size === 0 || unresolvedIds.size > 0) {
+    try {
+      const { data: rawRows, error: rawError } = await withTimeout(
+        supabase
+          .from('opportunities')
+          .select('pipeline_id,raw_data,updated_at')
+          .eq('location_id', activeLocationId)
+          .not('pipeline_id', 'is', null)
+          .order('updated_at', { ascending: false })
+          .limit(4000),
+        12000,
+        'Supabase query timeout (lead pipeline naam lookup).'
+      );
+      if (rawError) throw rawError;
+
+      (rawRows || []).forEach((row) => {
+        const id = normalizePipelineId(row?.pipeline_id);
+        if (!id) return;
+        if (unresolvedIds.size > 0 && !unresolvedIds.has(id) && byId.has(id)) return;
+        const name = extractPipelineNameFromRawData(row?.raw_data);
+        const shouldCount = byId.has(id) ? 0 : 1;
+        mergeOption(byId, id, name, shouldCount);
+      });
+    } catch (pipelineNameError) {
+      console.warn('Unable to enrich lead pipeline names from opportunities raw_data', pipelineNameError);
+    }
+  }
+
+  const options = Array.from(byId.values());
+  options.sort((a, b) => {
+    const countDiff = Number(b.count ?? 0) - Number(a.count ?? 0);
+    if (countDiff) return countDiff;
+    return String(a.name ?? a.id ?? '').localeCompare(String(b.name ?? b.id ?? ''));
+  });
+  return options;
+};
+
+const ensureLeadPipelineFilterOptions = async () => {
+  if (!supabase) return;
+
+  const activeLocationId = toTrimmedText(configState.locationId || ghlLocationId);
+  if (!activeLocationId) return;
+
+  if (leadPipelineFilterState.locationId !== activeLocationId) {
+    leadPipelineFilterState.locationId = activeLocationId;
+    leadPipelineFilterState.status = 'idle';
+    leadPipelineFilterState.options = [];
+    leadPipelineFilterState.errorMessage = '';
+    leadPipelineFilterState.inFlight = false;
+    leadPipelineFilterState.overrideId = null;
+  }
+
+  if (leadPipelineFilterState.inFlight) return;
+  if (leadPipelineFilterState.status === 'ready') return;
+
+  leadPipelineFilterState.inFlight = true;
+  leadPipelineFilterState.status = 'loading';
+  leadPipelineFilterState.errorMessage = '';
+  scheduleRender();
+
+  try {
+    const options = await loadLeadOpportunityPipelineOptions(activeLocationId);
+    if (leadPipelineFilterState.locationId !== activeLocationId) return;
+    leadPipelineFilterState.options = Array.isArray(options) ? options : [];
+    leadPipelineFilterState.status = 'ready';
+    leadPipelineFilterState.errorMessage = '';
+  } catch (error) {
+    if (leadPipelineFilterState.locationId !== activeLocationId) return;
+    leadPipelineFilterState.options = [];
+    leadPipelineFilterState.status = 'error';
+    leadPipelineFilterState.errorMessage = error instanceof Error ? error.message : 'Onbekende fout';
+  } finally {
+    if (leadPipelineFilterState.locationId === activeLocationId) {
+      leadPipelineFilterState.inFlight = false;
+    }
+    scheduleRender();
+  }
+};
+
 const loadKpiSettings = async () => {
   if (!supabase || !settingsEnabled) return;
   if (adminState.kpi.loading || adminState.billing.loading) return;
@@ -1277,6 +1771,7 @@ const loadKpiSettings = async () => {
   renderApp();
 
   try {
+    let autoSeededDealKeywords = false;
     const { data, error } = await supabase.from('dashboard_config').select('*').eq('id', 1).maybeSingle();
     if (error) throw error;
 
@@ -1325,6 +1820,12 @@ const loadKpiSettings = async () => {
           : '';
     adminState.kpi.quotesFromPhaseId = normalizedQuotesFromPhase || '';
 
+    const leadOpportunityPipelineId = resolveLeadOpportunityPipelineIdFromLayout(
+      data?.dashboard_layout ?? configState.dashboardLayout
+    );
+    adminState.kpi.leadOpportunityPipelineId = leadOpportunityPipelineId || '';
+    adminState.kpi.leadOpportunityPipelineOptions = [];
+
     const rawLostReasonFieldId = data?.lost_reason_field_id;
     const fallbackLostReasonFieldId = configState.lostReasonFieldId;
     const normalizedLostReasonFieldId =
@@ -1334,6 +1835,13 @@ const loadKpiSettings = async () => {
           ? fallbackLostReasonFieldId.trim()
           : '';
     adminState.kpi.lostReasonFieldId = normalizedLostReasonFieldId || '';
+
+    const savedExcludedDealKeywords = sanitizeSalesExcludedDealKeywords(
+      data?.sales_excluded_deal_keywords ?? configState.salesExcludedDealKeywords ?? []
+    );
+    adminState.kpi.excludedDealKeywordsText = formatSalesExcludedDealKeywordsText(savedExcludedDealKeywords);
+    adminState.kpi.matthiasDealKeywords = [];
+    adminState.kpi.matthiasDealKeywordsLoading = false;
 
     const rawPortalUrl = normalizeBillingUrl(data?.billing_portal_url);
     const fallbackPortalUrl = normalizeBillingUrl(configState.billingPortalUrl);
@@ -1372,14 +1880,54 @@ const loadKpiSettings = async () => {
       } else {
         adminState.kpi.quotesPhaseOptions = phaseRows || [];
       }
+
+      try {
+        const pipelineOptions = await loadLeadOpportunityPipelineOptions(locationId);
+        const hasSavedOption = pipelineOptions.some((option) => option?.id === leadOpportunityPipelineId);
+        if (leadOpportunityPipelineId && !hasSavedOption) {
+          adminState.kpi.leadOpportunityPipelineOptions = [
+            {
+              id: leadOpportunityPipelineId,
+              name: leadOpportunityPipelineId,
+              count: 0
+            },
+            ...pipelineOptions
+          ];
+        } else {
+          adminState.kpi.leadOpportunityPipelineOptions = pipelineOptions;
+        }
+      } catch (pipelineError) {
+        adminState.kpi.leadOpportunityPipelineOptions = leadOpportunityPipelineId
+          ? [{ id: leadOpportunityPipelineId, name: leadOpportunityPipelineId, count: 0 }]
+          : [];
+        console.warn('Unable to load lead pipeline options for KPI settings', pipelineError);
+      }
+    }
+
+    if (resolveBrandTheme() === 'belivert' && locationId) {
+      adminState.kpi.matthiasDealKeywordsLoading = true;
+      renderApp();
+      const matthiasDealKeywords = await fetchMatthiasRosseelDealKeywords(locationId);
+      adminState.kpi.matthiasDealKeywordsLoading = false;
+      adminState.kpi.matthiasDealKeywords = matthiasDealKeywords;
+      if (!savedExcludedDealKeywords.length && matthiasDealKeywords.length) {
+        adminState.kpi.excludedDealKeywordsText = formatSalesExcludedDealKeywordsText(matthiasDealKeywords);
+        adminState.kpi.message = `Voor Belivert zijn ${formatNumber(
+          matthiasDealKeywords.length
+        )} deals die niet meetellen voorgesteld. Klik op Opslaan om te bewaren.`;
+        adminState.kpi.hasChanges = true;
+        autoSeededDealKeywords = true;
+      }
     }
 
     if (!Number.isFinite(Number(adminState.kpi.year))) {
       adminState.kpi.year = new Date().getFullYear();
     }
     adminState.kpi.status = 'ready';
-    adminState.kpi.message = '';
-    adminState.kpi.hasChanges = false;
+    if (!autoSeededDealKeywords) {
+      adminState.kpi.message = '';
+      adminState.kpi.hasChanges = false;
+    }
     adminState.billing.status = 'ready';
     adminState.billing.message = '';
     adminState.billing.hasChanges = false;
@@ -1420,11 +1968,26 @@ const loadKpiSettings = async () => {
     if (typeof adminState.kpi.quotesFromPhaseId !== 'string') {
       adminState.kpi.quotesFromPhaseId = configState.salesQuotesFromPhaseId || '';
     }
+    if (typeof adminState.kpi.leadOpportunityPipelineId !== 'string') {
+      adminState.kpi.leadOpportunityPipelineId = resolveLeadOpportunityPipelineIdFromLayout(configState.dashboardLayout);
+    }
     if (typeof adminState.kpi.lostReasonFieldId !== 'string') {
       adminState.kpi.lostReasonFieldId = configState.lostReasonFieldId || '';
     }
+    if (typeof adminState.kpi.excludedDealKeywordsText !== 'string') {
+      adminState.kpi.excludedDealKeywordsText = formatSalesExcludedDealKeywordsText(
+        configState.salesExcludedDealKeywords || []
+      );
+    }
+    if (!Array.isArray(adminState.kpi.matthiasDealKeywords)) {
+      adminState.kpi.matthiasDealKeywords = [];
+    }
+    adminState.kpi.matthiasDealKeywordsLoading = false;
     if (!Array.isArray(adminState.kpi.quotesPhaseOptions)) {
       adminState.kpi.quotesPhaseOptions = [];
+    }
+    if (!Array.isArray(adminState.kpi.leadOpportunityPipelineOptions)) {
+      adminState.kpi.leadOpportunityPipelineOptions = [];
     }
     adminState.billing.portalUrl = configState.billingPortalUrl || '';
     adminState.billing.checkoutUrl = configState.billingCheckoutUrl || '';
@@ -1493,8 +2056,16 @@ const saveKpiSettings = async () => {
   const quotesFromPhaseIdRaw = String(adminState.kpi.quotesFromPhaseId ?? '').trim();
   const quotesFromPhaseId = quotesFromPhaseIdRaw || null;
 
+  const leadOpportunityPipelineIdRaw = normalizePipelineId(adminState.kpi.leadOpportunityPipelineId);
+  const currentLeadOpportunityPipelineId = resolveLeadOpportunityPipelineIdFromLayout(configState.dashboardLayout);
+  const nextDashboardLayout = upsertLeadOpportunityPipelineFilterInLayout(
+    configState.dashboardLayout,
+    leadOpportunityPipelineIdRaw
+  );
+
   const lostReasonFieldIdRaw = String(adminState.kpi.lostReasonFieldId ?? '').trim();
   const lostReasonFieldId = lostReasonFieldIdRaw || null;
+  const excludedDealKeywords = sanitizeSalesExcludedDealKeywords(adminState.kpi.excludedDealKeywordsText);
 
   const locationId = (configState.locationId || ghlLocationId || adminState.form.locationId || '').trim();
   if (adminAccessEnabled && !locationId) {
@@ -1511,56 +2082,117 @@ const saveKpiSettings = async () => {
 
   try {
     const now = new Date().toISOString();
-    if (kpiOnlyMode) {
-      const { data, error } = await supabase
-        .from('dashboard_config')
-        .update({
-          sales_monthly_deals_target: target,
-          sales_monthly_deals_targets: monthOverrides,
-          sales_quotes_from_phase_id: quotesFromPhaseId,
-          lost_reason_field_id: lostReasonFieldId,
-          updated_at: now
-        })
-        .eq('id', 1)
-        .select('id')
-        .maybeSingle();
-      if (error) throw error;
-      if (!data?.id) {
-        throw new Error('dashboard_config ontbreekt. Contacteer je dashboardbeheerder.');
+    const persistKpiPayload = async (payload) => {
+      if (kpiOnlyMode) {
+        const { data, error } = await supabase
+          .from('dashboard_config')
+          .update(payload)
+          .eq('id', 1)
+          .select('id')
+          .maybeSingle();
+        if (error) throw error;
+        if (!data?.id) {
+          throw new Error('dashboard_config ontbreekt. Contacteer je dashboardbeheerder.');
+        }
+        return;
       }
-    } else {
+
       const { error } = await supabase
         .from('dashboard_config')
         .upsert(
           {
             id: 1,
             location_id: locationId,
-            sales_monthly_deals_target: target,
-            sales_monthly_deals_targets: monthOverrides,
-            sales_quotes_from_phase_id: quotesFromPhaseId,
-            lost_reason_field_id: lostReasonFieldId,
-            updated_at: now
+            ...payload
           },
           { onConflict: 'id' }
         );
       if (error) throw error;
+    };
+
+    const basePayload = {
+      sales_monthly_deals_target: target,
+      sales_monthly_deals_targets: monthOverrides,
+      sales_quotes_from_phase_id: quotesFromPhaseId,
+      dashboard_layout: nextDashboardLayout,
+      lost_reason_field_id: lostReasonFieldId,
+      updated_at: now
+    };
+
+    let excludedKeywordsPersisted = true;
+    try {
+      await persistKpiPayload({
+        ...basePayload,
+        sales_excluded_deal_keywords: excludedDealKeywords
+      });
+    } catch (error) {
+      if (isMissingColumnError(error, 'sales_excluded_deal_keywords')) {
+        excludedKeywordsPersisted = false;
+        await persistKpiPayload(basePayload);
+      } else {
+        throw error;
+      }
     }
 
     adminState.kpi.saving = false;
     adminState.kpi.status = 'success';
-    adminState.kpi.message = 'KPI opgeslagen.';
-    adminState.kpi.hasChanges = false;
+    adminState.kpi.message = excludedKeywordsPersisted
+      ? 'KPI opgeslagen.'
+      : 'KPI opgeslagen, maar uitsluitwoorden niet bewaard. Run eerst de laatste Supabase migratie.';
+    adminState.kpi.hasChanges = !excludedKeywordsPersisted;
     adminState.kpi.monthlyDealsTarget = String(target);
     adminState.kpi.monthlyDealsTargets = Object.fromEntries(
       Object.entries(monthOverrides).map(([key, value]) => [key, String(value)])
     );
     adminState.kpi.quotesFromPhaseId = quotesFromPhaseIdRaw;
+    adminState.kpi.leadOpportunityPipelineId = leadOpportunityPipelineIdRaw;
     adminState.kpi.lostReasonFieldId = lostReasonFieldIdRaw;
+    if (excludedKeywordsPersisted) {
+      adminState.kpi.excludedDealKeywordsText = formatSalesExcludedDealKeywordsText(excludedDealKeywords);
+    }
 
     configState.salesMonthlyDealsTarget = target;
     configState.salesMonthlyDealsTargets = monthOverrides;
     configState.salesQuotesFromPhaseId = quotesFromPhaseId;
+    configState.dashboardLayout = nextDashboardLayout;
     configState.lostReasonFieldId = lostReasonFieldId;
+    if (excludedKeywordsPersisted) {
+      configState.salesExcludedDealKeywords = excludedDealKeywords;
+    }
+
+    if (currentLeadOpportunityPipelineId !== leadOpportunityPipelineIdRaw) {
+      leadPipelineFilterState.overrideId = null;
+      closeDrilldown();
+      liveState.opportunities = {
+        status: 'idle',
+        count: null,
+        rangeKey: '',
+        errorMessage: '',
+        inFlight: false
+      };
+      liveState.sourceBreakdown = {
+        status: 'idle',
+        rows: null,
+        rangeKey: '',
+        errorMessage: '',
+        inFlight: false
+      };
+      liveState.hookPerformance = {
+        status: 'idle',
+        rows: null,
+        rangeKey: '',
+        errorMessage: '',
+        inFlight: false
+      };
+      liveState.lostReasons = {
+        status: 'idle',
+        rows: null,
+        rangeKey: '',
+        errorMessage: '',
+        inFlight: false
+      };
+    }
+
     liveState.lostReasons = {
       status: 'idle',
       rows: null,
@@ -1856,16 +2488,18 @@ const loadSourceNormalizationSamples = async () => {
     const sampleRange = buildRecentRange(120);
     const startIso = toUtcStart(sampleRange.start);
     const endIso = toUtcEndExclusive(sampleRange.end);
+    let samplesQuery = supabase
+      .from('opportunities_view')
+      .select('source_guess,created_at')
+      .eq('location_id', activeLocationId)
+      .gte('created_at', startIso)
+      .lt('created_at', endIso)
+      .order('created_at', { ascending: false })
+      .limit(5000);
+    samplesQuery = applyOpportunityPipelineFilter(samplesQuery);
 
     const { data, error } = await withTimeout(
-      supabase
-        .from('opportunities_view')
-        .select('source_guess,created_at')
-        .eq('location_id', activeLocationId)
-        .gte('created_at', startIso)
-        .lt('created_at', endIso)
-        .order('created_at', { ascending: false })
-        .limit(5000),
+      samplesQuery,
       12000,
       'Supabase query timeout (source samples).'
     );
@@ -2322,6 +2956,16 @@ const getSalesRange = (range) => {
   start.setHours(0, 0, 0, 0);
   return { start, end };
 };
+const getCurrentMonthRange = (baseDate = new Date()) => {
+  const year = baseDate.getUTCFullYear();
+  const month = baseDate.getUTCMonth();
+  const start = new Date(Date.UTC(year, month, 1));
+  const end = new Date(Date.UTC(year, month + 1, 0));
+  return {
+    start: formatIsoDate(start),
+    end: formatIsoDate(end)
+  };
+};
 const parseDate = (value) => {
   if (!value) return null;
   const date = new Date(value);
@@ -2461,6 +3105,8 @@ const resolveSourceBreakdownCostDenominator = () => {
 };
 
 const resolveHookPerformanceSourceBucketFilter = () => {
+  if (isMetricsDebugModeEnabled()) return null;
+
   const behavior = getLayoutBehavior();
   const hookCfg =
     behavior?.hook_performance && typeof behavior.hook_performance === 'object' && !Array.isArray(behavior.hook_performance)
@@ -2505,6 +3151,101 @@ const resolveAppointmentProvider = () => {
   if (resolveBrandTheme() === 'belivert') return 'teamleader_meetings';
 
   return 'ghl';
+};
+
+const normalizePipelineId = (value) => toTrimmedText(value) || '';
+
+const resolveLeadOpportunityPipelineIdFromBehavior = (behavior) => {
+  if (!behavior || typeof behavior !== 'object' || Array.isArray(behavior)) return '';
+
+  const leadCfg =
+    behavior?.lead_dashboard && typeof behavior.lead_dashboard === 'object' && !Array.isArray(behavior.lead_dashboard)
+      ? behavior.lead_dashboard
+      : behavior?.leadDashboard && typeof behavior.leadDashboard === 'object' && !Array.isArray(behavior.leadDashboard)
+        ? behavior.leadDashboard
+        : null;
+
+  const raw =
+    behavior?.lead_opportunity_pipeline_id ??
+    behavior?.leadOpportunityPipelineId ??
+    behavior?.lead_pipeline_id ??
+    behavior?.leadPipelineId ??
+    behavior?.opportunity_pipeline_id ??
+    behavior?.opportunityPipelineId ??
+    leadCfg?.opportunity_pipeline_id ??
+    leadCfg?.opportunityPipelineId ??
+    (Array.isArray(behavior?.lead_opportunity_pipeline_ids) ? behavior.lead_opportunity_pipeline_ids[0] : null) ??
+    (Array.isArray(behavior?.leadOpportunityPipelineIds) ? behavior.leadOpportunityPipelineIds[0] : null) ??
+    '';
+
+  return normalizePipelineId(raw);
+};
+
+const resolveLeadOpportunityPipelineIdFromLayout = (layoutOverride = configState.dashboardLayout) => {
+  if (Array.isArray(layoutOverride)) return '';
+  if (!layoutOverride || typeof layoutOverride !== 'object') return '';
+  const behavior = layoutOverride.behavior || layoutOverride.options || layoutOverride.config;
+  return resolveLeadOpportunityPipelineIdFromBehavior(behavior);
+};
+
+const resolveLeadOpportunityPipelineId = () => {
+  if (leadPipelineFilterState.overrideId !== null) {
+    return normalizePipelineId(leadPipelineFilterState.overrideId);
+  }
+  return resolveLeadOpportunityPipelineIdFromLayout();
+};
+
+const applyOpportunityPipelineFilter = (query) => {
+  const pipelineId = resolveLeadOpportunityPipelineId();
+  if (!pipelineId) return query;
+  return query.eq('pipeline_id', pipelineId);
+};
+
+const upsertLeadOpportunityPipelineFilterInLayout = (layoutValue, pipelineIdValue) => {
+  const pipelineId = normalizePipelineId(pipelineIdValue);
+  const hasFilter = Boolean(pipelineId);
+
+  if (Array.isArray(layoutValue)) {
+    if (!hasFilter) return layoutValue;
+    return {
+      sections: layoutValue,
+      behavior: { lead_opportunity_pipeline_id: pipelineId }
+    };
+  }
+
+  if (!layoutValue || typeof layoutValue !== 'object') {
+    if (!hasFilter) return layoutValue ?? null;
+    return {
+      behavior: { lead_opportunity_pipeline_id: pipelineId }
+    };
+  }
+
+  const nextLayout = { ...layoutValue };
+  const behavior =
+    nextLayout.behavior && typeof nextLayout.behavior === 'object' && !Array.isArray(nextLayout.behavior)
+      ? { ...nextLayout.behavior }
+      : {};
+
+  if (hasFilter) {
+    behavior.lead_opportunity_pipeline_id = pipelineId;
+  } else {
+    delete behavior.lead_opportunity_pipeline_id;
+    delete behavior.leadOpportunityPipelineId;
+    delete behavior.lead_pipeline_id;
+    delete behavior.leadPipelineId;
+    delete behavior.opportunity_pipeline_id;
+    delete behavior.opportunityPipelineId;
+    delete behavior.lead_opportunity_pipeline_ids;
+    delete behavior.leadOpportunityPipelineIds;
+  }
+
+  if (Object.keys(behavior).length === 0) {
+    delete nextLayout.behavior;
+  } else {
+    nextLayout.behavior = behavior;
+  }
+
+  return nextLayout;
 };
 
 const applySourceSpendToSourceRows = (rows, spendBySource) => {
@@ -2576,6 +3317,93 @@ const sanitizeCostPerLeadBySource = (value) => {
   return cleaned;
 };
 
+const normalizeSalesExcludedDealKeyword = (value) =>
+  String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const sanitizeSalesExcludedDealKeywords = (value) => {
+  let rawItems = [];
+  if (Array.isArray(value)) {
+    rawItems = value;
+  } else if (typeof value === 'string') {
+    rawItems = value
+      .split('\n')
+      .flatMap((line) => String(line).split(','));
+  } else {
+    return [];
+  }
+
+  const seen = new Set();
+  const cleaned = [];
+  rawItems.forEach((entry) => {
+    const keyword = normalizeSalesExcludedDealKeyword(entry);
+    if (!keyword) return;
+    const key = keyword.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    cleaned.push(keyword);
+  });
+
+  return cleaned.slice(0, 500);
+};
+
+const formatSalesExcludedDealKeywordsText = (value) =>
+  sanitizeSalesExcludedDealKeywords(value).join('\n');
+
+const mergeSalesExcludedDealKeywords = (...values) =>
+  sanitizeSalesExcludedDealKeywords(values.flatMap((value) => sanitizeSalesExcludedDealKeywords(value)));
+
+const isMissingColumnError = (error, columnName) => {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return message.includes(columnName) && message.includes('does not exist');
+};
+
+const fetchMatthiasRosseelDealKeywords = async (locationId) => {
+  if (!supabase) return [];
+  if (!locationId || resolveBrandTheme() !== 'belivert') return [];
+
+  const { data: userRows, error: userError } = await supabase
+    .from('teamleader_users')
+    .select('id,first_name,last_name,email')
+    .eq('location_id', locationId);
+  if (userError) {
+    console.warn('Unable to load Teamleader users for Matthias Rosseel defaults', userError);
+    return [];
+  }
+
+  const matchingUserIds = (userRows || [])
+    .filter((row) => {
+      const first = String(row?.first_name ?? '').trim().toLowerCase();
+      const last = String(row?.last_name ?? '').trim().toLowerCase();
+      const email = String(row?.email ?? '').trim().toLowerCase();
+      if (first === 'matthias' && last === 'rosseel') return true;
+      if (email === 'matthias@belivert.be') return true;
+      return false;
+    })
+    .map((row) => String(row.id || '').trim())
+    .filter(Boolean);
+
+  if (!matchingUserIds.length) return [...BELIVERT_DEFAULT_EXCLUDED_DEAL_KEYWORDS];
+
+  let deals = [];
+  try {
+    deals = await fetchAllRows(() =>
+      supabase
+        .from('teamleader_deals')
+        .select('title')
+        .eq('location_id', locationId)
+        .in('responsible_user_id', matchingUserIds)
+        .order('created_at', { ascending: false })
+    );
+  } catch (error) {
+    console.warn('Unable to load Matthias Rosseel deal titles for defaults', error);
+  }
+
+  const titles = (deals || []).map((row) => normalizeSalesExcludedDealKeyword(row?.title)).filter(Boolean);
+  return mergeSalesExcludedDealKeywords(BELIVERT_DEFAULT_EXCLUDED_DEAL_KEYWORDS, titles);
+};
+
 let sourceNormalizationRulesRef = null;
 let sourceNormalizationRulesCache = [];
 const getSourceNormalizationRules = () => {
@@ -2600,6 +3428,7 @@ const DEFAULT_UNKNOWN_SOURCE_TOKENS = new Set([
 ]);
 
 const resolveSourceBucketingConfig = () => {
+  const debugMode = isMetricsDebugModeEnabled();
   const behavior = getLayoutBehavior();
   const cfg =
     behavior?.source_bucketing && typeof behavior.source_bucketing === 'object' && !Array.isArray(behavior.source_bucketing)
@@ -2609,7 +3438,7 @@ const resolveSourceBucketingConfig = () => {
         : null;
 
   const rules = getSourceNormalizationRules();
-  const enabled = rules.length > 0 && cfg?.enabled !== false;
+  const enabled = !debugMode && rules.length > 0 && cfg?.enabled !== false;
 
   const unmatchedKey = normalizeBehaviorKey(cfg?.unmatched ?? cfg?.unmatched_mode ?? cfg?.unmatchedMode ?? '');
   const unmatchedMode = unmatchedKey === 'keep' || unmatchedKey === 'passthrough' ? 'keep' : 'fallback';
@@ -2902,13 +3731,16 @@ const fetchOpportunitiesByEmails = async (activeLocationId, emails, select, mess
   if (unique.length === 0) return rows;
   const chunks = chunkValues(unique, 100);
   for (const chunk of chunks) {
+    let query = supabase
+      .from('opportunities_view')
+      .select(select)
+      .eq('location_id', activeLocationId)
+      .in('contact_email', chunk);
+    query = applyOpportunityPipelineFilter(query);
+    query = query.order('created_at', { ascending: false });
+
     const { data, error } = await withTimeout(
-      supabase
-        .from('opportunities_view')
-        .select(select)
-        .eq('location_id', activeLocationId)
-        .in('contact_email', chunk)
-        .order('created_at', { ascending: false }),
+      query,
       12000,
       message || 'Supabase query timeout (opportunities by email).'
     );
@@ -2959,6 +3791,7 @@ const fetchOpportunityCount = async (range) => {
     .lt('created_at', endIso);
 
   query = query.eq('location_id', activeLocationId);
+  query = applyOpportunityPipelineFilter(query);
 
   const { count, error } = await withTimeout(
     query,
@@ -2973,6 +3806,51 @@ const fetchOpportunityCount = async (range) => {
   return count ?? 0;
 };
 
+const fetchPipelineFilteredOpportunityContactLookup = async (activeLocationId, contactIds = [], emails = []) => {
+  const byContactId = new Set();
+  const byEmail = new Set();
+  if (!supabase) return { byContactId, byEmail };
+
+  const uniqueContactIds = Array.from(
+    new Set((contactIds || []).map((value) => toTrimmedText(value)).filter(Boolean))
+  );
+  const uniqueEmails = Array.from(new Set((emails || []).map((value) => toTrimmedText(value)).filter(Boolean)));
+
+  const ingestRows = (rows) => {
+    (rows || []).forEach((row) => {
+      const contactId = toTrimmedText(row?.contact_id);
+      if (contactId) byContactId.add(contactId);
+      const email = normalizeEmailValue(row?.contact_email);
+      if (email) byEmail.add(email);
+    });
+  };
+
+  const queryByChunk = async (field, values) => {
+    if (!values.length) return;
+    const chunks = chunkValues(values, 100);
+    for (const chunk of chunks) {
+      let query = supabase
+        .from('opportunities_view')
+        .select('contact_id,contact_email')
+        .eq('location_id', activeLocationId)
+        .in(field, chunk);
+      query = applyOpportunityPipelineFilter(query);
+
+      const { data, error } = await withTimeout(
+        query,
+        12000,
+        'Supabase query timeout (pipeline appointment lookup).'
+      );
+      if (error) throw error;
+      ingestRows(data);
+    }
+  };
+
+  await queryByChunk('contact_id', uniqueContactIds);
+  await queryByChunk('contact_email', uniqueEmails);
+  return { byContactId, byEmail };
+};
+
 const fetchAppointmentCounts = async (range) => {
   if (!supabase) return null;
 
@@ -2981,6 +3859,89 @@ const fetchAppointmentCounts = async (range) => {
   const activeLocationId = configState.locationId || ghlLocationId;
   if (!activeLocationId) {
     throw new Error('Location ID ontbreekt. Voeg deze toe via de setup (dashboard_config).');
+  }
+
+  const selectedPipelineId = resolveLeadOpportunityPipelineId();
+
+  if (selectedPipelineId) {
+    if (useTeamleaderAppointments()) {
+      const appointments = await buildTeamleaderAppointmentRows(activeLocationId, startIso, endIso);
+      const appointmentEmails = appointments
+        .map((row) => toTrimmedText(row?.contact_email))
+        .filter(Boolean);
+
+      const pipelineContacts = await fetchPipelineFilteredOpportunityContactLookup(
+        activeLocationId,
+        [],
+        appointmentEmails
+      );
+
+      let total = 0;
+      appointments.forEach((row) => {
+        const email = normalizeEmailValue(row?.contact_email);
+        if (email && pipelineContacts.byEmail.has(email)) {
+          total += 1;
+        }
+      });
+
+      return {
+        total,
+        cancelled: 0,
+        confirmed: total,
+        noShow: 0
+      };
+    }
+
+    const appointments = await fetchAllRows(() =>
+      supabase
+        .from('appointments_view')
+        .select('contact_id,contact_email,appointment_status,appointment_status_raw,start_time')
+        .eq('location_id', activeLocationId)
+        .gte('start_time', startIso)
+        .lt('start_time', endIso)
+        .order('start_time', { ascending: false })
+    );
+
+    const appointmentContactIds = appointments
+      .map((row) => toTrimmedText(row?.contact_id))
+      .filter(Boolean);
+    const appointmentEmails = appointments
+      .map((row) => toTrimmedText(row?.contact_email))
+      .filter(Boolean);
+
+    const pipelineContacts = await fetchPipelineFilteredOpportunityContactLookup(
+      activeLocationId,
+      appointmentContactIds,
+      appointmentEmails
+    );
+
+    let total = 0;
+    let cancelled = 0;
+    let confirmed = 0;
+    let noShow = 0;
+
+    appointments.forEach((row) => {
+      const contactId = toTrimmedText(row?.contact_id);
+      const email = normalizeEmailValue(row?.contact_email);
+      const belongsToPipeline =
+        (contactId && pipelineContacts.byContactId.has(contactId)) || (email && pipelineContacts.byEmail.has(email));
+      if (!belongsToPipeline) return;
+
+      total += 1;
+      const combined =
+        `${toTrimmedText(row?.appointment_status) ?? ''} ${toTrimmedText(row?.appointment_status_raw) ?? ''}`.toLowerCase();
+      if (APPOINTMENT_STATUS_FILTERS.cancelled.some((pattern) => combined.includes(pattern))) {
+        cancelled += 1;
+      }
+      if (APPOINTMENT_STATUS_FILTERS.noShow.some((pattern) => combined.includes(pattern))) {
+        noShow += 1;
+      }
+      if (isAppointmentConfirmedStatus(row?.appointment_status, row?.appointment_status_raw)) {
+        confirmed += 1;
+      }
+    });
+
+    return { total, cancelled, confirmed, noShow };
   }
 
   if (useTeamleaderAppointments()) {
@@ -3037,15 +3998,15 @@ const fetchLatestSyncTimestamp = async () => {
 
   const query = supabase
     .from('sync_state')
-    .select('updated_at')
+    .select('last_synced_at,updated_at')
     .eq('location_id', activeLocationId)
-    .order('updated_at', { ascending: false })
+    .order('last_synced_at', { ascending: false, nullsFirst: false })
     .limit(1)
     .maybeSingle();
 
   const { data, error } = await withTimeout(query, 12000, 'Supabase query timeout (sync).');
   if (error) throw error;
-  return data?.updated_at ?? null;
+  return data?.last_synced_at ?? data?.updated_at ?? null;
 };
 
 const toTrimmedText = (value) => {
@@ -3268,14 +4229,16 @@ const fetchSourceBreakdownComputed = async (range, activeLocationId) => {
 
   const useTeamleader = useTeamleaderAppointments();
 
-  const opportunities = await fetchAllRows(() =>
-    supabase
+  const opportunities = await fetchAllRows(() => {
+    let query = supabase
       .from('opportunities_view')
       .select('id,contact_id,contact_email,source_guess,status,created_at')
       .eq('location_id', activeLocationId)
       .gte('created_at', startIso)
-      .lt('created_at', endIso)
-  );
+      .lt('created_at', endIso);
+    query = applyOpportunityPipelineFilter(query);
+    return query;
+  });
 
   const leadContactIds = new Set();
   const leadEmails = new Set();
@@ -3328,14 +4291,16 @@ const fetchSourceBreakdownComputed = async (range, activeLocationId) => {
       );
     }
   } else if (appointmentContactIds.length) {
-    opportunitiesForAppointments = await fetchAllRows(() =>
-      supabase
+    opportunitiesForAppointments = await fetchAllRows(() => {
+      let query = supabase
         .from('opportunities_view')
         .select('contact_id,contact_email,source_guess,created_at')
         .eq('location_id', activeLocationId)
-        .in('contact_id', appointmentContactIds)
-        .order('created_at', { ascending: false })
-    );
+        .in('contact_id', appointmentContactIds);
+      query = applyOpportunityPipelineFilter(query);
+      query = query.order('created_at', { ascending: false });
+      return query;
+    });
   }
 
   const sourceByContactId = new Map();
@@ -3479,14 +4444,16 @@ const fetchHookPerformanceComputed = async (range, activeLocationId) => {
   const startIso = toUtcStart(range.start);
   const endIso = toUtcEndExclusive(range.end);
 
-  const opportunities = await fetchAllRows(() =>
-    supabase
+  const opportunities = await fetchAllRows(() => {
+    let query = supabase
       .from('opportunities_view')
       .select('id,contact_id,contact_email,source_guess,custom_fields,created_at')
       .eq('location_id', activeLocationId)
       .gte('created_at', startIso)
-      .lt('created_at', endIso)
-  );
+      .lt('created_at', endIso);
+    query = applyOpportunityPipelineFilter(query);
+    return query;
+  });
 
   const appointments = useTeamleader
     ? await buildTeamleaderAppointmentRows(activeLocationId, startIso, endIso)
@@ -3523,13 +4490,16 @@ const fetchHookPerformanceComputed = async (range, activeLocationId) => {
     }
   } else if (appointmentContactIds.length) {
     opportunitiesForAppointments = await fetchAllRows(
-      () =>
-        supabase
+      () => {
+        let query = supabase
           .from('opportunities_view')
           .select('contact_id,contact_email,source_guess,created_at')
           .eq('location_id', activeLocationId)
-          .in('contact_id', appointmentContactIds)
-          .order('created_at', { ascending: false }),
+          .in('contact_id', appointmentContactIds);
+        query = applyOpportunityPipelineFilter(query);
+        query = query.order('created_at', { ascending: false });
+        return query;
+      },
       500
     );
   }
@@ -3704,12 +4674,15 @@ const fetchLostReasonsComputed = async (range, activeLocationId) => {
   }
 
   const opportunities = await fetchAllRows(
-    () =>
-      supabase
+    () => {
+      let query = supabase
         .from('opportunities')
         .select('id,status,contact_id,raw_data,updated_at')
         .eq('location_id', activeLocationId)
-        .gte('updated_at', startIso),
+        .gte('updated_at', startIso);
+      query = applyOpportunityPipelineFilter(query);
+      return query;
+    },
     500
   );
 
@@ -3830,10 +4803,34 @@ const fetchSpendBySource = async (range) => {
   if (!activeLocationId) {
     throw new Error('Location ID ontbreekt. Voeg deze toe via de setup (dashboard_config).');
   }
+  const debugMode = isMetricsDebugModeEnabled();
   const bucketingEnabled = isSourceBucketingEnabled();
 
   const startDate = range.start;
   const endDate = toDateEndExclusive(range.end);
+
+  if (debugMode) {
+    const { data: rawRows, error: rawError } = await withTimeout(
+      supabase
+        .from('marketing_spend_daily')
+        .select('source,spend')
+        .eq('location_id', activeLocationId)
+        .gte('date', startDate)
+        .lt('date', endDate),
+      12000,
+      'Supabase query timeout (marketing spend debug mode).'
+    );
+    if (rawError) throw rawError;
+
+    const rawTotals = {};
+    (rawRows ?? []).forEach((row) => {
+      const source = normalizeSourceLabel(row?.source) || 'Onbekend';
+      const spend = Number(row?.spend ?? 0);
+      if (!Number.isFinite(spend)) return;
+      rawTotals[source] = (rawTotals[source] ?? 0) + spend;
+    });
+    return rawTotals;
+  }
 
   const totals = {};
 
@@ -4210,10 +5207,37 @@ const fetchFinanceDrilldownRecords = async ({ activeLocationId, startIso, endIso
   return Array.from(grouped.values()).sort((a, b) => (a.date < b.date ? 1 : -1));
 };
 
+const DRILLDOWN_LIMIT_MAX = 2000;
+const DEFAULT_DRILLDOWN_LIMIT = 1500;
+const DRILLDOWN_FETCH_TIMEOUT_MS = 30000;
 const clampLimit = (value, fallback = 200) => {
   const raw = Number(value ?? fallback);
-  if (!Number.isFinite(raw)) return Math.min(Math.max(fallback, 1), 500);
-  return Math.min(Math.max(Math.floor(raw), 1), 500);
+  if (!Number.isFinite(raw)) return Math.min(Math.max(fallback, 1), DRILLDOWN_LIMIT_MAX);
+  return Math.min(Math.max(Math.floor(raw), 1), DRILLDOWN_LIMIT_MAX);
+};
+
+const buildPaginationBatchSignature = (batch) => {
+  if (!Array.isArray(batch) || batch.length === 0) return '';
+
+  const pickToken = (row) => {
+    if (!row || typeof row !== 'object') return '';
+    return (
+      toTrimmedText(row.id) ||
+      toTrimmedText(row.record_id) ||
+      toTrimmedText(row.created_at) ||
+      toTrimmedText(row.updated_at) ||
+      toTrimmedText(row.start_time) ||
+      toTrimmedText(row.scheduled_at) ||
+      toTrimmedText(row.date) ||
+      toTrimmedText(row.contact_id) ||
+      toTrimmedText(row.contact_email) ||
+      ''
+    );
+  };
+
+  const first = batch[0];
+  const last = batch[batch.length - 1];
+  return `${batch.length}|${pickToken(first)}|${pickToken(last)}`;
 };
 
 const getDefaultDrilldownSource = () => {
@@ -4243,23 +5267,31 @@ const fetchOpportunityDrilldownRecordsComputed = async ({
 
   const rows = [];
   let from = 0;
+  let previousBatchSignature = '';
 
   while (rows.length < effectiveLimit && from < maxScan) {
+    let query = supabase
+      .from('opportunities_view')
+      .select(
+        'id,created_at,contact_id,contact_name,contact_email,contact_phone,source_guess,status,pipeline_name,pipeline_stage_name,assigned_to,monetary_value'
+      )
+      .eq('location_id', activeLocationId)
+      .gte('created_at', startIso)
+      .lt('created_at', endIso);
+    query = applyOpportunityPipelineFilter(query);
+    query = query.order('created_at', { ascending: false }).range(from, from + pageSize - 1);
+
     const { data, error } = await withTimeout(
-      supabase
-        .from('opportunities_view')
-        .select('id,created_at,contact_id,contact_name,contact_email,source_guess,status')
-        .eq('location_id', activeLocationId)
-        .gte('created_at', startIso)
-        .lt('created_at', endIso)
-        .order('created_at', { ascending: false })
-        .range(from, from + pageSize - 1),
+      query,
       12000,
       'Supabase query timeout (opportunities drilldown).'
     );
     if (error) throw error;
     const batch = Array.isArray(data) ? data : [];
     if (!batch.length) break;
+    const batchSignature = buildPaginationBatchSignature(batch);
+    if (batchSignature && batchSignature === previousBatchSignature) break;
+    previousBatchSignature = batchSignature;
 
     for (const row of batch) {
       if (kind === 'deals' && !isWonOrClosedStatus(row?.status)) continue;
@@ -4274,6 +5306,11 @@ const fetchOpportunityDrilldownRecordsComputed = async ({
         contact_id: row?.contact_id ?? null,
         contact_name: row?.contact_name ?? null,
         contact_email: row?.contact_email ?? null,
+        contact_phone: row?.contact_phone ?? null,
+        pipeline_name: row?.pipeline_name ?? null,
+        pipeline_stage_name: row?.pipeline_stage_name ?? null,
+        assigned_to: row?.assigned_to ?? null,
+        monetary_value: row?.monetary_value ?? null,
         source: recordSource,
         status: row?.status ?? null
       });
@@ -4308,16 +5345,20 @@ const fetchAppointmentDrilldownRecordsComputed = async ({
     const rows = [];
     const leadEmails = new Set();
     let leadInRangeLoaded = false;
+    let previousBatchSignature = '';
 
     const ensureLeadInRangeEmails = async () => {
       if (leadInRangeLoaded) return;
+      let query = supabase
+        .from('opportunities_view')
+        .select('contact_email')
+        .eq('location_id', activeLocationId)
+        .gte('created_at', startIso)
+        .lt('created_at', endIso);
+      query = applyOpportunityPipelineFilter(query);
+
       const { data, error } = await withTimeout(
-        supabase
-          .from('opportunities_view')
-          .select('contact_email')
-          .eq('location_id', activeLocationId)
-          .gte('created_at', startIso)
-          .lt('created_at', endIso),
+        query,
         12000,
         'Supabase query timeout (lead-in-range lookup).'
       );
@@ -4333,6 +5374,9 @@ const fetchAppointmentDrilldownRecordsComputed = async ({
     while (rows.length < effectiveLimit && from < maxScan) {
       const batch = await fetchTeamleaderMeetingsBatch(activeLocationId, startIso, endIso, from, from + pageSize - 1);
       if (!batch.length) break;
+      const batchSignature = buildPaginationBatchSignature(batch);
+      if (batchSignature && batchSignature === previousBatchSignature) break;
+      previousBatchSignature = batchSignature;
 
       const hydrated = await hydrateTeamleaderMeetingCustomers(activeLocationId, batch);
       const batchEmails = Array.from(
@@ -4433,14 +5477,17 @@ const fetchAppointmentDrilldownRecordsComputed = async ({
     const unique = Array.from(new Set(contactIds.filter(Boolean)));
     const chunks = chunkValues(unique, 100);
     for (const chunk of chunks) {
+      let query = supabase
+        .from('opportunities_view')
+        .select('contact_id,contact_email,created_at')
+        .eq('location_id', activeLocationId)
+        .gte('created_at', startIso)
+        .lt('created_at', endIso)
+        .in('contact_id', chunk);
+      query = applyOpportunityPipelineFilter(query);
+
       const { data, error } = await withTimeout(
-        supabase
-          .from('opportunities_view')
-          .select('contact_id,contact_email,created_at')
-          .eq('location_id', activeLocationId)
-          .gte('created_at', startIso)
-          .lt('created_at', endIso)
-          .in('contact_id', chunk),
+        query,
         12000,
         'Supabase query timeout (lead-in-range lookup).'
       );
@@ -4462,13 +5509,16 @@ const fetchAppointmentDrilldownRecordsComputed = async ({
 
     const chunks = chunkValues(unique, 100);
     for (const chunk of chunks) {
+      let query = supabase
+        .from('opportunities_view')
+        .select('contact_id,contact_email,source_guess,created_at')
+        .eq('location_id', activeLocationId)
+        .in('contact_id', chunk);
+      query = applyOpportunityPipelineFilter(query);
+      query = query.order('created_at', { ascending: false });
+
       const { data, error } = await withTimeout(
-        supabase
-          .from('opportunities_view')
-          .select('contact_id,contact_email,source_guess,created_at')
-          .eq('location_id', activeLocationId)
-          .in('contact_id', chunk)
-          .order('created_at', { ascending: false }),
+        query,
         12000,
         'Supabase query timeout (appointment source lookup).'
       );
@@ -4491,6 +5541,7 @@ const fetchAppointmentDrilldownRecordsComputed = async ({
   };
 
   let from = 0;
+  let previousBatchSignature = '';
   while (rows.length < effectiveLimit && from < maxScan) {
     const { data, error } = await withTimeout(
       supabase
@@ -4507,6 +5558,9 @@ const fetchAppointmentDrilldownRecordsComputed = async ({
     if (error) throw error;
     const batch = Array.isArray(data) ? data : [];
     if (!batch.length) break;
+    const batchSignature = buildPaginationBatchSignature(batch);
+    if (batchSignature && batchSignature === previousBatchSignature) break;
+    previousBatchSignature = batchSignature;
 
     const contactIds = batch.map((row) => toTrimmedText(row?.contact_id)).filter(Boolean);
     await hydrateSourceMaps(contactIds);
@@ -4645,21 +5699,29 @@ const fetchLostReasonDrilldownRecordsComputed = async ({
   };
 
   let from = 0;
+  let previousBatchSignature = '';
   while (rows.length < effectiveLimit && from < maxScan) {
+    let query = supabase
+      .from('opportunities_view')
+      .select(
+        'id,updated_at,contact_id,contact_name,contact_email,contact_phone,source_guess,status,pipeline_name,pipeline_stage_name,assigned_to,monetary_value,raw_data,custom_fields'
+      )
+      .eq('location_id', activeLocationId)
+      .gte('updated_at', startIso);
+    query = applyOpportunityPipelineFilter(query);
+    query = query.order('updated_at', { ascending: false }).range(from, from + pageSize - 1);
+
     const { data, error } = await withTimeout(
-      supabase
-        .from('opportunities_view')
-        .select('id,updated_at,contact_id,contact_name,contact_email,source_guess,status,raw_data,custom_fields')
-        .eq('location_id', activeLocationId)
-        .gte('updated_at', startIso)
-        .order('updated_at', { ascending: false })
-        .range(from, from + pageSize - 1),
+      query,
       12000,
       'Supabase query timeout (lost reason drilldown opportunities).'
     );
     if (error) throw error;
     const batch = Array.isArray(data) ? data : [];
     if (!batch.length) break;
+    const batchSignature = buildPaginationBatchSignature(batch);
+    if (batchSignature && batchSignature === previousBatchSignature) break;
+    previousBatchSignature = batchSignature;
 
     const batchContactIds = batch.map((row) => toTrimmedText(row?.contact_id)).filter(Boolean);
     await hydrateContacts(batchContactIds);
@@ -4694,6 +5756,11 @@ const fetchLostReasonDrilldownRecordsComputed = async ({
         contact_id: row?.contact_id ?? null,
         contact_name: row?.contact_name ?? null,
         contact_email: row?.contact_email ?? null,
+        contact_phone: row?.contact_phone ?? null,
+        pipeline_name: row?.pipeline_name ?? null,
+        pipeline_stage_name: row?.pipeline_stage_name ?? null,
+        assigned_to: row?.assigned_to ?? null,
+        monetary_value: row?.monetary_value ?? null,
         source: recordSource,
         status: row?.status ?? null
       });
@@ -4733,6 +5800,7 @@ const fetchHookOpportunityDrilldownRecordsComputed = async ({
   const rows = [];
   const contactsById = new Map();
   const contactsByEmail = new Map();
+  let previousBatchSignature = '';
 
   const hydrateContacts = async (contactIds) => {
     const unique = Array.from(new Set(contactIds.filter(Boolean))).filter((id) => !contactsById.has(id));
@@ -4762,21 +5830,28 @@ const fetchHookOpportunityDrilldownRecordsComputed = async ({
 
   let from = 0;
   while (rows.length < effectiveLimit && from < maxScan) {
+    let query = supabase
+      .from('opportunities_view')
+      .select(
+        'id,created_at,contact_id,contact_name,contact_email,contact_phone,source_guess,status,pipeline_name,pipeline_stage_name,assigned_to,monetary_value,custom_fields'
+      )
+      .eq('location_id', activeLocationId)
+      .gte('created_at', startIso)
+      .lt('created_at', endIso);
+    query = applyOpportunityPipelineFilter(query);
+    query = query.order('created_at', { ascending: false }).range(from, from + pageSize - 1);
+
     const { data, error } = await withTimeout(
-      supabase
-        .from('opportunities_view')
-        .select('id,created_at,contact_id,contact_name,contact_email,source_guess,status,custom_fields')
-        .eq('location_id', activeLocationId)
-        .gte('created_at', startIso)
-        .lt('created_at', endIso)
-        .order('created_at', { ascending: false })
-        .range(from, from + pageSize - 1),
+      query,
       12000,
       'Supabase query timeout (hook drilldown opportunities).'
     );
     if (error) throw error;
     const batch = Array.isArray(data) ? data : [];
     if (!batch.length) break;
+    const batchSignature = buildPaginationBatchSignature(batch);
+    if (batchSignature && batchSignature === previousBatchSignature) break;
+    previousBatchSignature = batchSignature;
 
     const batchContactIds = batch.map((row) => toTrimmedText(row?.contact_id)).filter(Boolean);
     await hydrateContacts(batchContactIds);
@@ -4813,6 +5888,11 @@ const fetchHookOpportunityDrilldownRecordsComputed = async ({
         contact_id: row?.contact_id ?? null,
         contact_name: row?.contact_name ?? null,
         contact_email: row?.contact_email ?? null,
+        contact_phone: row?.contact_phone ?? null,
+        pipeline_name: row?.pipeline_name ?? null,
+        pipeline_stage_name: row?.pipeline_stage_name ?? null,
+        assigned_to: row?.assigned_to ?? null,
+        monetary_value: row?.monetary_value ?? null,
         source: recordSource,
         status: row?.status ?? null
       });
@@ -4853,10 +5933,14 @@ const fetchHookAppointmentDrilldownRecordsComputed = async ({
   if (useTeamleader) {
     const rows = [];
     let from = 0;
+    let previousBatchSignature = '';
 
     while (rows.length < effectiveLimit && from < maxScan) {
       const batch = await fetchTeamleaderMeetingsBatch(activeLocationId, startIso, endIso, from, from + pageSize - 1);
       if (!batch.length) break;
+      const batchSignature = buildPaginationBatchSignature(batch);
+      if (batchSignature && batchSignature === previousBatchSignature) break;
+      previousBatchSignature = batchSignature;
 
       const hydrated = await hydrateTeamleaderMeetingCustomers(activeLocationId, batch);
       const batchEmails = Array.from(
@@ -4950,6 +6034,7 @@ const fetchHookAppointmentDrilldownRecordsComputed = async ({
   const contactsByEmail = new Map();
   const rawSourceByContactId = new Map();
   const rawSourceByEmail = new Map();
+  let previousBatchSignature = '';
 
   const hydrateContacts = async (contactIds) => {
     const unique = Array.from(new Set(contactIds.filter(Boolean))).filter((id) => !contactsById.has(id));
@@ -4982,13 +6067,16 @@ const fetchHookAppointmentDrilldownRecordsComputed = async ({
     if (!unique.length) return;
     const chunks = chunkValues(unique, 100);
     for (const chunk of chunks) {
+      let query = supabase
+        .from('opportunities_view')
+        .select('contact_id,contact_email,source_guess,created_at')
+        .eq('location_id', activeLocationId)
+        .in('contact_id', chunk);
+      query = applyOpportunityPipelineFilter(query);
+      query = query.order('created_at', { ascending: false });
+
       const { data, error } = await withTimeout(
-        supabase
-          .from('opportunities_view')
-          .select('contact_id,contact_email,source_guess,created_at')
-          .eq('location_id', activeLocationId)
-          .in('contact_id', chunk)
-          .order('created_at', { ascending: false }),
+        query,
         12000,
         'Supabase query timeout (hook drilldown appointment source).'
       );
@@ -5027,6 +6115,9 @@ const fetchHookAppointmentDrilldownRecordsComputed = async ({
     if (error) throw error;
     const batch = Array.isArray(data) ? data : [];
     if (!batch.length) break;
+    const batchSignature = buildPaginationBatchSignature(batch);
+    if (batchSignature && batchSignature === previousBatchSignature) break;
+    previousBatchSignature = batchSignature;
 
     const batchContactIds = batch.map((row) => toTrimmedText(row?.contact_id)).filter(Boolean);
     await hydrateContacts(batchContactIds);
@@ -5131,7 +6222,7 @@ const fetchDrilldownRecords = async ({ kind, source, range, view }) => {
       endIso,
       kind: hookKind,
       hook: source || null,
-      limit: 200
+      limit: DEFAULT_DRILLDOWN_LIMIT
     });
   }
 
@@ -5141,7 +6232,7 @@ const fetchDrilldownRecords = async ({ kind, source, range, view }) => {
       startIso,
       endIso,
       reasonLabel: source || null,
-      limit: 200
+      limit: DEFAULT_DRILLDOWN_LIMIT
     });
   }
 
@@ -5161,7 +6252,7 @@ const fetchDrilldownRecords = async ({ kind, source, range, view }) => {
     endIso,
     kind,
     source: source || null,
-    limit: 200
+    limit: DEFAULT_DRILLDOWN_LIMIT
   });
 };
 
@@ -5180,6 +6271,8 @@ const chunkValues = (values, size = 100) => {
 
 const hydrateDrilldownContacts = async (rows) => {
   if (!supabase || !Array.isArray(rows) || rows.length === 0) return rows;
+  const activeLocationId = configState.locationId || ghlLocationId;
+  if (!activeLocationId) return rows;
 
   // Fill missing contact meta + recover contact_id from email so drilldowns can link back to GHL.
   const missing = rows.filter((row) => {
@@ -5201,10 +6294,15 @@ const hydrateDrilldownContacts = async (rows) => {
   const fetchContacts = async (field, values) => {
     const chunks = chunkValues(values, 100);
     for (const chunk of chunks) {
-      const { data, error } = await supabase
-        .from('contacts_view')
-        .select('id, email, contact_name, first_name, last_name')
-        .in(field, chunk);
+      const { data, error } = await withTimeout(
+        supabase
+          .from('contacts_view')
+          .select('id, email, contact_name, first_name, last_name')
+          .eq('location_id', activeLocationId)
+          .in(field, chunk),
+        12000,
+        'Supabase query timeout (drilldown contact hydration).'
+      );
       if (error) throw error;
       (data ?? []).forEach((contact) => {
         const contactName =
@@ -5296,9 +6394,19 @@ const openDrilldown = async ({ kind, source, label, range }) => {
   renderApp();
 
   try {
-    const rows = await fetchDrilldownRecords({ kind, source, range, view: drilldownState.financeView });
+    const rows = await withTimeout(
+      fetchDrilldownRecords({ kind, source, range, view: drilldownState.financeView }),
+      DRILLDOWN_FETCH_TIMEOUT_MS,
+      'Drilldown duurt te lang. Probeer een kleinere periode.'
+    );
     const baseRows = Array.isArray(rows) ? rows : [];
-    const hydratedRows = isFinanceDrilldown(kind) ? baseRows : await hydrateDrilldownContacts(baseRows);
+    const hydratedRows = isFinanceDrilldown(kind)
+      ? baseRows
+      : await withTimeout(
+          hydrateDrilldownContacts(baseRows),
+          DRILLDOWN_FETCH_TIMEOUT_MS,
+          'Drilldown duurt te lang om contactgegevens te laden. Probeer een kleinere periode.'
+        );
     drilldownState.status = 'ready';
     drilldownState.rows = Array.isArray(hydratedRows) ? hydratedRows : [];
   } catch (error) {
@@ -5408,9 +6516,11 @@ const ensureSourceBreakdown = async (range) => {
     inFlight: true
   };
   scheduleRender();
+  const requestVersion = metricsComputationVersion;
 
   try {
     const rows = await fetchSourceBreakdown(range);
+    if (requestVersion !== metricsComputationVersion) return;
     liveState.sourceBreakdown = {
       status: 'ready',
       rows,
@@ -5419,6 +6529,7 @@ const ensureSourceBreakdown = async (range) => {
       inFlight: false
     };
   } catch (error) {
+    if (requestVersion !== metricsComputationVersion) return;
     liveState.sourceBreakdown = {
       status: 'error',
       rows: null,
@@ -5456,9 +6567,11 @@ const ensureHookPerformance = async (range) => {
     inFlight: true
   };
   scheduleRender();
+  const requestVersion = metricsComputationVersion;
 
   try {
     const rows = await fetchHookPerformance(range);
+    if (requestVersion !== metricsComputationVersion) return;
     liveState.hookPerformance = {
       status: 'ready',
       rows,
@@ -5467,6 +6580,7 @@ const ensureHookPerformance = async (range) => {
       inFlight: false
     };
   } catch (error) {
+    if (requestVersion !== metricsComputationVersion) return;
     liveState.hookPerformance = {
       status: 'error',
       rows: null,
@@ -5594,9 +6708,11 @@ const ensureSpendBySource = async (range) => {
     inFlight: true
   };
   scheduleRender();
+  const requestVersion = metricsComputationVersion;
 
   try {
     const totals = await fetchSpendBySource(range);
+    if (requestVersion !== metricsComputationVersion) return;
     liveState.spendBySource = {
       status: 'ready',
       totals,
@@ -5605,6 +6721,7 @@ const ensureSpendBySource = async (range) => {
       inFlight: false
     };
   } catch (error) {
+    if (requestVersion !== metricsComputationVersion) return;
     liveState.spendBySource = {
       status: 'error',
       totals: null,
@@ -5665,7 +6782,6 @@ const ensureAppointmentCounts = async (range) => {
 
 const ensureLatestSync = async () => {
   if (!supabase) return;
-  if (!configState.locationId) return;
   if (liveState.sync.inFlight || liveState.sync.status === 'ready') return;
 
   liveState.sync = { ...liveState.sync, status: 'loading', inFlight: true };
@@ -5694,10 +6810,14 @@ const ensureLatestSync = async () => {
 const fetchAllRows = async (buildQuery, pageSize = 1000) => {
   const rows = [];
   let from = 0;
+  let previousBatchSignature = '';
   while (true) {
     const { data, error } = await buildQuery().range(from, from + pageSize - 1);
     if (error) throw error;
     if (!Array.isArray(data) || data.length === 0) break;
+    const batchSignature = buildPaginationBatchSignature(data);
+    if (batchSignature && batchSignature === previousBatchSignature) break;
+    previousBatchSignature = batchSignature;
     rows.push(...data);
     if (data.length < pageSize) break;
     from += pageSize;
@@ -5758,12 +6878,15 @@ const buildSalesMetrics = (
   companies,
   contacts,
   phases,
+  dealSourceLookupRows,
   spendRows,
   lostReasonsLookupRows,
   monthlyTargetDeals,
   monthlyTargetsByMonth,
   appointmentsSupported = true,
-  quotesFromPhaseId = null
+  quotesFromPhaseId = null,
+  excludedDealKeywords = [],
+  bundleDealsForMetrics = true
 ) => {
   const now = new Date();
   const range = getSalesRange(activeRange);
@@ -5800,6 +6923,51 @@ const buildSalesMetrics = (
     ])
   );
   const phaseMap = new Map((phases || []).map((phase) => [phase.id, phase]));
+  const dealSourceNameById = new Map(
+    (dealSourceLookupRows || [])
+      .filter((row) => row && row.id)
+      .map((row) => {
+        const id = String(row.id);
+        const name = toTrimmedText(row.name ?? row.label ?? row.title);
+        return [id, name];
+      })
+  );
+
+  const extractDealSourceRef = (deal) => {
+    const raw = deal?.raw_data && typeof deal.raw_data === 'object' ? deal.raw_data : null;
+    if (!raw) return { id: '', label: '' };
+
+    const sourceRaw = raw.source;
+    if (sourceRaw && typeof sourceRaw === 'object') {
+      const sourceObj = sourceRaw;
+      return {
+        id: toTrimmedText(sourceObj.id ?? sourceObj.source_id ?? sourceObj.sourceId),
+        label: toTrimmedText(sourceObj.name ?? sourceObj.label ?? sourceObj.title)
+      };
+    }
+
+    if (typeof sourceRaw === 'string') {
+      const sourceText = sourceRaw.trim();
+      if (!sourceText) return { id: '', label: '' };
+      try {
+        const parsed = JSON.parse(sourceText);
+        if (parsed && typeof parsed === 'object') {
+          return {
+            id: toTrimmedText(parsed.id ?? parsed.source_id ?? parsed.sourceId),
+            label: toTrimmedText(parsed.name ?? parsed.label ?? parsed.title)
+          };
+        }
+      } catch (_error) {
+        // Not JSON: treat as plain source label.
+      }
+      return { id: '', label: sourceText };
+    }
+
+    return {
+      id: toTrimmedText(raw.source_id ?? raw.sourceId),
+      label: toTrimmedText(raw.source_name ?? raw.sourceName)
+    };
+  };
 
   const normalizedQuotesFromPhaseId = typeof quotesFromPhaseId === 'string' ? quotesFromPhaseId.trim() : '';
   const normalizeSortOrder = (value) => {
@@ -5816,6 +6984,9 @@ const buildSalesMetrics = (
   const quoteThresholdPhase = normalizedQuotesFromPhaseId ? phaseMap.get(normalizedQuotesFromPhaseId) : null;
   const quoteThresholdSortOrder = quoteThresholdPhase ? normalizeSortOrder(quoteThresholdPhase.sort_order) : null;
   const quoteThresholdProbability = quoteThresholdPhase ? normalizeProbability(quoteThresholdPhase.probability) : null;
+  const normalizedExcludedDealKeywords = sanitizeSalesExcludedDealKeywords(excludedDealKeywords).map((keyword) =>
+    keyword.toLowerCase()
+  );
   const isQuoteDeal = (deal) => {
     if (!normalizedQuotesFromPhaseId) return true;
     const phaseId = String(deal?.phase_id ?? '');
@@ -5831,8 +7002,74 @@ const buildSalesMetrics = (
     }
     return phaseId === normalizedQuotesFromPhaseId;
   };
+  const isExcludedDeal = (deal) => {
+    if (!normalizedExcludedDealKeywords.length) return false;
+    const title = String(deal?.title ?? '').toLowerCase();
+    if (!title.trim()) return false;
+    return normalizedExcludedDealKeywords.some((keyword) => title.includes(keyword));
+  };
 
-  let allDealsInRangeCount = 0;
+  // Belivert workflow: one customer can receive multiple quote revisions.
+  // Bundle those revisions to one commercial trajectory for KPI calculations.
+  const pickDealBundleKey = (deal) => {
+    const customerType = typeof deal?.customer_type === 'string' ? deal.customer_type.trim() : '';
+    const customerId = typeof deal?.customer_id === 'string' ? deal.customer_id.trim() : '';
+    if (customerType && customerId) return `${customerType}:${customerId}`;
+    return `deal:${String(deal?.id ?? '')}`;
+  };
+
+  const getDealActivityTime = (deal) => {
+    const updatedAt = parseDate(deal?.updated_at);
+    if (updatedAt) return updatedAt.getTime();
+    const createdAt = parseDate(deal?.created_at);
+    if (createdAt) return createdAt.getTime();
+    return 0;
+  };
+
+  const bundleDeals = (inputDeals) => {
+    const bundles = new Map();
+    (inputDeals || []).forEach((deal) => {
+      const key = pickDealBundleKey(deal);
+      if (!key) return;
+      const existing = bundles.get(key);
+      if (!existing) {
+        bundles.set(key, {
+          representative: deal,
+          count: 1
+        });
+        return;
+      }
+      existing.count += 1;
+      if (getDealActivityTime(deal) >= getDealActivityTime(existing.representative)) {
+        existing.representative = deal;
+      }
+    });
+    return Array.from(bundles.values()).map((bundle) => ({
+      ...bundle.representative,
+      __bundle_key: pickDealBundleKey(bundle.representative),
+      __bundle_count: bundle.count
+    }));
+  };
+
+  const inRangeDealsRaw = (deals || []).filter((deal) => {
+    const createdAt = parseDate(deal?.created_at);
+    if (!createdAt) return false;
+    if (isExcludedDeal(deal)) return false;
+    return createdAt >= range.start && createdAt <= range.end;
+  });
+  const quoteEligibleDealsRaw = inRangeDealsRaw.filter((deal) => isQuoteDeal(deal));
+
+  const withBundleMeta = (inputDeals) =>
+    (inputDeals || []).map((deal) => ({
+      ...deal,
+      __bundle_key: typeof deal?.__bundle_key === 'string' ? deal.__bundle_key : pickDealBundleKey(deal),
+      __bundle_count: Number.isFinite(Number(deal?.__bundle_count)) ? Number(deal.__bundle_count) : 1
+    }));
+
+  const inRangeDeals = bundleDealsForMetrics ? bundleDeals(inRangeDealsRaw) : withBundleMeta(inRangeDealsRaw);
+  const quoteEligibleDeals = bundleDealsForMetrics ? bundleDeals(quoteEligibleDealsRaw) : withBundleMeta(quoteEligibleDealsRaw);
+
+  let allDealsInRangeCount = inRangeDeals.length;
   const dealsInRange = [];
   const wonDeals = [];
   const lostDeals = [];
@@ -5840,23 +7077,16 @@ const buildSalesMetrics = (
   const quoteDurations = [];
   const cycleDurations = [];
   const records = [];
+  const detailRecords = [];
 
-  (deals || []).forEach((deal) => {
+  const toSalesRecord = (deal) => {
     const createdAt = parseDate(deal.created_at);
-    if (!createdAt) return;
-    if (createdAt < range.start || createdAt > range.end) return;
+    if (!createdAt) return null;
 
-    allDealsInRangeCount += 1;
-    if (!isQuoteDeal(deal)) return;
-
-    dealsInRange.push(deal);
     const status = normalizeStatus(deal.status);
     const won = isWonStatus(status);
     const lost = isLostStatus(status);
-
-    if (won) wonDeals.push(deal);
-    if (lost) lostDeals.push(deal);
-    if (!won && !lost) openDeals.push(deal);
+    const statusType = won ? 'won' : lost ? 'lost' : 'open';
 
     let customerName = deal.title || 'Onbekend';
     let customerEmail = '';
@@ -5872,25 +7102,56 @@ const buildSalesMetrics = (
 
     const phase = phaseMap.get(deal.phase_id);
     const phaseLabel = phase?.name || '';
-    const statusType = won ? 'won' : lost ? 'lost' : 'open';
     const sellerId = deal.responsible_user_id || null;
     const sellerName = sellerId ? userMap.get(sellerId) || 'Onbekend' : null;
     const lossReason = lost ? (extractLossReason(deal, lostReasonById) || 'Onbekend') : null;
-    records.push({
+    const dealTitle = toTrimmedText(deal?.title);
+    const estimatedValueRaw = Number(deal?.estimated_value);
+    const estimatedValue = Number.isFinite(estimatedValueRaw) ? estimatedValueRaw : null;
+    const estimatedCurrency = toTrimmedText(deal?.estimated_value_currency) || 'EUR';
+    const dealSource = extractDealSourceRef(deal);
+    const sourceLabel =
+      (dealSource.id ? dealSourceNameById.get(dealSource.id) : '') ||
+      dealSource.label ||
+      '';
+
+    return {
       record_id: deal.id,
       record_type: 'deal',
       occurred_at: deal.created_at,
       contact_name: customerName,
       contact_email: customerEmail,
-      source: phaseLabel || deal.customer_type || 'Deal',
+      source: sourceLabel || phaseLabel || deal.customer_type || 'Deal',
       status: deal.status || 'Onbekend',
       statusType,
+      deal_title: dealTitle || null,
+      phase_label: phaseLabel || null,
+      estimated_value: estimatedValue,
+      estimated_currency: estimatedCurrency,
       monthKey: toMonthKey(createdAt),
       seller_id: sellerId,
       seller_name: sellerName,
       loss_reason: lossReason ? String(lossReason).trim() : null,
+      bundle_key: typeof deal?.__bundle_key === 'string' ? deal.__bundle_key : pickDealBundleKey(deal),
+      bundle_count: Number(deal?.__bundle_count ?? 1),
       record_url: buildTeamleaderDealUrl(deal.id, deal.raw_data)
-    });
+    };
+  };
+
+  quoteEligibleDeals.forEach((deal) => {
+    const createdAt = parseDate(deal.created_at);
+    if (!createdAt) return;
+    dealsInRange.push(deal);
+    const status = normalizeStatus(deal.status);
+    const won = isWonStatus(status);
+    const lost = isLostStatus(status);
+
+    if (won) wonDeals.push(deal);
+    if (lost) lostDeals.push(deal);
+    if (!won && !lost) openDeals.push(deal);
+
+    const record = toSalesRecord(deal);
+    if (record) records.push(record);
 
     const updatedAt = parseDate(deal.updated_at);
     const quoteDays = diffDays(updatedAt, createdAt);
@@ -5914,6 +7175,11 @@ const buildSalesMetrics = (
         if (closedBucket) closedBucket.won += 1;
       }
     }
+  });
+
+  quoteEligibleDealsRaw.forEach((deal) => {
+    const record = toSalesRecord(deal);
+    if (record) detailRecords.push(record);
   });
 
   const openValue = openDeals.reduce((sum, deal) => sum + (Number(deal.estimated_value) || 0), 0);
@@ -6093,6 +7359,7 @@ const buildSalesMetrics = (
     lossReasons,
     openDeals: openDealRows,
     records,
+    detailRecords,
     sellers,
     summary,
     funnel: {
@@ -6394,6 +7661,13 @@ const buildFunnelMarkup = (funnel) => {
 };
 const buildSellerRows = (sellers, options = {}) => {
   const appointmentsSupported = options.appointmentsSupported !== false;
+  const monthlyRevenueBySellerId =
+    options.monthlyRevenueBySellerId && typeof options.monthlyRevenueBySellerId === 'object'
+      ? options.monthlyRevenueBySellerId
+      : null;
+  const useCurrentMonthKpi = options.useCurrentMonthKpi === true;
+  const monthsCountRaw = Number(options.monthsCount ?? 1);
+  const monthsCount = Number.isFinite(monthsCountRaw) && monthsCountRaw > 0 ? monthsCountRaw : 1;
   if (!Array.isArray(sellers) || sellers.length === 0) {
     return `
       <tr class="border-b">
@@ -6405,8 +7679,27 @@ const buildSellerRows = (sellers, options = {}) => {
     .map((seller, index) => {
       const conversion = formatPercent(seller.conversion, 1);
       const avgCycle = seller.avgCycle ? formatDays(seller.avgCycle, 1) : '--';
-      const revenue = seller.revenue ? formatCurrency(seller.revenue, 0) : '--';
-      const sellerId = escapeHtml(String(seller.id || ''));
+      const revenueRaw = Number(seller.revenue) || 0;
+      const revenue = revenueRaw ? formatCurrency(revenueRaw, 0) : '--';
+      const sellerIdRaw = String(seller.id || '');
+      const fallbackMonthlyRevenue = revenueRaw > 0 ? revenueRaw / monthsCount : 0;
+      let monthlyRevenue = fallbackMonthlyRevenue;
+      if (useCurrentMonthKpi) {
+        const mappedRevenue = monthlyRevenueBySellerId
+          ? Number(monthlyRevenueBySellerId[sellerIdRaw])
+          : Number.NaN;
+        monthlyRevenue = Number.isFinite(mappedRevenue) ? mappedRevenue : 0;
+      }
+      const monthlyRevenueLabel = revenueRaw > 0 ? `${formatCurrency(monthlyRevenue, 0)}/m` : '--';
+      const monthlyKpiRatio =
+        revenueRaw > 0 ? safeDivide(monthlyRevenue, SALES_SELLER_MONTHLY_REVENUE_TARGET) : 0;
+      const monthlyKpiLabel = revenueRaw > 0 ? `${formatPercent(monthlyKpiRatio, 0)} KPI` : '--';
+      const monthlyKpiToneClass = monthlyKpiRatio >= 1 ? 'is-good' : monthlyKpiRatio >= 0.8 ? 'is-warn' : 'is-low';
+      const monthlyKpiProgress = Math.max(0, Math.min(monthlyKpiRatio * 100, 100));
+      const monthlyKpiProgressWidth = revenueRaw > 0 ? Math.max(monthlyKpiProgress, 4) : 0;
+      const monthlyKpiBarToneClass =
+        monthlyKpiRatio >= 1 ? 'is-good' : monthlyKpiRatio >= 0.8 ? 'is-warn' : 'is-low';
+      const sellerId = escapeHtml(sellerIdRaw);
       const sellerName = escapeHtml(seller.name);
       const sellerAttrs = `data-sales-drill="all" data-sales-seller-id="${sellerId}" data-sales-seller-name="${sellerName}"`;
       const pendingAppointments = Number(seller.appointmentsPending) || 0;
@@ -6433,12 +7726,17 @@ const buildSellerRows = (sellers, options = {}) => {
         <tr class="border-b transition-colors data-[state=selected]:bg-muted hover:bg-muted/50">
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0">${index + 1}</td>
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0">
-            <div class="flex items-center gap-3">
-              <div class="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+            <button
+              type="button"
+              class="inline-flex items-center gap-3 rounded-md px-1 py-0.5 -mx-1 text-left hover:bg-secondary/40"
+              data-sales-drill-label="Deals"
+              ${sellerAttrs}
+            >
+              <span class="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
                 <span class="text-sm font-semibold text-primary">${escapeHtml(seller.initials)}</span>
-              </div>
+              </span>
               <span class="font-medium">${sellerName}</span>
-            </div>
+            </button>
           </td>
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-center">${appointmentsCell}</td>
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-center"><span ${sellerAttrs}>${formatNumber(seller.deals)}</span></td>
@@ -6451,7 +7749,26 @@ const buildSellerRows = (sellers, options = {}) => {
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-center">
             <span class="text-sm text-muted-foreground" ${sellerAttrs}>${avgCycle}</span>
           </td>
-          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right font-semibold"><span ${sellerAttrs}>${revenue}</span></td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right font-semibold">
+            <span ${sellerAttrs}>${revenue}</span>
+            <div class="text-[11px] seller-kpi-label ${monthlyKpiToneClass}" ${sellerAttrs}>${escapeHtml(
+              `${monthlyRevenueLabel} • ${monthlyKpiLabel}`
+            )}</div>
+            <div
+              class="seller-kpi-bar"
+              role="progressbar"
+              aria-label="Omzet KPI voortgang"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              aria-valuenow="${Math.round(monthlyKpiProgress)}"
+              title="${escapeHtml(`${monthlyRevenueLabel} vs ${formatCurrency(SALES_SELLER_MONTHLY_REVENUE_TARGET, 0)}/maand`)}"
+              ${sellerAttrs}
+            >
+              <span class="seller-kpi-bar-fill ${monthlyKpiBarToneClass}" style="width:${monthlyKpiProgressWidth.toFixed(
+                1
+              )}%"></span>
+            </div>
+          </td>
         </tr>
       `;
     })
@@ -6516,6 +7833,11 @@ const getSalesRecordsForFilter = (records, filter, options = {}) => {
     rows = rows.filter((record) => String(record.record_id || '') === recordId);
   }
 
+  if (options.bundleKey) {
+    const bundleKey = String(options.bundleKey);
+    rows = rows.filter((record) => String(record.bundle_key || '') === bundleKey);
+  }
+
   if (options.lossReason) {
     const target = normalizeSalesKey(options.lossReason);
     rows = rows.filter((record) => normalizeSalesKey(record.loss_reason) === target);
@@ -6527,7 +7849,11 @@ const getSalesRecordsForFilter = (records, filter, options = {}) => {
 const openSalesDrilldownByFilter = (filter, options = {}) => {
   if (!salesState.data?.records) return;
   const effectiveFilter = filter || 'all';
-  const rows = getSalesRecordsForFilter(salesState.data.records, effectiveFilter, options);
+  const sourceRows =
+    options.bundleKey && Array.isArray(salesState.data.detailRecords)
+      ? salesState.data.detailRecords
+      : salesState.data.records;
+  const rows = getSalesRecordsForFilter(sourceRows, effectiveFilter, options);
 
   let title = options.label || SALES_FILTER_LABELS[effectiveFilter] || 'Deals';
   if (options.recordLabel) {
@@ -6558,6 +7884,7 @@ const bindSalesClicks = () => {
   const elements = document.querySelectorAll('[data-sales-kpi], [data-sales-drill]');
   if (!elements.length) return;
   elements.forEach((element) => {
+    if (element.getAttribute('data-sales-static') === 'true') return;
     if (element.dataset.salesClickBound === 'true') return;
     element.dataset.salesClickBound = 'true';
     element.classList.add('cursor-pointer', 'transition-colors', 'hover:underline');
@@ -6570,6 +7897,7 @@ const bindSalesClicks = () => {
           sellerName: element.getAttribute('data-sales-seller-name'),
           recordId: element.getAttribute('data-sales-record-id'),
           recordLabel: element.getAttribute('data-sales-record-label'),
+          bundleKey: element.getAttribute('data-sales-bundle-key'),
           lossReason: element.getAttribute('data-sales-loss-reason')
         });
         return;
@@ -6629,9 +7957,39 @@ const applySalesData = (data) => {
   const funnel = document.querySelector('[data-sales-funnel]');
   if (funnel) funnel.innerHTML = buildFunnelMarkup(data.funnel);
 
+  const monthlyRevenueBySellerId =
+    data?.sellerMonthlyRevenueById && typeof data.sellerMonthlyRevenueById === 'object'
+      ? data.sellerMonthlyRevenueById
+      : {};
   const sellers = document.querySelector('[data-sales-seller-rows]');
-  if (sellers) sellers.innerHTML = buildSellerRows(data.sellers, { appointmentsSupported: data.appointmentsSupported });
-  setKpi('seller_count', `${formatNumber(data.sellers.length)} verkopers`);
+  if (sellers) {
+    sellers.innerHTML = buildSellerRows(data.sellers, {
+      appointmentsSupported: data.appointmentsSupported,
+      monthsCount: 1,
+      monthlyRevenueBySellerId,
+      useCurrentMonthKpi: true
+    });
+  }
+  const sellerCount = Array.isArray(data.sellers) ? data.sellers.length : 0;
+  setKpi('seller_count', `${formatNumber(sellerCount)} verkopers`);
+  const monthlySellerIds = Object.keys(monthlyRevenueBySellerId);
+  const monthlySellerCount = monthlySellerIds.length;
+  const sellersOnTarget = monthlySellerIds.filter((sellerId) => {
+    const revenue = Number(monthlyRevenueBySellerId[sellerId]) || 0;
+    return revenue >= SALES_SELLER_MONTHLY_REVENUE_TARGET;
+  }).length;
+  const sellerKpiText =
+    monthlySellerCount > 0
+      ? `${formatNumber(sellersOnTarget)}/${formatNumber(monthlySellerCount)} op KPI (${formatCurrency(
+          SALES_SELLER_MONTHLY_REVENUE_TARGET,
+          0
+        )}/maand)`
+      : `KPI ${formatCurrency(SALES_SELLER_MONTHLY_REVENUE_TARGET, 0)}/maand`;
+  setKpi('seller_revenue_kpi_progress', sellerKpiText);
+  const sellerKpiNode = document.querySelector('[data-sales-kpi="seller_revenue_kpi_progress"]');
+  if (sellerKpiNode) {
+    sellerKpiNode.setAttribute('title', 'Gebaseerd op huidige maand');
+  }
 
   setKpi('summary_won_deals', formatNumber(data.summary.wonDeals));
   setKpi('summary_revenue', data.summary.revenue ? formatCurrency(data.summary.revenue, 0) : '--');
@@ -6704,6 +8062,10 @@ const ensureSalesData = async () => {
   const endIso = range.end.toISOString();
   const spendStart = range.start.toISOString().slice(0, 10);
   const spendEnd = range.end.toISOString().slice(0, 10);
+  const currentMonthRange = getCurrentMonthRange();
+  const currentMonthStartIso = toUtcStart(currentMonthRange.start);
+  const currentMonthEndIso = toUtcEndExclusive(currentMonthRange.end);
+  const requestVersion = metricsComputationVersion;
 
   try {
     const dealsSelectBase =
@@ -6732,6 +8094,17 @@ const ensureSalesData = async () => {
         throw error;
       }
     })();
+    const buildCurrentMonthDealsQuery = () =>
+      supabase
+        .from('teamleader_deals')
+        .select(dealsSelectBase)
+        .eq('location_id', activeLocationId)
+        .gte('created_at', currentMonthStartIso)
+        .lt('created_at', currentMonthEndIso);
+    const currentMonthDealsPromise = fetchAllRows(buildCurrentMonthDealsQuery).catch((error) => {
+      console.warn('Unable to load current-month Teamleader deals for seller KPI', error);
+      return [];
+    });
 
     const buildUsersQuery = () =>
       supabase
@@ -6769,18 +8142,37 @@ const ensureSalesData = async () => {
 
       const [
         deals,
+        currentMonthDeals,
         users,
         companies,
         contacts,
         phases,
+        dealSources,
         spendRows,
         lostReasonsLookup
       ] = await Promise.all([
         dealsPromise,
+        currentMonthDealsPromise,
         fetchAllRows(buildUsersQuery),
         fetchAllRows(buildCompaniesQuery),
         fetchAllRows(buildContactsQuery),
         phasesPromise,
+        supabase
+          .from('teamleader_deal_sources')
+          .select('id,name')
+          .eq('location_id', activeLocationId)
+          .then(({ data, error }) => {
+            if (error) {
+              const message = error?.message || '';
+              if (message.includes('teamleader_deal_sources') && message.includes('does not exist')) {
+                console.warn('teamleader_deal_sources ontbreekt nog; deal source labels blijven voorlopig fallback.');
+                return [];
+              }
+              console.warn('Unable to load Teamleader deal sources lookup', error);
+              return [];
+            }
+            return data || [];
+          }),
         supabase
           .from('marketing_spend_daily')
           .select('spend,date')
@@ -6804,6 +8196,14 @@ const ensureSalesData = async () => {
           })
       ]);
 
+    if (requestVersion !== metricsComputationVersion) return;
+
+    const debugMode = isMetricsDebugModeEnabled();
+    const effectiveSalesMonthlyDealsTarget = debugMode ? null : configState.salesMonthlyDealsTarget;
+    const effectiveSalesMonthlyDealsTargets = debugMode ? {} : configState.salesMonthlyDealsTargets;
+    const effectiveSalesQuotesFromPhaseId = debugMode ? null : configState.salesQuotesFromPhaseId;
+    const effectiveSalesExcludedDealKeywords = debugMode ? [] : configState.salesExcludedDealKeywords;
+
     const data = buildSalesMetrics(
       dateRange,
       deals,
@@ -6811,18 +8211,115 @@ const ensureSalesData = async () => {
       companies,
       contacts,
       phases,
+      dealSources,
       spendRows,
       lostReasonsLookup,
-      configState.salesMonthlyDealsTarget,
-      configState.salesMonthlyDealsTargets,
+      effectiveSalesMonthlyDealsTarget,
+      effectiveSalesMonthlyDealsTargets,
       appointmentsSupported,
-      configState.salesQuotesFromPhaseId
+      effectiveSalesQuotesFromPhaseId,
+      effectiveSalesExcludedDealKeywords,
+      !debugMode
     );
+    const phaseMap = new Map((phases || []).map((phase) => [phase.id, phase]));
+    const normalizedQuotesFromPhaseId =
+      typeof effectiveSalesQuotesFromPhaseId === 'string'
+        ? effectiveSalesQuotesFromPhaseId.trim()
+        : '';
+    const normalizeSortOrder = (value) => {
+      const raw = typeof value === 'number' ? value : Number(value);
+      if (!Number.isFinite(raw)) return null;
+      return Math.max(0, Math.round(raw));
+    };
+    const normalizeProbability = (value) => {
+      const raw = typeof value === 'number' ? value : Number(value);
+      if (!Number.isFinite(raw)) return null;
+      const normalized = raw > 1 ? raw / 100 : raw;
+      return Math.max(0, Math.min(1, normalized));
+    };
+    const quoteThresholdPhase = normalizedQuotesFromPhaseId ? phaseMap.get(normalizedQuotesFromPhaseId) : null;
+    const quoteThresholdSortOrder = quoteThresholdPhase
+      ? normalizeSortOrder(quoteThresholdPhase.sort_order)
+      : null;
+    const quoteThresholdProbability = quoteThresholdPhase
+      ? normalizeProbability(quoteThresholdPhase.probability)
+      : null;
+    const normalizedExcludedDealKeywords = sanitizeSalesExcludedDealKeywords(
+      effectiveSalesExcludedDealKeywords
+    ).map((keyword) => keyword.toLowerCase());
+    const isExcludedDeal = (deal) => {
+      if (!normalizedExcludedDealKeywords.length) return false;
+      const title = String(deal?.title ?? '').toLowerCase().trim();
+      if (!title) return false;
+      return normalizedExcludedDealKeywords.some((keyword) => title.includes(keyword));
+    };
+    const isQuoteDeal = (deal) => {
+      if (!normalizedQuotesFromPhaseId) return true;
+      const phaseId = String(deal?.phase_id ?? '');
+      const phase = phaseMap.get(phaseId);
+      if (!phase) return phaseId === normalizedQuotesFromPhaseId;
+      const sortOrder = normalizeSortOrder(phase.sort_order);
+      if (quoteThresholdSortOrder !== null && sortOrder !== null) {
+        return sortOrder >= quoteThresholdSortOrder;
+      }
+      const probability = normalizeProbability(phase.probability);
+      if (quoteThresholdProbability !== null && probability !== null) {
+        return probability >= quoteThresholdProbability;
+      }
+      return phaseId === normalizedQuotesFromPhaseId;
+    };
+    const pickDealBundleKey = (deal) => {
+      const customerType = typeof deal?.customer_type === 'string' ? deal.customer_type.trim() : '';
+      const customerId = typeof deal?.customer_id === 'string' ? deal.customer_id.trim() : '';
+      if (customerType && customerId) return `${customerType}:${customerId}`;
+      return `deal:${String(deal?.id ?? '')}`;
+    };
+    const getDealActivityTime = (deal) => {
+      const updatedAt = parseDate(deal?.updated_at);
+      if (updatedAt) return updatedAt.getTime();
+      const createdAt = parseDate(deal?.created_at);
+      if (createdAt) return createdAt.getTime();
+      return 0;
+    };
+    const bundleDealsForKpi = (inputDeals) => {
+      const bundles = new Map();
+      (inputDeals || []).forEach((deal) => {
+        const key = pickDealBundleKey(deal);
+        if (!key) return;
+        const existing = bundles.get(key);
+        if (!existing || getDealActivityTime(deal) >= getDealActivityTime(existing)) {
+          bundles.set(key, deal);
+        }
+      });
+      return Array.from(bundles.values());
+    };
+    const filteredCurrentMonthDeals = (currentMonthDeals || []).filter(
+      (deal) => !isExcludedDeal(deal) && isQuoteDeal(deal)
+    );
+    const currentMonthDealsForKpi = debugMode
+      ? filteredCurrentMonthDeals
+      : bundleDealsForKpi(filteredCurrentMonthDeals);
+    const sellerMonthlyRevenueById = {};
+    currentMonthDealsForKpi.forEach((deal) => {
+      const sellerId = String(deal?.responsible_user_id || 'unknown');
+      if (!Object.prototype.hasOwnProperty.call(sellerMonthlyRevenueById, sellerId)) {
+        sellerMonthlyRevenueById[sellerId] = 0;
+      }
+      const status = normalizeStatus(deal?.status);
+      if (!isWonStatus(status)) return;
+      const value = Number(deal?.estimated_value);
+      if (Number.isFinite(value) && value > 0) {
+        sellerMonthlyRevenueById[sellerId] += value;
+      }
+    });
+    if (requestVersion !== metricsComputationVersion) return;
+    data.sellerMonthlyRevenueById = sellerMonthlyRevenueById;
     salesState.status = 'ready';
     salesState.data = data;
     salesState.inFlight = false;
     applySalesData(data);
   } catch (error) {
+    if (requestVersion !== metricsComputationVersion) return;
     salesState.status = 'error';
     salesState.errorMessage = error instanceof Error ? error.message : 'Onbekende fout';
     salesState.inFlight = false;
@@ -6869,6 +8366,24 @@ const formatSyncTimestamp = (value) => {
   });
   return `Laatste sync: ${formatted}`;
 };
+
+const renderLatestSyncBadge = (containerClass = 'hidden sm:flex') => `
+  <div class="${containerClass} items-center gap-2 px-3 py-1.5 rounded-full bg-secondary/10 border border-secondary/20" data-latest-sync-badge>
+    <div class="w-2 h-2 rounded-full bg-secondary animate-pulse"></div>
+    <div class="flex flex-col leading-tight">
+      <span class="text-xs font-semibold text-secondary">Live Data</span>
+      <span class="text-[10px] text-muted-foreground">
+        ${
+          liveState.sync.status === 'loading'
+            ? 'Laatste sync: laden...'
+            : liveState.sync.status === 'ready'
+              ? formatSyncTimestamp(liveState.sync.timestamp)
+              : 'Laatste sync: onbekend'
+        }
+      </span>
+    </div>
+  </div>
+`;
 
 const formatDateTime = (value) => {
   if (!value) return '--';
@@ -7137,6 +8652,7 @@ const renderAdminModal = () => {
   const lostStatusClass = adminState.lostReasons.status === 'error' ? 'error' : 'success';
   const leadCostBusy = adminState.leadCost.loading || adminState.leadCost.saving;
   const leadCostStatusClass = adminState.leadCost.status === 'error' ? 'error' : 'success';
+  const metricsDebugModeChecked = metricsDebugModeEnabled ? 'checked' : '';
   const sourceBucketingCfg = resolveSourceBucketingConfig();
   const sourcesFallbackBucket = normalizeSourceLabel(sourceBucketingCfg.fallbackBucket) || 'Overig';
   const sourcesEmptyBucket = normalizeSourceLabel(sourceBucketingCfg.emptyBucket) || 'Onbekend';
@@ -7233,6 +8749,41 @@ const renderAdminModal = () => {
   const lostReasonFieldIdValue = String(
     adminState.kpi.lostReasonFieldId ?? configState.lostReasonFieldId ?? ''
   ).trim();
+  const leadOpportunityPipelineIdValue = normalizePipelineId(
+    adminState.kpi.leadOpportunityPipelineId ?? resolveLeadOpportunityPipelineIdFromLayout(configState.dashboardLayout)
+  );
+  const leadOpportunityPipelineOptionsBase = Array.isArray(adminState.kpi.leadOpportunityPipelineOptions)
+    ? adminState.kpi.leadOpportunityPipelineOptions
+    : [];
+  const hasCurrentLeadPipelineOption = leadOpportunityPipelineOptionsBase.some(
+    (option) => normalizePipelineId(option?.id) === leadOpportunityPipelineIdValue
+  );
+  const leadOpportunityPipelineOptions =
+    leadOpportunityPipelineIdValue && !hasCurrentLeadPipelineOption
+      ? [{ id: leadOpportunityPipelineIdValue, name: leadOpportunityPipelineIdValue, count: 0 }, ...leadOpportunityPipelineOptionsBase]
+      : leadOpportunityPipelineOptionsBase;
+  const leadOpportunityPipelineSelectOptionsMarkup = [
+    `<option value=""${leadOpportunityPipelineIdValue ? '' : ' selected'}>Alle pipelines</option>`,
+    ...leadOpportunityPipelineOptions
+      .map((option) => {
+        const id = normalizePipelineId(option?.id);
+        if (!id) return '';
+        const name = toTrimmedText(option?.name) || id;
+        const label = name === id ? id : name;
+        const selected = id === leadOpportunityPipelineIdValue ? ' selected' : '';
+        return `<option value="${escapeHtml(id)}"${selected}>${escapeHtml(label)}</option>`;
+      })
+      .filter(Boolean)
+  ].join('');
+  const excludedDealKeywordsTextValue =
+    typeof adminState.kpi.excludedDealKeywordsText === 'string'
+      ? adminState.kpi.excludedDealKeywordsText
+      : formatSalesExcludedDealKeywordsText(configState.salesExcludedDealKeywords || []);
+  const matthiasDealKeywords = Array.isArray(adminState.kpi.matthiasDealKeywords)
+    ? adminState.kpi.matthiasDealKeywords
+    : [];
+  const matthiasDealKeywordsCount = matthiasDealKeywords.length;
+  const showBelivertSalesExclusions = resolveBrandTheme() === 'belivert';
   const normalizeProbability = (value) => {
     const raw = typeof value === 'number' ? value : Number(value);
     if (!Number.isFinite(raw)) return null;
@@ -7485,6 +9036,23 @@ const renderAdminModal = () => {
                 <div class="admin-section">
                   <div class="admin-section-header">
                     <div>
+                      <h4 class="admin-section-title">Debug modus</h4>
+                      <p class="admin-section-subtitle">
+                        Schakelt alle cijfer-beïnvloedende regels uit: lead pipeline filter, sales fasefilter, uitsluitwoorden, source normalisatie, CPL overrides en spend mapping.
+                      </p>
+                    </div>
+                  </div>
+                  <div class="admin-form">
+                    <label class="admin-checkbox">
+                      <input type="checkbox" data-metrics-debug-mode ${metricsDebugModeChecked} />
+                      Debug modus actief (toon ruwe cijfers zonder regels)
+                    </label>
+                    <div class="admin-meta">Lokaal opgeslagen in deze browser.</div>
+                  </div>
+                </div>
+                <div class="admin-section">
+                  <div class="admin-section-header">
+                    <div>
                       <h4 class="admin-section-title">Sales KPI</h4>
                       <p class="admin-section-subtitle">
                         Stel je default target in en override per maand. Leeg laten bij een maand = default.
@@ -7503,6 +9071,20 @@ const renderAdminModal = () => {
                   }
                   ${adminState.kpi.loading ? '<div class="admin-meta">KPI wordt geladen...</div>' : ''}
                    <div class="admin-form">
+                     <label class="admin-label">
+                       Lead dashboard pipeline filter (optioneel)
+                       <select
+                         class="admin-input"
+                         data-kpi-lead-opportunity-pipeline
+                         ${kpiBusy ? 'disabled' : ''}
+                       >
+                         ${leadOpportunityPipelineSelectOptionsMarkup}
+                       </select>
+                     </label>
+                     <div class="admin-meta">
+                       Kies een pipeline om de lead dashboard cijfers te beperken. Selecteer "Alle pipelines" om alles mee te tellen.
+                     </div>
+                     ${leadOpportunityPipelineOptions.length ? '' : '<div class="admin-meta">Nog geen pipeline namen gevonden in recente opportunities.</div>'}
                      <label class="admin-label">
                        Default maandtarget (deals)
                        <input type="number" class="admin-input" value="${escapeHtml(monthlyDealsTargetValue)}" min="1" step="1" data-kpi-monthly-deals-target ${kpiBusy ? 'disabled' : ''} />
@@ -7532,6 +9114,36 @@ const renderAdminModal = () => {
                       <div class="admin-meta">
                         Optioneel: als je in GHL een Opportunity custom field gebruikt voor verliesredenen, plak hier de field id. Zo krijg je labels in plaats van IDs.
                       </div>
+                      <label class="admin-label">
+                        Uitsluitwoorden voor deals (1 per lijn)
+                        <textarea
+                          class="admin-input admin-textarea"
+                          placeholder="Service"
+                          data-kpi-excluded-deal-keywords
+                          ${kpiBusy ? 'disabled' : ''}
+                        >${escapeHtml(excludedDealKeywordsTextValue)}</textarea>
+                      </label>
+                      <div class="admin-meta">
+                        Deals waarvan de titel een van deze woorden of zinnen bevat, worden niet meegeteld in Sales KPI's en Sales drilldowns.
+                      </div>
+                      ${
+                        showBelivertSalesExclusions
+                          ? `<div class="admin-mapping-toolbar">
+                               <button type="button" class="admin-ghost" data-kpi-fill-matthias ${kpiBusy || adminState.kpi.matthiasDealKeywordsLoading ? 'disabled' : ''}>
+                                 Vul met deals die niet meetellen
+                               </button>
+                               <div class="admin-meta mb-0">
+                                 ${
+                                   adminState.kpi.matthiasDealKeywordsLoading
+                                     ? 'Deals die niet meetellen laden...'
+                                     : matthiasDealKeywordsCount > 0
+                                       ? `${formatNumber(matthiasDealKeywordsCount)} voorgestelde deals die niet meetellen beschikbaar.`
+                                       : 'Nog geen voorgestelde deals gevonden.'
+                                 }
+                               </div>
+                             </div>`
+                          : ''
+                      }
                     </div>
                    <div class="admin-mapping-block">
                     <div class="admin-mapping-toolbar">
@@ -8398,7 +10010,9 @@ const applyLiveOverrides = (metrics, range) => {
     }
   }
 
-  const cplConfig = sanitizeCostPerLeadBySource(configState.costPerLeadBySource) || {};
+  const cplConfig = isMetricsDebugModeEnabled()
+    ? {}
+    : sanitizeCostPerLeadBySource(configState.costPerLeadBySource) || {};
   const wantsCplFinance = Object.keys(cplConfig).length > 0;
 
   if (wantsCplFinance) {
@@ -8621,6 +10235,67 @@ const renderSourceRows = (rows, isLive) => {
     .join('');
 };
 
+const hasDrilldownFieldValue = (rows, field) =>
+  Array.isArray(rows) &&
+  rows.some((row) => {
+    const value = row?.[field];
+    if (value === null || value === undefined) return false;
+    if (typeof value === 'number') return Number.isFinite(value);
+    return Boolean(toTrimmedText(value));
+  });
+
+const formatDrilldownStatusType = (value) => {
+  const raw = (toTrimmedText(value) || '').toLowerCase();
+  if (!raw) return '';
+  if (raw === 'won') return 'Gewonnen';
+  if (raw === 'lost') return 'Verloren';
+  if (raw === 'open') return 'Open';
+  return raw;
+};
+
+const formatDrilldownAmount = (amount, currency = 'EUR') => {
+  const numeric = Number(amount);
+  if (!Number.isFinite(numeric)) return '--';
+  const code = toTrimmedText(currency) || 'EUR';
+  return `${code} ${formatNumber(numeric, 0)}`;
+};
+
+const summarizeFinanceDrilldown = (rows) => {
+  const safeRows = Array.isArray(rows) ? rows : [];
+  return safeRows.reduce(
+    (acc, row) => {
+      acc.spend += Number(row?.spend ?? 0);
+      acc.leads += Number(row?.leads ?? 0);
+      return acc;
+    },
+    { spend: 0, leads: 0 }
+  );
+};
+
+const hasDrilldownNumericValue = (rows, field) =>
+  Array.isArray(rows) &&
+  rows.some((row) => {
+    const raw = row?.[field];
+    if (raw === null || raw === undefined || raw === '') return false;
+    const value = Number(raw);
+    return Number.isFinite(value);
+  });
+
+const buildNonFinanceDrilldownColumns = (rows, options = {}) => ({
+  showStatusType: hasDrilldownFieldValue(rows, 'statusType'),
+  showSeller: hasDrilldownFieldValue(rows, 'seller_name'),
+  showLossReason: hasDrilldownFieldValue(rows, 'loss_reason'),
+  showContactPhone: hasDrilldownFieldValue(rows, 'contact_phone'),
+  showPipeline: hasDrilldownFieldValue(rows, 'pipeline_name'),
+  showPipelineStage: hasDrilldownFieldValue(rows, 'pipeline_stage_name'),
+  showAssignedTo: hasDrilldownFieldValue(rows, 'assigned_to'),
+  showOpportunityValue: hasDrilldownNumericValue(rows, 'monetary_value'),
+  showDealTitle: hasDrilldownFieldValue(rows, 'deal_title'),
+  showPhase: hasDrilldownFieldValue(rows, 'phase_label'),
+  showEstimatedValue: hasDrilldownNumericValue(rows, 'estimated_value'),
+  showTeamleader: Boolean(options.showTeamleader)
+});
+
 const renderFinanceDrilldownRows = (rows) =>
   rows
     .map((row) => {
@@ -8734,27 +10409,98 @@ const renderDrilldownRows = (rows, options = {}) =>
             }</a>`
           : contactName || '--';
       const contactEmail = row.contact_email ? escapeHtml(row.contact_email) : '--';
+      const contactPhone = row.contact_phone ? escapeHtml(row.contact_phone) : '--';
       const source = row.source ? escapeHtml(row.source) : 'Onbekend';
       const status = row.status ? escapeHtml(row.status) : '--';
+      const statusType = formatDrilldownStatusType(row?.statusType);
+      const sellerName = row?.seller_name ? escapeHtml(row.seller_name) : '--';
+      const lossReason = row?.loss_reason ? escapeHtml(row.loss_reason) : '--';
       const type = row.record_type ? escapeHtml(row.record_type) : 'record';
+      const columns = options.columns || {};
+      const bundleCount = Number(row?.bundle_count ?? 1);
+      const bundleKey = toTrimmedText(row?.bundle_key);
+      const bundleBadge =
+        options.showBundle && Number.isFinite(bundleCount) && bundleCount > 1
+          ? `<button type="button" class="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-colors" data-sales-drill="all" data-sales-drill-label="Onderliggende offertes" data-sales-bundle-key="${escapeHtml(
+              bundleKey || ''
+            )}">Bundel x${formatNumber(bundleCount)}</button>`
+          : '';
+      const statusTypeCell = columns.showStatusType
+        ? `<td class="px-3 py-2 text-sm text-muted-foreground">${statusType ? escapeHtml(statusType) : '--'}</td>`
+        : '';
+      const sellerCell = columns.showSeller
+        ? `<td class="px-3 py-2 text-sm text-foreground">${sellerName}</td>`
+        : '';
+      const lossReasonCell = columns.showLossReason
+        ? `<td class="px-3 py-2 text-sm text-muted-foreground">${lossReason}</td>`
+        : '';
+      const dealTitleCell = columns.showDealTitle
+        ? `<td class="px-3 py-2 text-sm text-foreground">${row?.deal_title ? escapeHtml(row.deal_title) : '--'}</td>`
+        : '';
+      const phaseCell = columns.showPhase
+        ? `<td class="px-3 py-2 text-sm text-muted-foreground">${row?.phase_label ? escapeHtml(row.phase_label) : '--'}</td>`
+        : '';
+      const contactPhoneCell = columns.showContactPhone
+        ? `<td class="px-3 py-2 text-sm text-muted-foreground">${contactPhone}</td>`
+        : '';
+      const pipelineCell = columns.showPipeline
+        ? `<td class="px-3 py-2 text-sm text-muted-foreground">${
+            row?.pipeline_name ? escapeHtml(row.pipeline_name) : '--'
+          }</td>`
+        : '';
+      const pipelineStageCell = columns.showPipelineStage
+        ? `<td class="px-3 py-2 text-sm text-muted-foreground">${
+            row?.pipeline_stage_name ? escapeHtml(row.pipeline_stage_name) : '--'
+          }</td>`
+        : '';
+      const assignedToCell = columns.showAssignedTo
+        ? `<td class="px-3 py-2 text-sm text-muted-foreground">${row?.assigned_to ? escapeHtml(row.assigned_to) : '--'}</td>`
+        : '';
+      const opportunityValueCell = columns.showOpportunityValue
+        ? `<td class="px-3 py-2 text-sm text-muted-foreground text-right">${formatDrilldownAmount(
+            row?.monetary_value
+          )}</td>`
+        : '';
+      const estimatedValueCell = columns.showEstimatedValue
+        ? `<td class="px-3 py-2 text-sm text-muted-foreground text-right">${formatDrilldownAmount(
+            row?.estimated_value,
+            row?.estimated_currency
+          )}</td>`
+        : '';
       const teamleaderUrl = options.showTeamleader
         ? row.record_url || buildTeamleaderDealUrl(row.record_id)
-        : "";
+        : '';
       const teamleaderCell = options.showTeamleader
         ? `<td class="px-3 py-2 text-sm text-foreground">${
             teamleaderUrl
               ? `<a class="text-primary hover:underline" href="${escapeHtml(teamleaderUrl)}" target="_blank" rel="noreferrer">Open</a>`
               : '--'
           }</td>`
-        : "";
+        : '';
 
       return `<tr class="border-b last:border-0">
-          <td class="px-3 py-2 text-xs font-semibold uppercase text-muted-foreground">${type}</td>
+          <td class="px-3 py-2 text-xs font-semibold uppercase text-muted-foreground">
+            <div class="flex items-center gap-2">
+              <span>${type}</span>
+              ${bundleBadge}
+            </div>
+          </td>
           <td class="px-3 py-2 text-sm text-foreground">${occurred}</td>
           <td class="px-3 py-2 text-sm text-foreground">${contactCell}</td>
           <td class="px-3 py-2 text-sm text-muted-foreground">${contactEmail}</td>
+          ${contactPhoneCell}
+          ${pipelineCell}
+          ${pipelineStageCell}
+          ${assignedToCell}
+          ${opportunityValueCell}
+          ${dealTitleCell}
+          ${phaseCell}
+          ${estimatedValueCell}
           <td class="px-3 py-2 text-sm text-foreground">${source}</td>
           <td class="px-3 py-2 text-sm text-muted-foreground">${status}</td>
+          ${statusTypeCell}
+          ${sellerCell}
+          ${lossReasonCell}
           ${teamleaderCell}
         </tr>`;
     })
@@ -8767,6 +10513,7 @@ const renderDrilldownModal = () => {
   const sourceLabel = getDrilldownFilterLabel(drilldownState.kind, drilldownState.source);
   const subtitle = [rangeLabel, sourceLabel].filter(Boolean).join(' | ');
   const isFinance = isFinanceDrilldown(drilldownState.kind);
+  const isSalesDrilldown = String(drilldownState.kind || '').startsWith('sales_');
   const financeView = drilldownState.financeView || 'daily';
   const financeToggle = isFinance
     ? `<div class="drilldown-toggle">
@@ -8777,16 +10524,34 @@ const renderDrilldownModal = () => {
        </div>`
     : '';
   const showTeamleaderLink = !isFinance && String(drilldownState.kind || '').startsWith('sales_');
+  const drilldownRows = Array.isArray(drilldownState.rows) ? drilldownState.rows : [];
+  const nonFinanceColumns = buildNonFinanceDrilldownColumns(drilldownRows, { showTeamleader: showTeamleaderLink });
+  const financeSummary = summarizeFinanceDrilldown(drilldownRows);
+  const financeCplValue = financeSummary.leads > 0 ? financeSummary.spend / financeSummary.leads : Number.NaN;
+  const financeSummaryMarkup = isFinance
+    ? `<div class="drilldown-meta">
+         <span><strong>${formatNumber(drilldownRows.length)}</strong> rijen</span>
+         <span>Kosten: <strong>${formatCurrency(financeSummary.spend, 2)}</strong></span>
+         <span>Leads: <strong>${formatNumber(financeSummary.leads)}</strong></span>
+         <span>Kost/Lead: <strong>${formatOptionalCurrency(financeCplValue, 2)}</strong></span>
+       </div>`
+    : '';
+  const recordsSummaryMarkup = !isFinance
+    ? `<div class="drilldown-meta">
+         <span><strong>${formatNumber(drilldownRows.length)}</strong> records</span>
+       </div>`
+    : '';
 
   let body = '';
   if (drilldownState.status === 'loading') {
     body = '<div class="drilldown-loading">Records laden...</div>';
   } else if (drilldownState.status === 'error') {
     body = `<div class="drilldown-error">${escapeHtml(drilldownState.errorMessage || 'Onbekende fout')}</div>`;
-  } else if (!drilldownState.rows?.length) {
+  } else if (!drilldownRows.length) {
     body = '<div class="drilldown-empty">Geen records gevonden voor deze selectie.</div>';
   } else if (isFinance) {
     body = `
+      ${financeSummaryMarkup}
       <div class="drilldown-table-wrapper">
         <table class="drilldown-table">
           <thead>
@@ -8830,12 +10595,12 @@ const renderDrilldownModal = () => {
           <tbody>
             ${
               financeView === 'ad'
-                ? renderFinanceAdDrilldownRows(drilldownState.rows)
+                ? renderFinanceAdDrilldownRows(drilldownRows)
                 : financeView === 'adset'
-                  ? renderFinanceAdsetDrilldownRows(drilldownState.rows)
+                  ? renderFinanceAdsetDrilldownRows(drilldownRows)
                   : financeView === 'campaign'
-                    ? renderFinanceCampaignDrilldownRows(drilldownState.rows)
-                    : renderFinanceDrilldownRows(drilldownState.rows)
+                    ? renderFinanceCampaignDrilldownRows(drilldownRows)
+                    : renderFinanceDrilldownRows(drilldownRows)
             }
           </tbody>
         </table>
@@ -8843,6 +10608,12 @@ const renderDrilldownModal = () => {
     `;
   } else {
     body = `
+      ${recordsSummaryMarkup}
+      ${
+        isSalesDrilldown
+          ? '<div class="px-1 pb-3 text-xs text-muted-foreground">Rijen zijn gebundeld per klant. <span class="font-semibold">Bundel xN</span> toont hoeveel offertes/deals voor die klant samengevoegd zijn.</div>'
+          : ''
+      }
       <div class="drilldown-table-wrapper">
         <table class="drilldown-table">
           <thead>
@@ -8851,13 +10622,28 @@ const renderDrilldownModal = () => {
               <th>Datum</th>
               <th>Contact</th>
               <th>Email</th>
+              ${nonFinanceColumns.showContactPhone ? '<th>Telefoon</th>' : ''}
+              ${nonFinanceColumns.showPipeline ? '<th>Pipeline</th>' : ''}
+              ${nonFinanceColumns.showPipelineStage ? '<th>Pipeline fase</th>' : ''}
+              ${nonFinanceColumns.showAssignedTo ? '<th>Assignee</th>' : ''}
+              ${nonFinanceColumns.showOpportunityValue ? '<th class="text-right">Opportunity Waarde</th>' : ''}
+              ${nonFinanceColumns.showDealTitle ? '<th>Titel</th>' : ''}
+              ${nonFinanceColumns.showPhase ? '<th>Fase</th>' : ''}
+              ${nonFinanceColumns.showEstimatedValue ? '<th class="text-right">Waarde</th>' : ''}
               <th>Source</th>
               <th>Status</th>
-              ${showTeamleaderLink ? '<th>Teamleader</th>' : ''}
+              ${nonFinanceColumns.showStatusType ? '<th>Status Type</th>' : ''}
+              ${nonFinanceColumns.showSeller ? '<th>Verkoper</th>' : ''}
+              ${nonFinanceColumns.showLossReason ? '<th>Verliesreden</th>' : ''}
+              ${nonFinanceColumns.showTeamleader ? '<th>Teamleader</th>' : ''}
             </tr>
           </thead>
           <tbody>
-            ${renderDrilldownRows(drilldownState.rows, { showTeamleader: showTeamleaderLink })}
+            ${renderDrilldownRows(drilldownRows, {
+              showTeamleader: nonFinanceColumns.showTeamleader,
+              showBundle: isSalesDrilldown,
+              columns: nonFinanceColumns
+            })}
           </tbody>
         </table>
       </div>
@@ -9269,7 +11055,7 @@ const resolveLayoutSections = (layoutOverride) => {
 const resolveDashboardTabs = (layoutOverride) => {
   const rawLayout = layoutOverride ?? configState.dashboardLayout;
   const rawTabs = rawLayout && Array.isArray(rawLayout.dashboards) ? rawLayout.dashboards : null;
-  if (!rawTabs) return ALL_DASHBOARD_TABS;
+  if (!rawTabs) return DEFAULT_DASHBOARD_TABS;
 
   const normalized = rawTabs
     .map((entry) => {
@@ -9288,7 +11074,7 @@ const resolveDashboardTabs = (layoutOverride) => {
     })
     .filter(Boolean);
 
-  return normalized.length ? normalized : ALL_DASHBOARD_TABS;
+  return normalized.length ? normalized : DEFAULT_DASHBOARD_TABS;
 };
 
 const resolveBranding = () => {
@@ -9706,7 +11492,9 @@ const getRequiredLiveData = (layoutOverride) => {
       required.spendBySource = true;
     } else if (kind === 'finance_metrics') {
       required.finance = true;
-      const cplConfig = sanitizeCostPerLeadBySource(configState.costPerLeadBySource) || {};
+      const cplConfig = isMetricsDebugModeEnabled()
+        ? {}
+        : sanitizeCostPerLeadBySource(configState.costPerLeadBySource) || {};
       if (Object.keys(cplConfig).length) {
         required.sourceBreakdown = true;
       }
@@ -9720,6 +11508,13 @@ const getRequiredLiveData = (layoutOverride) => {
 
   return required;
 };
+
+const isLiveStateDoneForKey = (state, rangeKey) =>
+  state?.rangeKey === rangeKey && (state?.status === 'ready' || state?.status === 'error');
+
+const isLeadCoreLiveReadyForKey = (requiredLive, rangeKey) =>
+  (!requiredLive.opportunities || isLiveStateDoneForKey(liveState.opportunities, rangeKey)) &&
+  (!requiredLive.appointments || isLiveStateDoneForKey(liveState.appointments, rangeKey));
 
 const root = document.getElementById('root');
 
@@ -9741,25 +11536,48 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
   const sidebarBranding = resolveSidebarBranding();
   const sidebarFooter = configState.dashboardTitle ? `${branding.title} Dashboard` : 'Dashboard Template';
   const activeRoute = routeId || 'lead';
+  const selectedLeadPipelineId = resolveLeadOpportunityPipelineId();
+  const leadPipelineOptionsBase = Array.isArray(leadPipelineFilterState.options)
+    ? leadPipelineFilterState.options
+    : [];
+  const hasSelectedLeadPipelineOption = leadPipelineOptionsBase.some(
+    (option) => normalizePipelineId(option?.id) === selectedLeadPipelineId
+  );
+  const leadPipelineOptions =
+    selectedLeadPipelineId && !hasSelectedLeadPipelineOption
+      ? [{ id: selectedLeadPipelineId, name: selectedLeadPipelineId, count: 0 }, ...leadPipelineOptionsBase]
+      : leadPipelineOptionsBase;
+  const leadPipelineSelectOptionsMarkup = [
+    `<option value=""${selectedLeadPipelineId ? '' : ' selected'}>Alle pipelines</option>`,
+    ...leadPipelineOptions
+      .map((option) => {
+        const id = normalizePipelineId(option?.id);
+        if (!id) return '';
+        const name = toTrimmedText(option?.name) || id;
+        const label = name === id ? id : name;
+        const selected = id === selectedLeadPipelineId ? ' selected' : '';
+        return `<option value="${escapeHtml(id)}"${selected}>${escapeHtml(label)}</option>`;
+      })
+      .filter(Boolean)
+  ].join('');
+  const leadPipelineLoading =
+    leadPipelineFilterState.status === 'loading' || leadPipelineFilterState.status === 'idle';
+  const leadPipelineDisabled =
+    !supabase || configState.status !== 'ready' || !configState.locationId || leadPipelineLoading;
+  const leadPipelineStatusMarkup =
+    leadPipelineFilterState.status === 'error'
+      ? '<div class="text-xs text-amber-600">Pipeline lijst tijdelijk niet beschikbaar.</div>'
+      : leadPipelineLoading
+        ? '<div class="text-xs text-muted-foreground">Pipelines laden...</div>'
+        : '';
 
   const rangeKey = buildRangeKey(range);
-  const isDoneForKey = (state) =>
-    state?.rangeKey === rangeKey && (state?.status === 'ready' || state?.status === 'error');
+  const coreLiveDone = isLeadCoreLiveReadyForKey(requiredLive, rangeKey);
 
-  const wantsHookPerformance =
-    requiredLive.hookPerformance && Boolean(configState.hookFieldId || configState.campaignFieldId);
-
-  const liveDone =
-    (!requiredLive.opportunities || isDoneForKey(liveState.opportunities)) &&
-    (!requiredLive.appointments || isDoneForKey(liveState.appointments)) &&
-    (!requiredLive.sourceBreakdown || isDoneForKey(liveState.sourceBreakdown)) &&
-    (!requiredLive.finance || isDoneForKey(liveState.finance)) &&
-    (!requiredLive.spendBySource || isDoneForKey(liveState.spendBySource)) &&
-    (!wantsHookPerformance || isDoneForKey(liveState.hookPerformance)) &&
-    (!requiredLive.lostReasons || isDoneForKey(liveState.lostReasons));
-
-  // Prevent a flash of placeholder/mock values: show a loader overlay until required live data is ready (or errored).
-  const showLoadingOverlay = Boolean(supabase) && configState.status !== 'error' && (!liveDone || configState.status !== 'ready');
+  // Keep the blocking loader focused on core funnel cards.
+  // Heavy drilldown sections continue to load in the background.
+  const showLoadingOverlay =
+    Boolean(supabase) && configState.status !== 'error' && (!coreLiveDone || configState.status !== 'ready');
   const loadingOverlayMarkup = showLoadingOverlay
     ? `
       <div class="absolute inset-0 z-20 bg-background/95 backdrop-blur-sm flex items-start justify-center">
@@ -9818,21 +11636,7 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
             </div>
           </div>
           <div class="flex items-center gap-4">
-            <div class="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-secondary/10 border border-secondary/20">
-              <div class="w-2 h-2 rounded-full bg-secondary animate-pulse"></div>
-              <div class="flex flex-col leading-tight">
-                <span class="text-xs font-semibold text-secondary">Live Data</span>
-                <span class="text-[10px] text-muted-foreground">
-                  ${
-                    liveState.sync.status === 'loading'
-                      ? 'Laatste sync: laden...'
-                      : liveState.sync.status === 'ready'
-                        ? formatSyncTimestamp(liveState.sync.timestamp)
-                        : 'Laatste sync: onbekend'
-                  }
-                </span>
-              </div>
-            </div>
+            ${renderLatestSyncBadge('hidden sm:flex')}
             ${
               settingsEnabled
                 ? `<button class="admin-trigger" type="button" data-admin-open>${settingsButtonLabel}</button>`
@@ -9849,17 +11653,26 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
               <h1 class="text-2xl font-bold text-foreground tracking-tight">${branding.title}</h1>
               <p class="text-sm text-muted-foreground">${branding.pageSubtitle}</p>
             </div>
-            <div class="date-picker relative flex items-center gap-2 flex-wrap">
-              <button class="date-trigger${pickerState.selecting === 'start' && pickerState.open ? ' active' : ''}" type="button" data-date-trigger="start">
-                ${icons.calendar('lucide lucide-calendar h-4 w-4')}
-                ${formatDisplayDate(range.start)}
-              </button>
-              <span class="text-muted-foreground">-></span>
-              <button class="date-trigger${pickerState.selecting === 'end' && pickerState.open ? ' active' : ''}" type="button" data-date-trigger="end">
-                ${icons.calendar('lucide lucide-calendar h-4 w-4')}
-                ${formatDisplayDate(range.end)}
-              </button>
-              ${renderDatePicker(range)}
+            <div class="flex items-end gap-3 flex-wrap justify-end">
+              <div class="flex flex-col gap-1 min-w-[15rem]">
+                <span class="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Pipeline</span>
+                <select class="admin-input" data-lead-pipeline-filter ${leadPipelineDisabled ? 'disabled' : ''}>
+                  ${leadPipelineSelectOptionsMarkup}
+                </select>
+                ${leadPipelineStatusMarkup}
+              </div>
+              <div class="date-picker relative flex items-center gap-2 flex-wrap">
+                <button class="date-trigger${pickerState.selecting === 'start' && pickerState.open ? ' active' : ''}" type="button" data-date-trigger="start">
+                  ${icons.calendar('lucide lucide-calendar h-4 w-4')}
+                  ${formatDisplayDate(range.start)}
+                </button>
+                <span class="text-muted-foreground">-></span>
+                <button class="date-trigger${pickerState.selecting === 'end' && pickerState.open ? ' active' : ''}" type="button" data-date-trigger="end">
+                  ${icons.calendar('lucide lucide-calendar h-4 w-4')}
+                  ${formatDisplayDate(range.end)}
+                </button>
+                ${renderDatePicker(range)}
+              </div>
             </div>
           </div>
           ${
@@ -9912,7 +11725,7 @@ const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
         }
       : initialDealCount > 0
         ? {
-            label: 'Live data',
+            label: 'Sales sync OK',
             className: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-700',
             dotClass: 'bg-emerald-500'
           }
@@ -9969,10 +11782,7 @@ const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
             </div>
           </div>
           <div class="flex items-center gap-4">
-            <div class="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full border ${salesStatus.className}" data-sales-status>
-              <div class="w-2 h-2 rounded-full ${salesStatus.dotClass}" data-sales-status-dot></div>
-              <span class="text-xs font-medium" data-sales-status-label>${salesStatus.label}</span>
-            </div>
+            ${renderLatestSyncBadge('hidden lg:flex')}
             ${
               settingsEnabled
                 ? `<button class="admin-trigger" type="button" data-admin-open>${settingsButtonLabel}</button>`
@@ -10058,21 +11868,7 @@ const buildCallCenterMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
             </div>
           </div>
           <div class="flex items-center gap-4">
-            <div class="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-secondary/10 border border-secondary/20">
-              <div class="w-2 h-2 rounded-full bg-secondary animate-pulse"></div>
-              <div class="flex flex-col leading-tight">
-                <span class="text-xs font-semibold text-secondary">Live Data</span>
-                <span class="text-[10px] text-muted-foreground">
-                  ${
-                    liveState.sync.status === 'loading'
-                      ? 'Laatste sync: laden...'
-                      : liveState.sync.status === 'ready'
-                        ? formatSyncTimestamp(liveState.sync.timestamp)
-                        : 'Laatste sync: onbekend'
-                  }
-                </span>
-              </div>
-            </div>
+            ${renderLatestSyncBadge('hidden sm:flex')}
             ${
               settingsEnabled
                 ? `<button class="admin-trigger" type="button" data-admin-open>${settingsButtonLabel}</button>`
@@ -10132,6 +11928,7 @@ const renderApp = () => {
     renderSalesDateControls();
     bindInteractions();
     bindSalesClicks();
+    ensureLatestSync();
     ensureSalesData();
     return;
   }
@@ -10144,16 +11941,21 @@ const renderApp = () => {
 
   const layout = resolveLayoutSections();
   const required = getRequiredLiveData(layout);
+  const rangeKey = buildRangeKey(dateRange);
+  const coreLiveDone = isLeadCoreLiveReadyForKey(required, rangeKey);
   root.innerHTML = buildMarkup(dateRange, layout, routeId, dashboardTabs);
   bindInteractions();
+  ensureLeadPipelineFilterOptions();
   if (required.opportunities) ensureOpportunityCount(dateRange);
   if (required.appointments) ensureAppointmentCounts(dateRange);
   ensureLatestSync();
-  if (required.sourceBreakdown) ensureSourceBreakdown(dateRange);
-  if (required.hookPerformance) ensureHookPerformance(dateRange);
-  if (required.finance) ensureFinanceSummary(dateRange);
-  if (required.spendBySource) ensureSpendBySource(dateRange);
-  if (required.lostReasons) ensureLostReasons(dateRange);
+  if (coreLiveDone) {
+    if (required.sourceBreakdown) ensureSourceBreakdown(dateRange);
+    if (required.hookPerformance) ensureHookPerformance(dateRange);
+    if (required.finance) ensureFinanceSummary(dateRange);
+    if (required.spendBySource) ensureSpendBySource(dateRange);
+    if (required.lostReasons) ensureLostReasons(dateRange);
+  }
 };
 
 const isDesktop = () => window.matchMedia('(min-width: 1024px)').matches;
@@ -10189,6 +11991,19 @@ const bindInteractions = () => {
     refresh.addEventListener('click', () => window.location.reload());
   }
 
+  const leadPipelineFilter = document.querySelector('[data-lead-pipeline-filter]');
+  if (leadPipelineFilter) {
+    leadPipelineFilter.addEventListener('change', (event) => {
+      const nextPipelineId = normalizePipelineId(event?.target?.value);
+      const currentPipelineId = resolveLeadOpportunityPipelineId();
+      if (nextPipelineId === currentPipelineId) return;
+
+      leadPipelineFilterState.overrideId = nextPipelineId;
+      resetLeadPipelineDependentLiveState();
+      renderApp();
+    });
+  }
+
   document.querySelectorAll('[data-drill-kind]').forEach((button) => {
     button.addEventListener('click', () => {
       if (button.disabled) return;
@@ -10198,6 +12013,8 @@ const bindInteractions = () => {
       openDrilldown({ kind, source, label, range: dateRange });
     });
   });
+
+  applyMetricInfoTooltips();
 
   document.querySelectorAll('[data-drilldown-close]').forEach((button) => {
     button.addEventListener('click', () => {
@@ -10219,12 +12036,16 @@ const bindInteractions = () => {
       renderApp();
 
       try {
-        const rows = await fetchDrilldownRecords({
-          kind: drilldownState.kind,
-          source: drilldownState.source,
-          range: drilldownState.range,
-          view: drilldownState.financeView
-        });
+        const rows = await withTimeout(
+          fetchDrilldownRecords({
+            kind: drilldownState.kind,
+            source: drilldownState.source,
+            range: drilldownState.range,
+            view: drilldownState.financeView
+          }),
+          DRILLDOWN_FETCH_TIMEOUT_MS,
+          'Drilldown duurt te lang. Probeer een kleinere periode.'
+        );
         drilldownState.status = 'ready';
         drilldownState.rows = Array.isArray(rows) ? rows : [];
       } catch (error) {
@@ -10460,6 +12281,40 @@ const bindInteractions = () => {
       });
     }
 
+    const metricsDebugModeToggle = document.querySelector('[data-metrics-debug-mode]');
+    if (metricsDebugModeToggle) {
+      metricsDebugModeToggle.addEventListener('change', (event) => {
+        const enabled = Boolean(event?.target?.checked);
+        if (enabled === metricsDebugModeEnabled) return;
+
+        metricsDebugModeEnabled = enabled;
+        writeCachedMetricsDebugMode(enabled);
+        bumpMetricsComputationVersion();
+        resetRuleDrivenMetricsState();
+        liveState.opportunities = {
+          status: 'idle',
+          count: null,
+          rangeKey: '',
+          errorMessage: '',
+          inFlight: false
+        };
+        liveState.lostReasons = {
+          status: 'idle',
+          rows: null,
+          rangeKey: '',
+          errorMessage: '',
+          inFlight: false
+        };
+
+        adminState.kpi.status = 'success';
+        adminState.kpi.message = enabled
+          ? 'Debug modus actief: regels die cijfers beïnvloeden zijn uitgeschakeld.'
+          : 'Debug modus uit: regels zijn opnieuw actief.';
+
+        renderApp();
+      });
+    }
+
     const mappingRefresh = document.querySelector('[data-map-refresh]');
     if (mappingRefresh) {
       mappingRefresh.addEventListener('click', () => {
@@ -10490,11 +12345,57 @@ const bindInteractions = () => {
       });
     }
 
+    const kpiLeadOpportunityPipeline = document.querySelector('[data-kpi-lead-opportunity-pipeline]');
+    if (kpiLeadOpportunityPipeline) {
+      kpiLeadOpportunityPipeline.addEventListener('change', (event) => {
+        adminState.kpi.leadOpportunityPipelineId = event.target.value;
+        adminState.kpi.hasChanges = true;
+      });
+    }
+
     const kpiLostReasonField = document.querySelector('[data-kpi-lost-reason-field]');
     if (kpiLostReasonField) {
       kpiLostReasonField.addEventListener('input', (event) => {
         adminState.kpi.lostReasonFieldId = event.target.value;
         adminState.kpi.hasChanges = true;
+      });
+    }
+
+    const kpiExcludedDealKeywords = document.querySelector('[data-kpi-excluded-deal-keywords]');
+    if (kpiExcludedDealKeywords) {
+      kpiExcludedDealKeywords.addEventListener('input', (event) => {
+        adminState.kpi.excludedDealKeywordsText = event.target.value;
+        adminState.kpi.hasChanges = true;
+      });
+    }
+
+    const kpiFillMatthias = document.querySelector('[data-kpi-fill-matthias]');
+    if (kpiFillMatthias) {
+      kpiFillMatthias.addEventListener('click', async () => {
+        const locationId = (configState.locationId || ghlLocationId || adminState.form.locationId || '').trim();
+        if (!locationId) {
+          adminState.kpi.status = 'error';
+          adminState.kpi.message = 'Location ID ontbreekt. Sla eerst de integratie op.';
+          renderApp();
+          return;
+        }
+
+        if (!Array.isArray(adminState.kpi.matthiasDealKeywords) || adminState.kpi.matthiasDealKeywords.length === 0) {
+          adminState.kpi.matthiasDealKeywordsLoading = true;
+          renderApp();
+          adminState.kpi.matthiasDealKeywords = await fetchMatthiasRosseelDealKeywords(locationId);
+          adminState.kpi.matthiasDealKeywordsLoading = false;
+        }
+
+        const currentKeywords = sanitizeSalesExcludedDealKeywords(adminState.kpi.excludedDealKeywordsText);
+        const mergedKeywords = mergeSalesExcludedDealKeywords(currentKeywords, adminState.kpi.matthiasDealKeywords);
+        adminState.kpi.excludedDealKeywordsText = formatSalesExcludedDealKeywordsText(mergedKeywords);
+        adminState.kpi.hasChanges = true;
+        adminState.kpi.status = 'success';
+        adminState.kpi.message = `${formatNumber(
+          mergedKeywords.length
+        )} uitsluitwoorden ingesteld. Klik op Opslaan om te bewaren.`;
+        renderApp();
       });
     }
 
@@ -10799,9 +12700,3 @@ desktopQuery.addEventListener('change', (event) => {
     closeSidebar();
   }
 });
-
-
-
-
-
-

@@ -46,6 +46,17 @@ const parseNumber = (key: string, fallback: number) => {
   return value;
 };
 
+const parseBoolean = (value: unknown, fallback = false) => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['1', 'true', 'yes', 'y', 'on'].includes(normalized)) return true;
+    if (['0', 'false', 'no', 'n', 'off', ''].includes(normalized)) return false;
+  }
+  return fallback;
+};
+
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 const env = {
@@ -314,6 +325,18 @@ const isUpdatedSinceError = (error: unknown) => {
   return message.includes('filter.updated_since');
 };
 
+const isEndpointNotFoundError = (error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes(' 404 ') ||
+    normalized.includes('not found') ||
+    normalized.includes('unknown endpoint') ||
+    normalized.includes('unknown method') ||
+    normalized.includes('unknown path')
+  );
+};
+
 const paginateWithUpdatedSince = async <T>(
   client: TeamleaderClient,
   path: string,
@@ -545,6 +568,52 @@ const syncDealPhases = async (client: TeamleaderClient, locationId: string) => {
   await saveSyncState('teamleader_deal_phases', locationId, syncedAt);
 };
 
+const syncDealSources = async (client: TeamleaderClient, locationId: string) => {
+  const syncedAt = new Date().toISOString();
+  const rows: Record<string, unknown>[] = [];
+  const endpoints = ['/dealSources.list', '/deal_sources.list'];
+  let synced = false;
+  let lastError: unknown = null;
+
+  for (const path of endpoints) {
+    const candidateRows: Record<string, unknown>[] = [];
+    try {
+      await paginate<Record<string, unknown>>(client, path, { filter: {} }, async (items) => {
+        for (const item of items) {
+          const id = item.id as string | undefined;
+          if (!id) continue;
+          candidateRows.push({
+            id,
+            location_id: locationId,
+            name: item.name ?? item.label ?? item.title ?? null,
+            raw_data: item,
+            synced_at: syncedAt
+          });
+        }
+      });
+
+      rows.push(...candidateRows);
+      synced = true;
+      break;
+    } catch (error) {
+      lastError = error;
+      if (!isEndpointNotFoundError(error)) {
+        throw error;
+      }
+    }
+  }
+
+  if (!synced) {
+    if (lastError) {
+      console.warn('[teamleader-sync] deal sources endpoint not available; skipping source lookup sync.');
+    }
+    return;
+  }
+
+  await upsertRows('teamleader_deal_sources', rows);
+  await saveSyncState('teamleader_deal_sources', locationId, syncedAt);
+};
+
 const syncLostReasons = async (client: TeamleaderClient, locationId: string) => {
   const syncedAt = new Date().toISOString();
   const rows: Record<string, unknown>[] = [];
@@ -567,10 +636,15 @@ const syncLostReasons = async (client: TeamleaderClient, locationId: string) => 
   await saveSyncState('teamleader_lost_reasons', locationId, syncedAt);
 };
 
-const syncDeals = async (client: TeamleaderClient, locationId: string, cutoff: Date) => {
+const syncDeals = async (
+  client: TeamleaderClient,
+  locationId: string,
+  cutoff: Date,
+  reconcileDealsWindow = false
+) => {
   const state = await getSyncState('teamleader_deals', locationId);
-  const sinceDate = buildSinceDate(state, cutoff);
-  const sinceDateTime = buildSinceDateTime(state, cutoff);
+  const sinceDate = reconcileDealsWindow ? toDateString(cutoff) : buildSinceDate(state, cutoff);
+  const sinceDateTime = reconcileDealsWindow ? toOffsetDateTime(cutoff) : buildSinceDateTime(state, cutoff);
   const syncedAt = new Date().toISOString();
   const rows: Record<string, unknown>[] = [];
   const quotationIds = new Set<string>();
@@ -625,6 +699,17 @@ const syncDeals = async (client: TeamleaderClient, locationId: string, cutoff: D
   });
 
   await upsertRows('teamleader_deals', rows);
+
+  if (reconcileDealsWindow) {
+    const { error } = await supabase
+      .from('teamleader_deals')
+      .delete()
+      .eq('location_id', locationId)
+      .gte('created_at', cutoff.toISOString())
+      .lt('synced_at', syncedAt);
+    if (error) throw error;
+  }
+
   await saveSyncState('teamleader_deals', locationId, syncedAt);
 
   return quotationIds;
@@ -977,6 +1062,7 @@ const parseRequestConfig = async (req: Request) => {
     'companies',
     'deal_pipelines',
     'deal_phases',
+    'deal_sources',
     'lost_reasons',
     'deals'
   ];
@@ -998,12 +1084,20 @@ const parseRequestConfig = async (req: Request) => {
     : env.TEAMLEADER_DEAL_INFO_MAX_PER_RUN;
   const dealInfoMaxPerRun = Number.isFinite(dealInfoMaxRaw) ? clamp(dealInfoMaxRaw, 0, 500) : env.TEAMLEADER_DEAL_INFO_MAX_PER_RUN;
 
+  const reconcileDealsWindowRaw =
+    url.searchParams.get('reconcile_deals_window') ??
+    url.searchParams.get('reconcileDealsWindow') ??
+    body.reconcile_deals_window ??
+    body.reconcileDealsWindow;
+  const reconcileDealsWindow = parseBoolean(reconcileDealsWindowRaw, false);
+
   const locationId = url.searchParams.get('location_id') ?? body.location_id ?? null;
 
   return {
     entities,
     lookbackMonths: Number.isFinite(lookbackMonths) && lookbackMonths > 0 ? lookbackMonths : env.LOOKBACK_MONTHS,
     dealInfoMaxPerRun,
+    reconcileDealsWindow,
     locationId: locationId ? String(locationId) : null
   };
 };
@@ -1038,12 +1132,13 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { entities, lookbackMonths, dealInfoMaxPerRun, locationId } = await parseRequestConfig(req);
+    const { entities, lookbackMonths, dealInfoMaxPerRun, reconcileDealsWindow, locationId } = await parseRequestConfig(req);
     if (entities.has('quotations')) {
       entities.add('deals');
     }
     if (entities.has('deals')) {
       entities.add('lost_reasons');
+      entities.add('deal_sources');
     }
 
     const integrations = await loadIntegrations(locationId);
@@ -1090,6 +1185,11 @@ Deno.serve(async (req) => {
         results.deal_phases = (results.deal_phases ?? 0) + 1;
       }
 
+      if (entities.has('deal_sources')) {
+        await syncDealSources(client, integration.location_id);
+        results.deal_sources = (results.deal_sources ?? 0) + 1;
+      }
+
       if (entities.has('lost_reasons')) {
         await syncLostReasons(client, integration.location_id);
         results.lost_reasons = (results.lost_reasons ?? 0) + 1;
@@ -1097,7 +1197,7 @@ Deno.serve(async (req) => {
 
       let quotationIds = new Set<string>();
       if (entities.has('deals')) {
-        quotationIds = await syncDeals(client, integration.location_id, cutoff);
+        quotationIds = await syncDeals(client, integration.location_id, cutoff, reconcileDealsWindow);
         results.deals = (results.deals ?? 0) + 1;
 
         const checkedDeals = await syncDealAppointmentPhaseMarkers(

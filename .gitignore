@@ -8,3 +8,8 @@ supabase/.temp/
 
 # Local Netlify folder
 .netlify
+
+# Encrypted secrets workflow (SOPS)
+secrets/*.env
+secrets/*.env.dec
+secrets/*.key

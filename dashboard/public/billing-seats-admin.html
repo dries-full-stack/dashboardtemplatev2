@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Seats Facturatie - Admin</title>
+    <meta name="description" content="Interne pagina om seats-based Stripe subscription te finaliseren." />
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@500&display=swap');
+
+      :root {
+        --bg: #0f1726;
+        --card: #162238;
+        --line: #2a3c5b;
+        --ink: #f3f7ff;
+        --muted: #9bb1d0;
+        --primary: #22c1b2;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+        background: radial-gradient(circle at 20% 10%, #1f3a62, transparent 32%), var(--bg);
+        color: var(--ink);
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+
+      .card {
+        width: min(760px, 100%);
+        background: linear-gradient(180deg, #182743, #152136);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 20px;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: 26px;
+        letter-spacing: -0.02em;
+      }
+
+      p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      form {
+        margin-top: 14px;
+        display: grid;
+        gap: 10px;
+      }
+
+      label {
+        display: grid;
+        gap: 6px;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        color: #a9bcda;
+      }
+
+      input {
+        width: 100%;
+        height: 42px;
+        border-radius: 10px;
+        border: 1px solid #334a6f;
+        background: #0f1b31;
+        color: #f5f8ff;
+        padding: 0 12px;
+        font-size: 14px;
+      }
+
+      button {
+        margin-top: 6px;
+        height: 44px;
+        border-radius: 12px;
+        border: 1px solid #1dc4b5;
+        background: linear-gradient(90deg, #16b4a8, #20c4b4);
+        color: #072322;
+        font-size: 14px;
+        font-weight: 800;
+        cursor: pointer;
+      }
+
+      pre {
+        margin-top: 12px;
+        border: 1px solid #334a6f;
+        border-radius: 12px;
+        background: #0d182c;
+        padding: 12px;
+        color: #ccdcf6;
+        overflow: auto;
+        font-size: 12px;
+        font-family: 'JetBrains Mono', monospace;
+        min-height: 120px;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card" role="main">
+      <h1>Seats Facturatie - Admin</h1>
+      <p>Interne tool. Finaliseer het aantal seats en start/update de Stripe subscription.</p>
+
+      <form id="admin-form">
+        <label>
+          Function URL
+          <input id="function-url" type="url" required placeholder="https://PROJECT_REF.supabase.co/functions/v1/stripe-seats-billing" />
+        </label>
+        <label>
+          Admin token (BILLING_ADMIN_TOKEN)
+          <input id="admin-token" type="password" required />
+        </label>
+        <label>
+          Klantslug
+          <input id="slug" type="text" required placeholder="belivert-sales" />
+        </label>
+        <label>
+          Aantal vertegenwoordigers (seats)
+          <input id="seats" type="number" min="1" step="1" value="1" required />
+        </label>
+        <label>
+          Optioneel: Stripe Price ID override
+          <input id="price-id" type="text" placeholder="price_..." />
+        </label>
+        <button type="submit">Finalize subscription</button>
+      </form>
+
+      <pre id="result">Nog niets uitgevoerd.</pre>
+    </main>
+
+    <script>
+      const ALLOWED_HOSTS = new Set(['app.profitpulse.be', 'profitpulsebilling.netlify.app', 'localhost', '127.0.0.1']);
+      const isAllowedHost = ALLOWED_HOSTS.has(window.location.hostname);
+      if (!isAllowedHost) {
+        document.body.innerHTML = `
+          <main style="min-height:100vh;display:grid;place-items:center;padding:24px;background:#0f1726;color:#f3f7ff;font-family:system-ui,sans-serif;">
+            <section style="max-width:720px;width:100%;border:1px solid #2a3c5b;border-radius:16px;padding:20px;background:#162238;">
+              <h1 style="margin:0 0 10px;font-size:24px;">Interne pagina</h1>
+              <p style="margin:0;color:#9bb1d0;line-height:1.6;">
+                Deze admin-tool is niet beschikbaar op dit domein.
+                Gebruik <a href="https://app.profitpulse.be/billing-seats-admin.html" style="color:#86d8d0;">app.profitpulse.be</a>.
+              </p>
+            </section>
+          </main>
+        `;
+        throw new Error('Host not allowed for billing-seats-admin');
+      }
+
+      const params = new URLSearchParams(window.location.search);
+      const profile = params.get('client') || 'belivert-sales';
+
+      const functionUrlInput = document.getElementById('function-url');
+      const slugInput = document.getElementById('slug');
+      const seatsInput = document.getElementById('seats');
+      const priceIdInput = document.getElementById('price-id');
+      const tokenInput = document.getElementById('admin-token');
+      const result = document.getElementById('result');
+      const isPlaceholderFunctionUrl = (value) => /PROJECT_REF|YOUR_PROJECT_REF/i.test(String(value || ''));
+      const isAllowedFunctionUrl = (value) => {
+        try {
+          const parsed = new URL(String(value || ''));
+          if (parsed.protocol === 'https:') return true;
+          if (parsed.protocol === 'http:' && (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1')) return true;
+          return false;
+        } catch (_error) {
+          return false;
+        }
+      };
+
+      slugInput.value = profile;
+
+      const boot = async () => {
+        try {
+          const response = await fetch('/billing-clients.json', { cache: 'no-store' });
+          if (!response.ok) return;
+          const config = await response.json();
+          const defaults = config?.defaults || {};
+          const selected = config?.profiles?.[profile] || {};
+          functionUrlInput.value = selected?.seats_function_url || defaults?.seats_function_url || '';
+        } catch (_error) {
+          // no-op
+        }
+      };
+
+      document.getElementById('admin-form').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const functionUrl = String(functionUrlInput.value || '').trim();
+        const token = String(tokenInput.value || '').trim();
+        const slug = String(slugInput.value || '').trim();
+        const seats = Math.max(1, Math.floor(Number(seatsInput.value || '1')));
+        const priceId = String(priceIdInput.value || '').trim();
+
+        result.textContent = 'Bezig met finalizen...';
+
+        try {
+          if (!functionUrl) {
+            throw new Error('Function URL ontbreekt.');
+          }
+          if (isPlaceholderFunctionUrl(functionUrl)) {
+            throw new Error(
+              'Function URL bevat nog PROJECT_REF. Vervang door https://<project-ref>.supabase.co/functions/v1/stripe-seats-billing.'
+            );
+          }
+          if (!isAllowedFunctionUrl(functionUrl)) {
+            throw new Error(
+              'Ongeldige Function URL. Gebruik https://<project-ref>.supabase.co/functions/v1/stripe-seats-billing of lokaal http://localhost:54321/functions/v1/stripe-seats-billing.'
+            );
+          }
+
+          const payload = {
+            action: 'finalize_subscription',
+            slug,
+            seats,
+            ...(priceId ? { price_id: priceId } : {})
+          };
+
+          const response = await fetch(functionUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-admin-token': token
+            },
+            body: JSON.stringify(payload)
+          });
+
+          const data = await response.json().catch(() => ({}));
+          result.textContent = JSON.stringify(
+            {
+              status: response.status,
+              ok: response.ok,
+              response: data
+            },
+            null,
+            2
+          );
+        } catch (error) {
+          result.textContent = JSON.stringify(
+            { ok: false, error: error instanceof Error ? error.message : 'Onbekende fout' },
+            null,
+            2
+          );
+        }
+      });
+
+      boot();
+    </script>
+  </body>
+</html>
