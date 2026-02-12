@@ -81,7 +81,7 @@ powershell -ExecutionPolicy Bypass -File scripts/bootstrap-client.ps1
 De script maakt o.a.:
 - `clients/<slug>/dashboard_config.sql`
 - `clients/<slug>/dashboard_layout.json`
-- `clients/<slug>/env.dashboard.example` (incl. branding + webpreview meta vars)
+- `clients/<slug>/env.dashboard.example` (incl. branding + webpreview meta vars, plus `VITE_DASHBOARD_TIMEZONE`)
 - `clients/<slug>/env.sync.example`
 
 ## Local onboarding app (voor maximale automatisering)
@@ -664,4 +664,3 @@ git push --force --tags origin
 - Deze template gebruikt de **officiele GHL API v2** met Private Integration Token.
 - Voor contacts is de Search endpoint niet volledig gespecificeerd in de officiele OpenAPI spec; daarom is de deprecated list endpoint gebruikt voor bulk sync.
 - Appointments worden opgehaald via `GET /calendars/events`, omdat er geen globale “list all appointments” endpoint beschikbaar is.
-
