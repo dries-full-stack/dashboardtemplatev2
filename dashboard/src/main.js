@@ -193,6 +193,20 @@ const envMetaDescription = readEnvString(
   import.meta.env.VITE_META_DESCRIPTION || import.meta.env.VITE_DASHBOARD_META_DESCRIPTION
 );
 const envMetaImage = readEnvString(import.meta.env.VITE_META_IMAGE || import.meta.env.VITE_DASHBOARD_META_IMAGE);
+const dashboardTimeZone = (() => {
+  const raw = import.meta.env.VITE_DASHBOARD_TIMEZONE;
+  const candidate = typeof raw === 'string' ? raw.trim() : '';
+  if (!candidate) return 'UTC';
+  if (candidate.toUpperCase() === 'UTC') return 'UTC';
+  try {
+    // Validate IANA timezone identifier early so our date math doesn't crash later.
+    new Intl.DateTimeFormat('en-US', { timeZone: candidate }).format(new Date());
+    return candidate;
+  } catch (_error) {
+    console.warn(`Invalid VITE_DASHBOARD_TIMEZONE "${candidate}", falling back to UTC.`);
+    return 'UTC';
+  }
+})();
 const adminModeEnabled = import.meta.env.VITE_ADMIN_MODE === 'true';
 const settingsModeValue = readEnvString(import.meta.env.VITE_SETTINGS_MODE).toLowerCase();
 const settingsModeEnabled = settingsModeValue ? settingsModeValue === 'true' : true;
@@ -210,6 +224,86 @@ const adminEndpoint = supabaseUrl ? `${supabaseUrl}/functions/v1/ghl-admin` : ''
 const syncEndpoint = supabaseUrl ? `${supabaseUrl}/functions/v1/ghl-sync` : '';
 
 const formatIsoDate = (date) => date.toISOString().slice(0, 10);
+const formatYmd = (year, month, day) =>
+  `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+const parseYmd = (value) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value ?? '').trim());
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
+  return { year, month, day };
+};
+const isUtcTimeZone = (value) => !value || String(value).trim().toUpperCase() === 'UTC';
+const getDateTimePartsInTimeZone = (date, timeZone) => {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23'
+  });
+  const parts = dtf.formatToParts(date);
+  const values = {};
+  parts.forEach(({ type, value }) => {
+    if (type !== 'literal') values[type] = value;
+  });
+  return {
+    year: Number(values.year),
+    month: Number(values.month),
+    day: Number(values.day),
+    hour: Number(values.hour),
+    minute: Number(values.minute),
+    second: Number(values.second)
+  };
+};
+const getTimeZoneOffsetMinutes = (date, timeZone) => {
+  const parts = getDateTimePartsInTimeZone(date, timeZone);
+  const asUtcMs = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+  return (asUtcMs - date.getTime()) / 60000;
+};
+const getTodayYmd = (timeZone) => {
+  const now = new Date();
+  if (isUtcTimeZone(timeZone)) {
+    return formatIsoDate(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())));
+  }
+  const parts = getDateTimePartsInTimeZone(now, timeZone);
+  return formatYmd(parts.year, parts.month, parts.day);
+};
+const addDaysYmd = (dateValue, days) => {
+  const parsed = parseYmd(dateValue);
+  if (!parsed) return String(dateValue ?? '');
+  const dt = new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return formatIsoDate(dt);
+};
+const addMonthsYmd = (dateValue, months) => {
+  const parsed = parseYmd(dateValue);
+  if (!parsed) return String(dateValue ?? '');
+  const dt = new Date(Date.UTC(parsed.year, parsed.month - 1, parsed.day));
+  dt.setUTCMonth(dt.getUTCMonth() + months);
+  return formatIsoDate(dt);
+};
+const zonedMidnightToUtcIso = (dateValue, timeZone) => {
+  if (isUtcTimeZone(timeZone)) {
+    return new Date(`${dateValue}T00:00:00Z`).toISOString();
+  }
+  const parsed = parseYmd(dateValue);
+  if (!parsed) {
+    return new Date(`${dateValue}T00:00:00Z`).toISOString();
+  }
+
+  const utcGuess = Date.UTC(parsed.year, parsed.month - 1, parsed.day, 0, 0, 0);
+  const offset1 = getTimeZoneOffsetMinutes(new Date(utcGuess), timeZone);
+  const utc1 = utcGuess - offset1 * 60000;
+  const offset2 = getTimeZoneOffsetMinutes(new Date(utc1), timeZone);
+  const utc2 = utcGuess - offset2 * 60000;
+  return new Date(utc2).toISOString();
+};
 const pickFirstUrl = (...candidates) =>
   candidates.find((value) => typeof value === 'string' && value.startsWith('http')) || '';
 
@@ -258,11 +352,9 @@ const buildGhlContactSearchUrl = (locationId, query) => {
 };
 
 const getDefaultRange = () => {
-  const today = new Date();
-  const end = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
-  const start = new Date(end);
-  start.setUTCMonth(start.getUTCMonth() - 1);
-  return { start: formatIsoDate(start), end: formatIsoDate(end) };
+  const end = getTodayYmd(dashboardTimeZone);
+  const start = addMonthsYmd(end, -1);
+  return { start, end };
 };
 
 const DEFAULT_RANGE = getDefaultRange();
@@ -2944,9 +3036,12 @@ const buildMonthBuckets = (start, end) => {
 };
 const getSalesRange = (range) => {
   if (range?.start && range?.end) {
-    const start = new Date(`${range.start}T00:00:00Z`);
-    const end = new Date(`${range.end}T23:59:59Z`);
-    return { start, end };
+    // Convert the selected date range (YYYY-MM-DD) to UTC instants using the configured dashboard timezone.
+    const start = new Date(toUtcStart(range.start));
+    const endExclusive = new Date(toUtcEndExclusive(range.end));
+    // Inclusive end for display/month-bucketing (endExclusive is used for filtering).
+    const end = new Date(endExclusive.getTime() - 1);
+    return { start, end, endExclusive };
   }
   const now = new Date();
   const end = new Date(now);
@@ -3522,11 +3617,9 @@ const buildMappingKey = (platform, campaignId, adsetId) => {
   return `${normalized}:default`;
 };
 const buildRecentRange = (days = 60) => {
-  const today = new Date();
-  const end = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
-  const start = new Date(end);
-  start.setUTCDate(start.getUTCDate() - Math.max(days - 1, 0));
-  return { start: formatIsoDate(start), end: formatIsoDate(end) };
+  const end = getTodayYmd(dashboardTimeZone);
+  const start = addDaysYmd(end, -Math.max(days - 1, 0));
+  return { start, end };
 };
 const buildSourceOptions = (rows) => {
   const options = new Set();
@@ -3547,13 +3640,9 @@ const escapeHtml = (value) =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 const buildRangeKey = (range) => `${range.start}|${range.end}`;
-const toUtcStart = (dateValue) => new Date(`${dateValue}T00:00:00Z`).toISOString();
-const toUtcEndExclusive = (dateValue) => {
-  const dt = new Date(`${dateValue}T00:00:00Z`);
-  dt.setUTCDate(dt.getUTCDate() + 1);
-  return dt.toISOString();
-};
-const toDateEndExclusive = (dateValue) => toUtcEndExclusive(dateValue).slice(0, 10);
+const toUtcStart = (dateValue) => zonedMidnightToUtcIso(dateValue, dashboardTimeZone);
+const toUtcEndExclusive = (dateValue) => toUtcStart(addDaysYmd(dateValue, 1));
+const toDateEndExclusive = (dateValue) => addDaysYmd(dateValue, 1);
 const withTimeout = (promise, ms, message) =>
   new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -8059,9 +8148,10 @@ const ensureSalesData = async () => {
 
   const range = getSalesRange(dateRange);
   const startIso = range.start.toISOString();
-  const endIso = range.end.toISOString();
-  const spendStart = range.start.toISOString().slice(0, 10);
-  const spendEnd = range.end.toISOString().slice(0, 10);
+  const endExclusiveIso = range.endExclusive?.toISOString() || toUtcEndExclusive(dateRange.end);
+  // marketing_spend_daily.date is a YYYY-MM-DD value in the dashboard/business timezone, not UTC.
+  const spendStart = dateRange.start;
+  const spendEnd = dateRange.end;
   const currentMonthRange = getCurrentMonthRange();
   const currentMonthStartIso = toUtcStart(currentMonthRange.start);
   const currentMonthEndIso = toUtcEndExclusive(currentMonthRange.end);
@@ -8079,7 +8169,10 @@ const ensureSalesData = async () => {
         .select(selectClause)
         .eq('location_id', activeLocationId)
         .gte('created_at', startIso)
-        .lte('created_at', endIso);
+        .lt('created_at', endExclusiveIso)
+        // Stable pagination: without explicit ordering, `.range()` can skip/duplicate rows when data changes mid-fetch.
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true });
 
     const dealsPromise = (async () => {
       try {

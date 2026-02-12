@@ -13,3 +13,7 @@ supabase/.temp/
 secrets/*.env
 secrets/*.env.dec
 secrets/*.key
+
+# Python
+__pycache__/
+*.pyc

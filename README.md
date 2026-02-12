@@ -598,6 +598,7 @@ Voor het dashboard:
 
 - `VITE_GHL_LOCATION_ID` is **optioneel** (override).
 - Als die leeg is, wordt `dashboard_config.location_id` gebruikt.
+- `VITE_DASHBOARD_TIMEZONE` (default `UTC`) bepaalt de timezone voor daggrenzen in de dashboard queries (bijv. `Europe/Brussels`).
 
 Voor Meta spend (edge function):
 

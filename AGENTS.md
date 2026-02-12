@@ -2,6 +2,8 @@
 
 - Supabase project ref: `djikubaydznmgiqajfdz`
 - Supabase URL: `https://djikubaydznmgiqajfdz.supabase.co`
+- Sales/Teamleader counts can differ by 1 due to timezone day boundaries. Use `VITE_DASHBOARD_TIMEZONE` (for Belivert: `Europe/Brussels`) and apply day-range filters as `[start, end)` using timezone-aware UTC instants.
+- If adding `VITE_DASHBOARD_TIMEZONE` requires updating `README.md` and `clients/*/env.dashboard.example` / `dashboard/.env.example`, just do it (no extra confirmation needed).
 - `supabase/schedule.sql` uses placeholders; replace `PROJECT_REF` before running.
 - Secrets are **not** stored in the repo. If `SYNC_SECRET` or `META_SYNC_SECRET` are set in Supabase,
   either add the header back in `supabase/schedule.sql` or unset those secrets to run without auth.
