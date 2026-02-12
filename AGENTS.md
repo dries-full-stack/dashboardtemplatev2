@@ -3,6 +3,8 @@
 - Supabase project ref: `djikubaydznmgiqajfdz`
 - Supabase URL: `https://djikubaydznmgiqajfdz.supabase.co`
 - Sales/Teamleader counts can differ by 1 due to timezone day boundaries. Use `VITE_DASHBOARD_TIMEZONE` (for Belivert: `Europe/Brussels`) and apply day-range filters as `[start, end)` using timezone-aware UTC instants.
+- To keep Teamleader deals 1:1 with the CRM over time (including deletions), ensure a nightly pg_cron reconcile job exists:
+  `teamleader-sync-deals-reconcile-nightly` (UTC `10 1 * * *`) calls `teamleader-sync` with `reconcile_deals_window=true` (lookback `12` months) for `location_id=PLaZB1vgUhy4CCo3vEDi`.
 - If adding `VITE_DASHBOARD_TIMEZONE` requires updating `README.md` and `clients/*/env.dashboard.example` / `dashboard/.env.example`, just do it (no extra confirmation needed).
 - `supabase/schedule.sql` uses placeholders; replace `PROJECT_REF` before running.
 - Secrets are **not** stored in the repo. If `SYNC_SECRET` or `META_SYNC_SECRET` are set in Supabase,

@@ -352,8 +352,11 @@ const buildGhlContactSearchUrl = (locationId, query) => {
 };
 
 const getDefaultRange = () => {
-  const end = getTodayYmd(dashboardTimeZone);
-  const start = addMonthsYmd(end, -1);
+  // Default range ends at yesterday to avoid "today" being a partial day (and numbers drifting during the day).
+  // Keep the start anchored to "1 month ago" (same behavior as before, but without including today).
+  const today = getTodayYmd(dashboardTimeZone);
+  const end = addDaysYmd(today, -1);
+  const start = addMonthsYmd(today, -1);
   return { start, end };
 };
 
@@ -970,6 +973,10 @@ const scheduleRender = () => {
     renderApp();
   });
 };
+
+// Avoid KPI cards re-animating on every background re-render (looks like "flicker").
+// We only animate when the dashboard content is visible for a *new* route + date range.
+let lastVisibleKpiAnimationKey = '';
 
 const configState = {
   status: ghlLocationId ? 'ready' : 'idle',
@@ -8098,6 +8105,11 @@ const renderSalesDateControls = () => {
   if (startLabel) startLabel.textContent = formatDisplayDate(dateRange.start);
   if (endLabel) endLabel.textContent = formatDisplayDate(dateRange.end);
 
+  const quickRangeControls = controls.querySelector('[data-quick-range-controls]');
+  if (quickRangeControls) {
+    quickRangeControls.innerHTML = renderQuickRangeButtonsMarkup(dateRange);
+  }
+
   const startButton = controls.querySelector('[data-date-trigger="start"]');
   const endButton = controls.querySelector('[data-date-trigger="end"]');
   if (startButton) {
@@ -8446,6 +8458,31 @@ const formatDisplayDate = (dateValue) => {
   return `${day} ${MONTHS_SHORT[month - 1]}. ${year}`;
 };
 
+const QUICK_RANGE_PRESETS = [
+  { days: 7, label: 'Afgelopen 7 dagen' },
+  { days: 14, label: 'Afgelopen 14 dagen' },
+  { days: 30, label: 'Afgelopen 30 dagen' }
+];
+
+const buildStableRangeEnd = () => addDaysYmd(getTodayYmd(dashboardTimeZone), -1);
+
+const buildLastNDaysRange = (days) => {
+  const safeDays = Math.max(1, Number(days) || 1);
+  const end = buildStableRangeEnd();
+  const start = addDaysYmd(end, -(safeDays - 1));
+  return { start, end };
+};
+
+const renderQuickRangeButtonsMarkup = (range) => {
+  const current = range && typeof range === 'object' ? range : dateRange;
+  return QUICK_RANGE_PRESETS.map(({ days, label }) => {
+    const expected = buildLastNDaysRange(days);
+    const isActive = current?.start === expected.start && current?.end === expected.end;
+    const title = `${label}: ${formatDisplayDate(expected.start)} -> ${formatDisplayDate(expected.end)}`;
+    return `<button type="button" class="quick-range-button${isActive ? ' active' : ''}" data-quick-range-days="${days}" aria-pressed="${isActive ? 'true' : 'false'}" title="${escapeHtml(title)}">${escapeHtml(label)}</button>`;
+  }).join('');
+};
+
 const formatSyncTimestamp = (value) => {
   if (!value) return 'Laatste sync: onbekend';
   const dt = new Date(value);
@@ -8639,7 +8676,7 @@ const getOpportunityDebug = (range) => {
     liveState.sourceBreakdown.status === 'loading' ||
     liveState.lostReasons.status === 'loading'
   ) {
-    return { tone: 'info', text: 'Live data wordt opgehaald uit Supabase...' };
+    return { tone: 'info', text: 'Data wordt opgehaald uit de database...' };
   }
 
   if (liveState.opportunities.status === 'error') {
@@ -10225,9 +10262,14 @@ const renderNavLinks = (activeId, tabs = ALL_DASHBOARD_TABS) =>
     })
     .join('');
 
-const renderKpiCards = (cards) =>
-  cards
+const renderKpiCards = (cards, options = {}) => {
+  const animate = options.animate !== false;
+  const animateClass = animate ? ' animate-slide-up' : '';
+
+  return cards
     .map((card) => {
+      const extraClass = String(card?.className || '').trim();
+      const extraClassMarkup = extraClass ? ` ${extraClass}` : '';
       const canDrill = Boolean(card.drilldown) && card.isMock === false && Number(card.rawValue) > 0;
       const valueMarkup = renderDrilldownValue({
         value: card.value,
@@ -10239,7 +10281,7 @@ const renderKpiCards = (cards) =>
         fallbackTag: 'p'
       });
 
-      return `<div class="kpi-card animate-slide-up ${card.className}">
+      return `<div class="kpi-card${animateClass}${extraClassMarkup}">
           <div class="flex items-start justify-between gap-2">
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-2">
@@ -10256,6 +10298,7 @@ const renderKpiCards = (cards) =>
         </div>`;
     })
     .join('');
+};
 
 const renderSourceRows = (rows, isLive) => {
   const dealsMode = resolveSourceBreakdownVariant() === 'deals';
@@ -11355,7 +11398,8 @@ const filterCardsByLabels = (cards, labels) => {
 
 const isSectionEnabled = (section) => section?.enabled !== false && section?.hidden !== true;
 
-const renderFunnelSection = (section, metrics) => {
+const renderFunnelSection = (section, metrics, options = {}) => {
+  const animateKpis = options.animateKpis !== false;
   const cards = filterCardsByLabels(metrics.funnelMetrics, resolveSectionLabels(section));
   if (!cards.length) return '';
   const title = escapeHtml(resolveSectionText(section?.title, 'Funnel Metrics'));
@@ -11376,13 +11420,14 @@ const renderFunnelSection = (section, metrics) => {
       </h2>
       ${descriptionMarkup}
       <div class="${columns}">
-        ${renderKpiCards(cards)}
+        ${renderKpiCards(cards, { animate: animateKpis })}
       </div>
     </section>
   `;
 };
 
-const renderFinanceSection = (section, metrics) => {
+const renderFinanceSection = (section, metrics, options = {}) => {
+  const animateKpis = options.animateKpis !== false;
   const cards = filterCardsByLabels(metrics.financeMetrics, resolveSectionLabels(section));
   if (!cards.length) return '';
   const title = escapeHtml(resolveSectionText(section?.title, 'Financiele Metrics'));
@@ -11403,7 +11448,7 @@ const renderFinanceSection = (section, metrics) => {
       </h2>
       ${descriptionMarkup}
       <div class="${columns}">
-        ${renderKpiCards(cards)}
+        ${renderKpiCards(cards, { animate: animateKpis })}
       </div>
     </section>
   `;
@@ -11544,16 +11589,17 @@ const renderLostReasonsSection = (section, metrics) => {
   `;
 };
 
-const renderDashboardSections = (layoutOverride, metrics) => {
+const renderDashboardSections = (layoutOverride, metrics, options = {}) => {
+  const animateKpis = options.animateKpis !== false;
   const sections = resolveLayoutSections(layoutOverride);
   return sections
     .filter(isSectionEnabled)
     .map((section) => {
       const kind = String(section?.kind || section?.type || '').trim();
       if (!kind) return '';
-      if (kind === 'funnel_metrics') return renderFunnelSection(section, metrics);
+      if (kind === 'funnel_metrics') return renderFunnelSection(section, metrics, { animateKpis });
       if (kind === 'source_breakdown') return renderSourceBreakdownSection(section, metrics);
-      if (kind === 'finance_metrics') return renderFinanceSection(section, metrics);
+      if (kind === 'finance_metrics') return renderFinanceSection(section, metrics, { animateKpis });
       if (kind === 'hook_performance') return renderHookPerformanceSection(section, metrics);
       if (kind === 'lost_reasons') return renderLostReasonsSection(section, metrics);
       return '';
@@ -11682,6 +11728,13 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
     `
     : '';
 
+  const kpiAnimationKey = `${activeRoute}:${rangeKey}`;
+  const contentVisible = !showLoadingOverlay;
+  const animateKpis = contentVisible && lastVisibleKpiAnimationKey !== kpiAnimationKey;
+  if (contentVisible) {
+    lastVisibleKpiAnimationKey = kpiAnimationKey;
+  }
+
   return `
     <div role="region" aria-label="Notifications (F8)" tabindex="-1" style="pointer-events: none;">
       <ol tabindex="-1" class="fixed top-0 z-[100] flex max-h-screen w-full flex-col-reverse p-4 sm:bottom-0 sm:right-0 sm:top-auto sm:flex-col md:max-w-[420px]"></ol>
@@ -11764,6 +11817,7 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
                   ${icons.calendar('lucide lucide-calendar h-4 w-4')}
                   ${formatDisplayDate(range.end)}
                 </button>
+                ${renderQuickRangeButtonsMarkup(range)}
                 ${renderDatePicker(range)}
               </div>
             </div>
@@ -11783,7 +11837,7 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
            <div class="mt-6 relative">
              ${loadingOverlayMarkup}
             <div class="space-y-8${showLoadingOverlay ? ' opacity-0 pointer-events-none select-none' : ''}">
-              ${renderDashboardSections(layout, metrics)}
+              ${renderDashboardSections(layout, metrics, { animateKpis })}
             </div>
            </div>
          </main>
@@ -11803,6 +11857,13 @@ const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
   const sidebarFooter = configState.dashboardTitle ? `${branding.title} Dashboard` : 'Dashboard Template';
   const salesKey = buildRangeKey(dateRange);
   const showLoadingOverlay = Boolean(supabase) && (salesState.status !== 'ready' || salesState.rangeKey !== salesKey);
+  const salesAnimationKey = `sales:${salesKey}`;
+  const salesContentVisible = !showLoadingOverlay;
+  const animateKpis = salesContentVisible && lastVisibleKpiAnimationKey !== salesAnimationKey;
+  if (salesContentVisible) {
+    lastVisibleKpiAnimationKey = salesAnimationKey;
+  }
+  const salesMainMarkup = animateKpis ? SALES_MAIN_MARKUP : SALES_MAIN_MARKUP.replaceAll(' animate-slide-up', '');
   const initialDealCount = salesState?.data?.totals?.deals;
   const salesStatus = MOCK_ENABLED
     ? {
@@ -11896,7 +11957,7 @@ const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
             </div>
           </div>
           <div class="${showLoadingOverlay ? 'opacity-0 pointer-events-none select-none' : ''}" data-sales-loading-content>
-            ${SALES_MAIN_MARKUP}
+            ${salesMainMarkup}
           </div>
         </main>
         <footer class="h-12 border-t border-border bg-card/30 flex items-center justify-center px-6">
@@ -12083,6 +12144,21 @@ const bindInteractions = () => {
   if (refresh) {
     refresh.addEventListener('click', () => window.location.reload());
   }
+
+  document.querySelectorAll('[data-quick-range-days]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const daysRaw = button.getAttribute('data-quick-range-days');
+      const days = Number(daysRaw);
+      if (!Number.isFinite(days) || days <= 0) return;
+
+      const { start, end } = buildLastNDaysRange(days);
+      dateRange = normalizeRange(start, end);
+      pickerState.open = false;
+      pickerState.selecting = 'start';
+      pickerState.viewMonth = dateRange.start.slice(0, 7);
+      renderApp();
+    });
+  });
 
   const leadPipelineFilter = document.querySelector('[data-lead-pipeline-filter]');
   if (leadPipelineFilter) {

@@ -470,6 +470,33 @@
   transition: all 0.15s ease;
 }
 
+.quick-range-button {
+  border: 1px solid hsl(var(--border));
+  background-color: hsl(var(--muted));
+  color: hsl(var(--foreground));
+  border-radius: 9999px;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.quick-range-button:hover {
+  background-color: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+
+.quick-range-button.active {
+  border-color: hsl(var(--primary));
+  background-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+
+.quick-range-button.active:hover {
+  background-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+
 .date-chip.active {
   border-color: hsl(var(--primary));
   background-color: hsl(var(--primary));
