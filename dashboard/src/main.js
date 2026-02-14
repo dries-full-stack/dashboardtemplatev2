@@ -186,6 +186,8 @@ const envDashboardTitle = readEnvString(import.meta.env.VITE_DASHBOARD_TITLE);
 const envDashboardSubtitle = readEnvString(import.meta.env.VITE_DASHBOARD_SUBTITLE);
 const envDashboardLogoUrl = readEnvString(import.meta.env.VITE_DASHBOARD_LOGO_URL);
 const envDashboardTheme = readEnvString(import.meta.env.VITE_DASHBOARD_THEME);
+const envDashboardPrimaryColor = readEnvString(import.meta.env.VITE_DASHBOARD_PRIMARY_COLOR);
+const envDashboardSecondaryColor = readEnvString(import.meta.env.VITE_DASHBOARD_SECONDARY_COLOR);
 const envSidebarLogoUrl = readEnvString(import.meta.env.VITE_SIDEBAR_LOGO_URL);
 const envSidebarLogoAlt = readEnvString(import.meta.env.VITE_SIDEBAR_LOGO_ALT);
 const envMetaTitle = readEnvString(import.meta.env.VITE_META_TITLE || import.meta.env.VITE_DASHBOARD_META_TITLE);
@@ -11339,6 +11341,200 @@ const applyBrandTheme = () => {
   }
 };
 
+
+// Optional per-customer brand colors (set via dashboard_layout.branding.colors or env vars).
+// These override a small set of CSS variables so we can brand without shipping client-specific CSS.
+const BRAND_COLOR_VAR_KEYS = [
+  'primary',
+  'primary-foreground',
+  'secondary',
+  'secondary-foreground',
+  'ring',
+  'sidebar-primary',
+  'sidebar-primary-foreground',
+  'sidebar-ring',
+  'gradient-primary',
+  'gradient-secondary',
+  'shadow-glow',
+  'chart-1',
+  'chart-2'
+];
+
+const clampNumber = (value, min, max) => Math.min(max, Math.max(min, value));
+
+const parseHexColor = (value) => {
+  if (typeof value !== 'string') return null;
+  const raw = value.trim();
+  if (!raw) return null;
+  const match = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(raw);
+  if (!match?.[1]) return null;
+  let hex = match[1].toLowerCase();
+  if (hex.length === 3) {
+    hex = hex
+      .split('')
+      .map((ch) => ch + ch)
+      .join('');
+  }
+  const r = Number.parseInt(hex.slice(0, 2), 16);
+  const g = Number.parseInt(hex.slice(2, 4), 16);
+  const b = Number.parseInt(hex.slice(4, 6), 16);
+  if (![r, g, b].every(Number.isFinite)) return null;
+  return { r, g, b };
+};
+
+const rgbToHsl = (rgb) => {
+  const r = rgb.r / 255;
+  const g = rgb.g / 255;
+  const b = rgb.b / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+
+  let h = 0;
+  let s = 0;
+  const l = (max + min) / 2;
+
+  if (delta !== 0) {
+    s = l > 0.5 ? delta / (2 - max - min) : delta / (max + min);
+    switch (max) {
+      case r:
+        h = (g - b) / delta + (g < b ? 6 : 0);
+        break;
+      case g:
+        h = (b - r) / delta + 2;
+        break;
+      default:
+        h = (r - g) / delta + 4;
+        break;
+    }
+    h /= 6;
+  }
+
+  return { h: h * 360, s: s * 100, l: l * 100 };
+};
+
+const formatHslVar = (hsl) => {
+  const h = Math.round(clampNumber(hsl.h, 0, 360));
+  const s = Math.round(clampNumber(hsl.s, 0, 100));
+  const l = Math.round(clampNumber(hsl.l, 0, 100));
+  return `${h} ${s}% ${l}%`;
+};
+
+const shadeHsl = (hsl, options = {}) => {
+  const sMul = typeof options.sMul === 'number' ? options.sMul : 1;
+  const lDelta = typeof options.lDelta === 'number' ? options.lDelta : 0;
+  return {
+    h: hsl.h,
+    s: clampNumber(hsl.s * sMul, 0, 100),
+    l: clampNumber(hsl.l + lDelta, 0, 100)
+  };
+};
+
+const srgbChannelToLinear = (channel) => {
+  const value = clampNumber(channel / 255, 0, 1);
+  return value <= 0.04045 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+};
+
+const relativeLuminance = (rgb) => {
+  const r = srgbChannelToLinear(rgb.r);
+  const g = srgbChannelToLinear(rgb.g);
+  const b = srgbChannelToLinear(rgb.b);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+
+const contrastRatio = (lumA, lumB) => {
+  const [lighter, darker] = lumA >= lumB ? [lumA, lumB] : [lumB, lumA];
+  return (lighter + 0.05) / (darker + 0.05);
+};
+
+const pickForegroundVar = (rgb) => {
+  const lum = relativeLuminance(rgb);
+  const whiteContrast = contrastRatio(1, lum);
+  const blackContrast = contrastRatio(lum, 0);
+  return whiteContrast >= blackContrast ? '0 0% 100%' : '0 0% 15%';
+};
+
+const readLayoutBrandColors = () => {
+  const layout = configState.dashboardLayout;
+  if (!layout || typeof layout !== 'object' || Array.isArray(layout)) return null;
+  const branding = layout.branding;
+  if (!branding || typeof branding !== 'object') return null;
+  const colors = branding.colors;
+  if (!colors || typeof colors !== 'object') return null;
+  return {
+    primary: typeof colors.primary === 'string' ? colors.primary.trim() : '',
+    secondary: typeof colors.secondary === 'string' ? colors.secondary.trim() : ''
+  };
+};
+
+const applyBrandColors = () => {
+  const rootNode = document.documentElement;
+  if (!rootNode) return;
+
+  const layoutColors = readLayoutBrandColors() || {};
+  const primaryRaw = layoutColors.primary || envDashboardPrimaryColor;
+  const secondaryRaw = layoutColors.secondary || envDashboardSecondaryColor;
+
+  const primaryRgb = parseHexColor(primaryRaw);
+  const secondaryRgb = parseHexColor(secondaryRaw);
+
+  if (!primaryRgb && !secondaryRgb) {
+    BRAND_COLOR_VAR_KEYS.forEach((key) => rootNode.style.removeProperty(`--${key}`));
+    return;
+  }
+
+  const setVar = (key, value) => {
+    if (value) rootNode.style.setProperty(`--${key}`, value);
+    else rootNode.style.removeProperty(`--${key}`);
+  };
+
+  if (primaryRgb) {
+    const primary = rgbToHsl(primaryRgb);
+    const primaryDark = shadeHsl(primary, { sMul: 0.85, lDelta: -8 });
+    const primaryVar = formatHslVar(primary);
+    setVar('primary', primaryVar);
+    setVar('primary-foreground', pickForegroundVar(primaryRgb));
+    setVar('sidebar-primary', primaryVar);
+    setVar('sidebar-primary-foreground', pickForegroundVar(primaryRgb));
+    setVar('gradient-primary', `linear-gradient(135deg, hsl(${primaryVar}), hsl(${formatHslVar(primaryDark)}))`);
+    setVar('chart-1', primaryVar);
+  } else {
+    setVar('primary', '');
+    setVar('primary-foreground', '');
+    setVar('sidebar-primary', '');
+    setVar('sidebar-primary-foreground', '');
+    setVar('gradient-primary', '');
+    setVar('chart-1', '');
+  }
+
+  if (secondaryRgb) {
+    const secondary = rgbToHsl(secondaryRgb);
+    const secondaryDark = shadeHsl(secondary, { sMul: 0.9, lDelta: -7 });
+    const secondaryVar = formatHslVar(secondary);
+    setVar('secondary', secondaryVar);
+    setVar('secondary-foreground', pickForegroundVar(secondaryRgb));
+    setVar('gradient-secondary', `linear-gradient(135deg, hsl(${secondaryVar}), hsl(${formatHslVar(secondaryDark)}))`);
+    setVar('chart-2', secondaryVar);
+  } else {
+    setVar('secondary', '');
+    setVar('secondary-foreground', '');
+    setVar('gradient-secondary', '');
+    setVar('chart-2', '');
+  }
+
+  const ringRgb = secondaryRgb || primaryRgb;
+  if (ringRgb) {
+    const ringVar = formatHslVar(rgbToHsl(ringRgb));
+    setVar('ring', ringVar);
+    setVar('sidebar-ring', ringVar);
+    setVar('shadow-glow', `0 0 40px hsl(${ringVar} / 0.15)`);
+  } else {
+    setVar('ring', '');
+    setVar('sidebar-ring', '');
+    setVar('shadow-glow', '');
+  }
+};
+
 const absolutizeUrl = (value) => {
   if (typeof value !== 'string') return '';
   const trimmed = value.trim();
@@ -12059,6 +12255,7 @@ const buildCallCenterMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
 const renderApp = () => {
   if (!root) return;
   applyBrandTheme();
+  applyBrandColors();
 
   // Avoid flashing template branding/layout while the per-customer config is still loading.
   if (

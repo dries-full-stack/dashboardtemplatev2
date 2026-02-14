@@ -2,6 +2,7 @@
 dist
 .env
 .env.local
+.env.bak-*
 supabase/.temp/
 .netlify/
 .DS_Store

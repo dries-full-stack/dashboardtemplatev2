@@ -8,6 +8,8 @@ param(
   [string]$DashboardTitle,
   [string]$DashboardSubtitle,
   [string]$LogoUrl,
+  [string]$BrandPrimaryColor,
+  [string]$BrandSecondaryColor,
   [string]$DashboardTabs,
   [string]$GhlPrivateIntegrationToken,
   [string]$AccessToken,
@@ -112,6 +114,24 @@ function Resolve-BrandTheme($slug, $title, $logoUrl) {
   if ($candidate -match 'belivert|belivet') {
     return 'belivert'
   }
+  return ''
+}
+
+function Normalize-HexColor($value) {
+  if ([string]::IsNullOrWhiteSpace($value)) { return '' }
+  $raw = $value.Trim()
+
+  if ($raw -match '^#?([0-9a-fA-F]{3})$') {
+    $short = $Matches[1].ToLower()
+    $expanded = ($short.ToCharArray() | ForEach-Object { "$_$_" }) -join ''
+    return "#$expanded"
+  }
+
+  if ($raw -match '^#?([0-9a-fA-F]{6})$') {
+    return '#' + $Matches[1].ToLower()
+  }
+
+  Write-Host "Ongeldige kleurwaarde: $raw (verwacht #RRGGBB)."
   return ''
 }
 
@@ -364,6 +384,8 @@ $clientDir = Join-Path $repoRoot "clients\\$Slug"
 New-Item -ItemType Directory -Force -Path $clientDir | Out-Null
 
 $themeKey = Resolve-BrandTheme -slug $Slug -title $DashboardTitle -logoUrl $LogoUrl
+$brandPrimaryValue = Normalize-HexColor $BrandPrimaryColor
+$brandSecondaryValue = Normalize-HexColor $BrandSecondaryColor
 $hookFieldIdValue = if (-not [string]::IsNullOrWhiteSpace($HookFieldId)) { $HookFieldId.Trim() } else { '' }
 $campaignFieldIdValue = if (-not [string]::IsNullOrWhiteSpace($CampaignFieldId)) { $CampaignFieldId.Trim() } else { '' }
 
@@ -431,6 +453,12 @@ if (-not $NoLayout) {
   }
   if (-not [string]::IsNullOrWhiteSpace($themeKey)) {
     $layoutObject.theme = $themeKey
+  }
+  if (-not [string]::IsNullOrWhiteSpace($brandPrimaryValue) -or -not [string]::IsNullOrWhiteSpace($brandSecondaryValue)) {
+    $brandingColors = [ordered]@{}
+    if (-not [string]::IsNullOrWhiteSpace($brandPrimaryValue)) { $brandingColors.primary = $brandPrimaryValue }
+    if (-not [string]::IsNullOrWhiteSpace($brandSecondaryValue)) { $brandingColors.secondary = $brandSecondaryValue }
+    $layoutObject.branding = [ordered]@{ colors = $brandingColors }
   }
 
   $layoutJson = $layoutObject | ConvertTo-Json -Depth 8
@@ -512,6 +540,13 @@ $dashboardEnvLines = @(
   "VITE_DASHBOARD_LOGO_URL=$LogoUrl",
   "VITE_DASHBOARD_THEME=$themeKey"
 )
+$dashboardEnvLines = $dashboardEnvLines | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+if (-not [string]::IsNullOrWhiteSpace($brandPrimaryValue)) {
+  $dashboardEnvLines += "VITE_DASHBOARD_PRIMARY_COLOR=$brandPrimaryValue"
+}
+if (-not [string]::IsNullOrWhiteSpace($brandSecondaryValue)) {
+  $dashboardEnvLines += "VITE_DASHBOARD_SECONDARY_COLOR=$brandSecondaryValue"
+}
 $dashboardEnv = ($dashboardEnvLines -join "`n") + "`n"
 Set-Content -Path (Join-Path $clientDir 'env.dashboard.example') -Value $dashboardEnv -Encoding utf8
 
@@ -525,6 +560,9 @@ SUPABASE_SECRET_KEY=YOUR_SUPABASE_SECRET_KEY
 Set-Content -Path (Join-Path $clientDir 'env.sync.example') -Value $syncEnv -Encoding utf8
 
 if (-not [string]::IsNullOrWhiteSpace($AccessToken)) {
+  # Supabase CLI uses SUPABASE_ACCESS_TOKEN env var with highest priority; set it so
+  # a globally exported token can't override what was passed to this script.
+  $env:SUPABASE_ACCESS_TOKEN = $AccessToken
   & supabase login --token $AccessToken --no-browser
 }
 

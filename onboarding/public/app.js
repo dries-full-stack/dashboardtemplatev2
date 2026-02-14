@@ -3,12 +3,14 @@ const output = document.getElementById('output');
 const statusNode = document.getElementById('status');
 const runBtn = document.getElementById('run-btn');
 const advancedToggle = document.getElementById('advancedMode');
+const brandColorsToggle = document.getElementById('enableBrandColors');
 const teamleaderToggle = document.getElementById('enableTeamleader');
 const metaToggle = document.getElementById('enableMetaSpend');
 const netlifyToggle = document.getElementById('enableNetlify');
 
 const advancedSections = Array.from(document.querySelectorAll('[data-advanced]:not([data-netlify])'));
 const advancedNetlifySections = Array.from(document.querySelectorAll('[data-advanced][data-netlify]'));
+const brandColorSections = Array.from(document.querySelectorAll('[data-brand-colors]'));
 const teamleaderSections = Array.from(document.querySelectorAll('[data-teamleader]'));
 const metaSections = Array.from(document.querySelectorAll('[data-meta]'));
 const googleApiSections = Array.from(document.querySelectorAll('[data-google-api]'));
@@ -37,6 +39,8 @@ const nextStepBtn = document.querySelector('[data-step-next]');
 const submitStepBtn = document.querySelector('[data-step-submit]');
 const summaryNode = document.getElementById('summary');
 const supabaseUrlInput = form?.querySelector('[name="supabaseUrl"]');
+const brandPrimaryColorInput = document.getElementById('brandPrimaryColor');
+const brandSecondaryColorInput = document.getElementById('brandSecondaryColor');
 const teamleaderRedirectInput = form?.querySelector('[name="teamleaderRedirectUrl"]');
 const teamleaderRedirectPreview = document.getElementById('teamleaderRedirectPreview');
 const copyRedirectBtn = document.getElementById('copyRedirect');
@@ -76,11 +80,21 @@ const preflightStatusNode = document.getElementById('preflightStatus');
 const preflightContentNode = document.getElementById('preflightContent');
 
 const BASIC_STORAGE_KEY = 'onboard-basic';
-const BASIC_FIELDS = ['slug', 'supabaseUrl', 'locationId', 'dashboardTitle', 'dashboardSubtitle', 'logoUrl'];
+const BASIC_FIELDS = [
+  'slug',
+  'supabaseUrl',
+  'locationId',
+  'dashboardTitle',
+  'dashboardSubtitle',
+  'logoUrl',
+  'brandPrimaryColor',
+  'brandSecondaryColor'
+];
 const BASIC_CHECKS = [
   'dashboardLead',
   'dashboardSales',
   'dashboardCallCenter',
+  'enableBrandColors',
   'autoGhlSync',
   'autoMetaSync',
   'autoGoogleSpendSync',
@@ -146,6 +160,10 @@ const setAdvancedMode = (enabled) => {
   syncAdvancedFromMigrations();
   updateDbPasswordVisibility();
   syncBranchAutomation();
+};
+
+const setBrandColorsEnabled = (enabled) => {
+  toggleGroup(brandColorSections, enabled);
 };
 
 const setTeamleaderEnabled = (enabled) => {
@@ -502,7 +520,9 @@ const loadBasicState = () => {
     const payload = JSON.parse(raw);
     BASIC_FIELDS.forEach((field) => {
       const input = form.querySelector(`[name="${field}"]`);
-      if (!input || input.value) return;
+      if (!input) return;
+      const isColor = input instanceof HTMLInputElement && input.type === 'color';
+      if (!isColor && input.value) return;
       if (payload[field]) input.value = payload[field];
     });
     BASIC_CHECKS.forEach((field) => {
@@ -513,6 +533,128 @@ const loadBasicState = () => {
   } catch {
     // ignore
   }
+};
+
+const sanitizeSlugValue = (value) => {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+};
+
+const parseBooleanParam = (value) => {
+  const raw = String(value || '')
+    .trim()
+    .toLowerCase();
+  if (!raw) return null;
+  if (raw === '1' || raw === 'true' || raw === 'yes' || raw === 'y' || raw === 'on') return true;
+  if (raw === '0' || raw === 'false' || raw === 'no' || raw === 'n' || raw === 'off') return false;
+  return null;
+};
+
+const parseListParam = (value) => {
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+};
+
+const applyQueryPrefill = () => {
+  if (!form) return { applied: false };
+
+  const params = new URLSearchParams(window.location.search || '');
+  const keys = Array.from(params.keys());
+  if (!keys.length) return { applied: false };
+
+  const from = (params.get('from') || '').toString().trim().toLowerCase();
+  const force = from === 'hub' || params.get('prefill') === '1';
+
+  const setTextField = (name, value, options = {}) => {
+    const input = form.querySelector(`[name="${name}"]`);
+    if (!input || input.type === 'checkbox') return false;
+    const next = String(value || '').trim();
+    if (!next) return false;
+    const isColor = input instanceof HTMLInputElement && input.type === 'color';
+    if (!options.force && !isColor && input.value) return false;
+    input.value = next;
+    return true;
+  };
+
+  const setCheckboxField = (name, checked, options = {}) => {
+    const input = form.querySelector(`[name="${name}"]`);
+    if (!input || input.type !== 'checkbox') return false;
+    if (!options.force && input.checked === checked) return false;
+    input.checked = checked;
+    return true;
+  };
+
+  const applied = [];
+
+  const slugParam = params.get('slug') || '';
+  if (slugParam) {
+    const cleaned = sanitizeSlugValue(slugParam);
+    if (cleaned && setTextField('slug', cleaned, { force })) applied.push('slug');
+  }
+
+  const supabaseParam =
+    params.get('supabaseUrl') ||
+    params.get('supabase_url') ||
+    params.get('projectRef') ||
+    params.get('project_ref') ||
+    '';
+  if (supabaseParam && setTextField('supabaseUrl', supabaseParam, { force })) applied.push('supabaseUrl');
+
+  const locationParam = params.get('locationId') || params.get('location_id') || '';
+  if (locationParam && setTextField('locationId', locationParam, { force })) applied.push('locationId');
+
+  const titleParam =
+    params.get('dashboardTitle') || params.get('dashboard_title') || params.get('company') || '';
+  if (titleParam && setTextField('dashboardTitle', titleParam, { force })) applied.push('dashboardTitle');
+
+  const subtitleParam = params.get('dashboardSubtitle') || params.get('dashboard_subtitle') || '';
+  if (subtitleParam && setTextField('dashboardSubtitle', subtitleParam, { force })) applied.push('dashboardSubtitle');
+
+  const logoParam = params.get('logoUrl') || params.get('logo_url') || '';
+  if (logoParam && setTextField('logoUrl', logoParam, { force })) applied.push('logoUrl');
+
+  const dashboardTabsParam = params.get('dashboardTabs') || params.get('dashboard_tabs') || params.get('dashboards') || '';
+  if (dashboardTabsParam) {
+    const tabs = new Set(parseListParam(dashboardTabsParam).map((tab) => tab.toLowerCase()));
+    const callCenterOn = tabs.has('call-center') || tabs.has('callcenter') || tabs.has('call_center');
+    if (setCheckboxField('dashboardLead', tabs.has('lead'), { force })) applied.push('dashboardLead');
+    if (setCheckboxField('dashboardSales', tabs.has('sales'), { force })) applied.push('dashboardSales');
+    if (setCheckboxField('dashboardCallCenter', callCenterOn, { force })) applied.push('dashboardCallCenter');
+  }
+
+  const brandEnabledParam = params.get('enableBrandColors') || params.get('brandColorsEnabled') || params.get('brand_colors') || '';
+  const brandEnabled = parseBooleanParam(brandEnabledParam);
+  if (brandEnabled !== null) {
+    if (setCheckboxField('enableBrandColors', brandEnabled, { force })) applied.push('enableBrandColors');
+  }
+
+  const primaryParam = params.get('brandPrimaryColor') || params.get('brand_primary_color') || '';
+  if (primaryParam && setTextField('brandPrimaryColor', primaryParam, { force })) applied.push('brandPrimaryColor');
+
+  const secondaryParam = params.get('brandSecondaryColor') || params.get('brand_secondary_color') || '';
+  if (secondaryParam && setTextField('brandSecondaryColor', secondaryParam, { force })) applied.push('brandSecondaryColor');
+
+  if (!applied.length) return { applied: false };
+
+  saveBasicState();
+
+  // Avoid re-applying on refresh; localStorage keeps the data anyway.
+  if (force && typeof window.history?.replaceState === 'function') {
+    try {
+      window.history.replaceState(null, '', window.location.pathname);
+    } catch {
+      // ignore
+    }
+  }
+
+  return { applied: true, fields: applied };
 };
 
 const setStatus = (text, tone = 'muted') => {
@@ -1327,6 +1469,9 @@ const buildPayload = () => {
     dashboardTitle: getValue('dashboardTitle'),
     dashboardSubtitle: getValue('dashboardSubtitle'),
     logoUrl: getValue('logoUrl'),
+    brandColorsEnabled: Boolean(brandColorsToggle?.checked),
+    brandPrimaryColor: getValue('brandPrimaryColor'),
+    brandSecondaryColor: getValue('brandSecondaryColor'),
     dashboardTabs: dashboards.join(','),
     autoFetchKeys: isChecked('autoFetchKeys'),
     accessToken: getValue('accessToken'),
@@ -1419,12 +1564,16 @@ const buildSummary = () => {
   const metaOn = Boolean(metaToggle?.checked);
   const googleMode = getGoogleSpendMode();
   const netlifyOn = Boolean(netlifyToggle?.checked);
+  const brandOn = Boolean(brandColorsToggle?.checked);
 
   const summaryItems = [
     { label: 'Slug', value: getFieldValue('slug') || '-' },
     { label: 'Supabase', value: getFieldValue('supabaseUrl') || '-' },
     { label: 'Location ID', value: getFieldValue('locationId') || '-' },
     { label: 'Dashboards', value: dashboards.length ? dashboards.join(', ') : 'Geen' },
+    { label: 'Brand colors', value: brandOn ? 'Aan' : 'Uit' },
+    { label: 'Primary kleur', value: brandOn ? getFieldValue('brandPrimaryColor') || '-' : '-' },
+    { label: 'Accent kleur', value: brandOn ? getFieldValue('brandSecondaryColor') || '-' : '-' },
     { label: 'GHL token', value: masked(getFieldValue('ghlPrivateIntegrationToken')) },
     { label: 'Teamleader', value: teamleaderOn ? 'Aan' : 'Uit' },
     {
@@ -1632,7 +1781,9 @@ const validateStep = (step) => {
 
 const initUi = () => {
   loadBasicState();
+  const prefill = applyQueryPrefill();
   setAdvancedMode(Boolean(advancedToggle?.checked));
+  setBrandColorsEnabled(Boolean(brandColorsToggle?.checked));
   setTeamleaderEnabled(Boolean(teamleaderToggle?.checked));
   setMetaEnabled(Boolean(metaToggle?.checked));
   setGoogleSpendMode(getGoogleSpendMode());
@@ -1669,6 +1820,9 @@ const initUi = () => {
   }
   loadEnvHints();
   setStep(currentStep);
+  if (prefill?.applied) {
+    setStatus(`Velden ingevuld via link (${prefill.fields.join(', ')}).`, 'muted');
+  }
 };
 
 const slugInput = form?.querySelector('[name="slug"]');
@@ -1785,6 +1939,23 @@ BASIC_CHECKS.forEach((field) => {
 
 advancedToggle?.addEventListener('change', () => {
   setAdvancedMode(advancedToggle.checked);
+});
+
+brandColorsToggle?.addEventListener('change', () => {
+  setBrandColorsEnabled(brandColorsToggle.checked);
+  if (currentStep === TOTAL_STEPS) {
+    buildSummary();
+  }
+});
+
+// Keep the overview step in sync while the user tweaks branding colors.
+[brandPrimaryColorInput, brandSecondaryColorInput].forEach((input) => {
+  if (!input) return;
+  input.addEventListener('input', () => {
+    if (currentStep === TOTAL_STEPS) {
+      buildSummary();
+    }
+  });
 });
 
 teamleaderToggle?.addEventListener('change', () => {
@@ -2004,4 +2175,3 @@ form.addEventListener('submit', async (event) => {
     runBtn.disabled = false;
   }
 });
-

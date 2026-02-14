@@ -638,6 +638,15 @@
         <div class="top-actions">
           <a class="btn-link" href="/hub.html">Terug naar Hub</a>
           <a class="btn-link" href="/billing-overview-admin.html">Open Billing Overzicht</a>
+          <a
+            class="btn-link"
+            id="dashboard-wizard-link"
+            href="http://localhost:8787"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Start lokaal: cd /home/dries/code/dashboardtemplatev2 && npm run onboard"
+            >Open Dashboard Wizard (lokaal)</a
+          >
         </div>
       </section>
 
@@ -1168,7 +1177,8 @@
         helpLinkNetlifyDomains: document.getElementById('help-link-netlify-domains'),
         helpLinkBillingConfig: document.getElementById('help-link-billing-config'),
 
-        historyList: document.getElementById('history-list')
+        historyList: document.getElementById('history-list'),
+        dashboardWizardLink: document.getElementById('dashboard-wizard-link')
       };
 
       const allFieldNodes = [
@@ -1355,18 +1365,30 @@
       };
 
       const collect = () => {
-        fillDerivedFields();
-
+        // Collect should be side-effect free: derive values for output/validation without
+        // mutating inputs while the user is typing.
         const mode = modeValue();
 
+        const company = read(el.company.value);
+        const companySlug = slugify(company);
+        const slug = slugify(read(el.slug.value) || companySlug);
+        const clientKey = slugify(read(el.clientKey.value) || (slug ? `${slug}-sales` : ''));
+        const customerDomain = normalizeDomain(el.customerDomain.value) || (slug ? `${slug}.profitpulse.be` : '');
+
+        const projectRef = read(el.projectRef.value);
+        const inferredRef = slugify(projectRef).replace(/-/g, '');
+        const supabaseUrl = read(el.supabaseUrl.value) || (inferredRef ? `https://${inferredRef}.supabase.co` : '');
+
+        const customerSiteName = slugify(el.customerSiteName.value) || (slug ? `dashboard-${slug}` : '');
+
         return {
-          company: read(el.company.value),
-          slug: slugify(el.slug.value || el.company.value),
-          clientKey: slugify(el.clientKey.value || `${slugify(el.slug.value || el.company.value)}-sales`),
-          customerDomain: normalizeDomain(el.customerDomain.value),
+          company,
+          slug,
+          clientKey,
+          customerDomain,
           returnTo: read(el.returnTo.value) || '/sales-resultaten',
-          projectRef: read(el.projectRef.value),
-          supabaseUrl: read(el.supabaseUrl.value),
+          projectRef,
+          supabaseUrl,
           stripePriceId: read(el.stripePriceId.value),
           seatsPrice: parseNumber(el.seatsPrice.value, 34.99),
           seatsCurrency: read(el.seatsCurrency.value).toUpperCase() || 'EUR',
@@ -1380,7 +1402,7 @@
           provisionFunctionUrl: read(el.provisionFunctionUrl.value) || '/.netlify/functions/provision-client',
           customerSiteId: read(el.customerSiteId.value),
           internalSiteId: read(el.internalSiteId.value),
-          customerSiteName: slugify(el.customerSiteName.value),
+          customerSiteName,
           netlifyAccountSlug: slugify(el.netlifyAccountSlug.value),
           retryStep: read(el.retryStep.value),
 
@@ -1800,6 +1822,27 @@ supabase db push --linked --include-all --yes`;
         setHelpLink(el.helpLinkSupabaseSecretsStep3, supabaseSecretsUrl);
       };
 
+      const buildDashboardWizardUrl = (data) => {
+        const url = new URL('http://localhost:8787/');
+        const slug = read(data.slug);
+        const supabaseUrl = read(data.supabaseUrl);
+        const company = read(data.company);
+        const dashboards = Array.isArray(data.dashboards) ? data.dashboards : [];
+
+        url.searchParams.set('from', 'hub');
+        if (slug) url.searchParams.set('slug', slug);
+        if (supabaseUrl) url.searchParams.set('supabaseUrl', supabaseUrl);
+        if (company) url.searchParams.set('dashboardTitle', company);
+        if (dashboards.length) url.searchParams.set('dashboardTabs', dashboards.join(','));
+
+        return url.toString();
+      };
+
+      const updateDashboardWizardLink = (data) => {
+        if (!el.dashboardWizardLink) return;
+        el.dashboardWizardLink.href = buildDashboardWizardUrl(data);
+      };
+
       const updateQuickLinks = (generated) => {
         setLink(el.linkSetup, generated?.customer_setup_url || '');
         setLink(el.linkEntry, generated?.customer_entry_url || '');
@@ -1954,6 +1997,8 @@ supabase db push --linked --include-all --yes`;
       };
 
       const canMoveNext = () => {
+        // Ensure derived fields are materialized before navigating steps so the user sees them.
+        fillDerivedFields();
         const data = collect();
         const validation = validate(data, { forProvision: false });
         const fieldsForStep = stepFieldNames[currentStep] || [];
@@ -1975,12 +2020,19 @@ supabase db push --linked --include-all --yes`;
       };
 
       const runGenerate = (options = {}) => {
+        // Only auto-fill derived inputs on explicit actions (blur/next/generate/provision),
+        // not on every keystroke while typing.
+        if (options.applyDerived !== false) {
+          fillDerivedFields();
+        }
+
         const data = collect();
         const validation = validate(data, { forProvision: false });
 
         renderValidation(validation);
         renderReadiness(computeReadiness(data, validation));
         updateHowToLinks(data);
+        updateDashboardWizardLink(data);
 
         el.outProfile.value = buildProfileSnippet(data);
         el.outSecrets.value = buildSecretsTemplate(data);
@@ -2194,6 +2246,7 @@ supabase db push --linked --include-all --yes`;
         el.retrySecretsBtn.addEventListener('click', () => retryStep('supabase_secrets_write'));
 
         el.shareBtn.addEventListener('click', async () => {
+          fillDerivedFields();
           const data = collect();
           const url = buildShareUrl(data);
           const ok = await copyText(url);
@@ -2215,13 +2268,13 @@ supabase db push --linked --include-all --yes`;
         document.querySelectorAll('input[name="run-mode"]').forEach((radio) => {
           radio.addEventListener('change', () => {
             toggleLiveSections();
-            runGenerate({ skipStatus: true });
+            runGenerate({ skipStatus: true, applyDerived: false });
           });
         });
 
         [...allFieldNodes, el.dbLead, el.dbSales, el.dbCall, el.actionCreateSite, el.actionWriteSecrets, el.retryStep, el.autoOpenLinks, el.rememberBillingToken].forEach((node) => {
           node.addEventListener('input', () => {
-            runGenerate({ skipStatus: true });
+            runGenerate({ skipStatus: true, applyDerived: false });
           });
         });
 
@@ -2229,7 +2282,7 @@ supabase db push --linked --include-all --yes`;
           node.addEventListener('blur', () => {
             fillDerivedFields();
             hydrateRememberedBillingToken();
-            runGenerate({ skipStatus: true });
+            runGenerate({ skipStatus: true, applyDerived: false });
           });
         });
 
@@ -2241,7 +2294,7 @@ supabase db push --linked --include-all --yes`;
             } else {
               setStatus('Geen opgeslagen BILLING_ADMIN_TOKEN voor dit project. Vul een nieuwe token in.');
             }
-            runGenerate({ skipStatus: true });
+            runGenerate({ skipStatus: true, applyDerived: false });
           });
         });
 

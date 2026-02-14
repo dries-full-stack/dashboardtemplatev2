@@ -1,10 +1,11 @@
 import { createServer } from 'http';
-import { readFile, writeFile, rename, stat } from 'fs/promises';
+import { readFile, writeFile, rename, stat, mkdir } from 'fs/promises';
 import { spawn } from 'child_process';
 import { extname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import dotenv from 'dotenv';
+import os from 'os';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const publicDir = join(__dirname, 'public');
@@ -63,9 +64,13 @@ const readBody = (req) =>
     req.on('error', reject);
   });
 
-const runCommand = (command, args, cwd) =>
+const runCommand = (command, args, cwd, options = {}) =>
   new Promise((resolve) => {
-    const child = spawn(command, args, { cwd, shell: true });
+    const child = spawn(command, args, {
+      cwd,
+      shell: true,
+      env: options.env || process.env
+    });
     let stdout = '';
     let stderr = '';
 
@@ -83,9 +88,46 @@ const runCommand = (command, args, cwd) =>
     });
   });
 
+// Use shell=false for commands that contain user-provided secrets (passwords, tokens).
+const runCommandDirect = (command, args, cwd, options = {}) =>
+  new Promise((resolve) => {
+    const child = spawn(command, args, {
+      cwd,
+      shell: false,
+      env: options.env || process.env
+    });
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout?.on('data', (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr?.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on('error', (error) => {
+      resolve({
+        ok: false,
+        exitCode: 1,
+        stdout,
+        stderr: `${stderr}\n${error instanceof Error ? error.message : String(error)}`.trim(),
+        error
+      });
+    });
+    child.on('close', (code) => {
+      resolve({ ok: code === 0, exitCode: code ?? 1, stdout, stderr });
+    });
+  });
+
 const sanitizeString = (value) => {
   if (typeof value !== 'string') return '';
   return value.trim();
+};
+
+const resolvePowerShellCommand = () => {
+  const explicit = sanitizeString(process.env.ONBOARDING_POWERSHELL_BIN);
+  if (explicit) return explicit;
+  return process.platform === 'win32' ? 'powershell' : 'pwsh';
 };
 
 const applyEnvDefaults = (payload) => {
@@ -370,21 +412,55 @@ const extractProjectRef = (supabaseUrl) => {
 };
 
 const fetchSupabaseKeys = async (projectRef, accessToken) => {
-  const response = await fetch(`https://api.supabase.com/v1/projects/${projectRef}/api-keys?reveal=true`, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`
+  const token = sanitizeString(accessToken);
+  if (token) {
+    const looksLikeJwt = token.startsWith('eyJ');
+    const looksLikeSecret = token.startsWith('sb_secret_');
+    const looksLikePublishable = token.startsWith('sb_publishable_');
+    const looksLikePat = token.startsWith('sbp_');
+    if (!looksLikePat && (looksLikeJwt || looksLikeSecret || looksLikePublishable)) {
+      throw new Error(
+        'Supabase access token lijkt een project API key (sb_secret_/sb_publishable_/eyJ...). ' +
+          'Vul dit in bij "Server key" (of "Publishable key"). Voor "Supabase access token" heb je een Personal Access Token nodig (meestal sbp_...) van je Supabase account.'
+      );
     }
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`Supabase API keys ophalen faalde (${response.status}). ${body}`);
   }
 
-  const data = await response.json();
+  const env = accessToken
+    ? { ...process.env, SUPABASE_ACCESS_TOKEN: accessToken }
+    : process.env;
+
+  const result = await runCommand(
+    'supabase',
+    ['projects', 'api-keys', '--project-ref', projectRef, '--output', 'json'],
+    repoRoot,
+    { env }
+  );
+
+  if (!result.ok) {
+    const combined = `${result.stdout || ''}
+${result.stderr || ''}`.trim();
+    const lower = combined.toLowerCase();
+    const hint = lower.includes('jwt could not be decoded')
+      ? ' Hint: vul bij "Supabase access token" je Personal Access Token (sbp_...) in, niet je server/service key.'
+      : '';
+    throw new Error(
+      `Supabase API keys ophalen via CLI faalde. ${combined || 'Controleer supabase login.'}${hint}`
+    );
+  }
+
+  const raw = (result.stdout || '').trim();
+  let data = null;
+  try {
+    data = raw ? JSON.parse(raw) : null;
+  } catch {
+    data = null;
+  }
+
   if (!Array.isArray(data)) {
-    throw new Error('Supabase API keys response is ongeldig.');
+    throw new Error('Supabase CLI api-keys response is ongeldig (geen array).');
   }
+
   return data;
 };
 
@@ -444,6 +520,10 @@ const buildArgs = (payload) => {
   addString('-DashboardTitle', payload.dashboardTitle);
   addString('-DashboardSubtitle', payload.dashboardSubtitle);
   addString('-LogoUrl', payload.logoUrl);
+  if (payload.brandColorsEnabled) {
+    addString('-BrandPrimaryColor', payload.brandPrimaryColor);
+    addString('-BrandSecondaryColor', payload.brandSecondaryColor);
+  }
   addString('-DashboardTabs', payload.dashboardTabs);
   addString('-AccessToken', payload.accessToken);
   addString('-GhlPrivateIntegrationToken', payload.ghlPrivateIntegrationToken);
@@ -612,6 +692,580 @@ const validatePayload = (payload) => {
     errors.push('Netlify auth token is vereist om een build te triggeren.');
   }
   return errors;
+};
+
+const toSqlString = (value) => {
+  const trimmed = sanitizeString(value);
+  if (!trimmed) return 'null';
+  return `'${trimmed.replaceAll("'", "''")}'`;
+};
+
+const normalizeHexColor = (value) => {
+  const raw = sanitizeString(value);
+  if (!raw) return '';
+
+  const shortMatch = /^#?([0-9a-f]{3})$/i.exec(raw);
+  if (shortMatch?.[1]) {
+    const expanded = shortMatch[1]
+      .split('')
+      .map((ch) => `${ch}${ch}`)
+      .join('');
+    return `#${expanded.toLowerCase()}`;
+  }
+
+  const fullMatch = /^#?([0-9a-f]{6})$/i.exec(raw);
+  if (fullMatch?.[1]) {
+    return `#${fullMatch[1].toLowerCase()}`;
+  }
+
+  return '';
+};
+
+const resolveBrandTheme = (payload) => {
+  const candidate = `${payload.slug} ${payload.dashboardTitle} ${payload.logoUrl}`.toLowerCase();
+  if (candidate.includes('belivert') || candidate.includes('belivet')) return 'belivert';
+  return '';
+};
+
+const buildBelivertSourceNormalizationRules = () => ([
+  { bucket: 'Solvari', patterns: ['solvari'] },
+  { bucket: 'Bobex', patterns: ['bobex'] },
+  { bucket: 'Trustlocal', patterns: ['trustlocal', 'trust local'] },
+  { bucket: 'Bambelo', patterns: ['bambelo'] },
+  {
+    bucket: 'Facebook Ads',
+    patterns: ['facebook', 'instagram', 'meta', 'fbclid', 'meta - calculator', 'meta ads - calculator']
+  },
+  { bucket: 'Google Ads', patterns: ['google', 'adwords', 'gclid', 'cpc', 'google - woning prijsberekening'] },
+  { bucket: 'Organic', patterns: ['organic', 'seo', 'direct', 'referral', '(none)', 'website'] }
+]);
+
+const buildDashboardLayout = (payload, themeKey, brandPrimaryValue, brandSecondaryValue) => {
+  if (payload.noLayout) return null;
+
+  const selectedTabs = sanitizeString(payload.dashboardTabs)
+    .split(',')
+    .map((tab) => tab.trim().toLowerCase())
+    .filter(Boolean);
+
+  const enabledTabs = selectedTabs.length ? selectedTabs : ['lead', 'sales', 'call-center'];
+  const dashboards = [
+    { id: 'lead', label: 'Leadgeneratie', enabled: enabledTabs.includes('lead') },
+    { id: 'sales', label: 'Sales Resultaten', enabled: enabledTabs.includes('sales') },
+    { id: 'call-center', label: 'Call Center', enabled: enabledTabs.includes('call-center') }
+  ];
+
+  const layout = {
+    dashboards,
+    sections: [
+      {
+        kind: 'funnel_metrics',
+        title: 'Leads & afspraken',
+        metric_labels: ['Totaal Leads', 'Totaal Afspraken', 'Confirmed', 'Cancelled', 'No-Show', 'Lead -> Afspraak']
+      },
+      { kind: 'source_breakdown', title: 'Kanalen' },
+      {
+        kind: 'finance_metrics',
+        title: 'Kosten',
+        metric_labels: ['Totale Leadkosten', 'Kost per Lead']
+      },
+      { kind: 'hook_performance', title: 'Ad Hook Performance' },
+      { kind: 'lost_reasons', title: 'Verliesredenen' }
+    ],
+    behavior: {
+      appointments_provider: themeKey === 'belivert' ? 'teamleader_meetings' : 'ghl',
+      source_breakdown: {
+        variant: themeKey === 'belivert' ? 'deals' : 'default',
+        cost_denominator: themeKey === 'belivert' ? 'deals' : 'confirmed'
+      },
+      hook_performance: {
+        source_bucket_filter: themeKey === 'belivert' ? 'Facebook Ads' : null
+      }
+    }
+  };
+
+  if (themeKey) {
+    layout.theme = themeKey;
+  }
+
+  if (brandPrimaryValue || brandSecondaryValue) {
+    const colors = {};
+    if (brandPrimaryValue) colors.primary = brandPrimaryValue;
+    if (brandSecondaryValue) colors.secondary = brandSecondaryValue;
+    layout.branding = { colors };
+  }
+
+  return layout;
+};
+
+const buildClientDashboardConfigSql = (payload, layoutJson, sourceNormalizationRulesJson) => {
+  const layoutSql = layoutJson ? `$$\n${layoutJson}\n$$::jsonb` : 'null';
+
+  let normalizationColumns = '';
+  let normalizationValues = '';
+  let normalizationUpdate = '';
+  if (sourceNormalizationRulesJson) {
+    normalizationColumns = `,\n  source_normalization_rules`;
+    normalizationValues = `,\n  $$\n${sourceNormalizationRulesJson}\n$$::jsonb`;
+    normalizationUpdate = `,\n  source_normalization_rules = excluded.source_normalization_rules`;
+  }
+
+  return `-- Client dashboard_config for ${payload.slug}
+-- Run this in Supabase SQL editor (or via CLI).
+insert into public.dashboard_config (
+  id,
+  location_id,
+  dashboard_title,
+  dashboard_subtitle,
+  dashboard_logo_url,
+  dashboard_layout${normalizationColumns}
+)
+values (
+  1,
+  ${toSqlString(payload.locationId)},
+  ${toSqlString(payload.dashboardTitle)},
+  ${toSqlString(payload.dashboardSubtitle)},
+  ${toSqlString(payload.logoUrl)},
+  ${layoutSql}${normalizationValues}
+)
+on conflict (id) do update set
+  location_id = excluded.location_id,
+  dashboard_title = excluded.dashboard_title,
+  dashboard_subtitle = excluded.dashboard_subtitle,
+  dashboard_logo_url = excluded.dashboard_logo_url,
+  dashboard_layout = excluded.dashboard_layout${normalizationUpdate},
+  updated_at = now();
+`;
+};
+
+const writeClientScaffold = async (payload) => {
+  const clientDir = join(repoRoot, 'clients', payload.slug);
+  await mkdir(clientDir, { recursive: true });
+
+  const themeKey = resolveBrandTheme(payload);
+  const brandPrimaryValue = normalizeHexColor(payload.brandPrimaryColor);
+  const brandSecondaryValue = normalizeHexColor(payload.brandSecondaryColor);
+
+  const sourceNormalizationRules = themeKey === 'belivert' ? buildBelivertSourceNormalizationRules() : null;
+  const sourceNormalizationRulesJson = sourceNormalizationRules ? JSON.stringify(sourceNormalizationRules, null, 2) : '';
+
+  const layoutObject = buildDashboardLayout(payload, themeKey, brandPrimaryValue, brandSecondaryValue);
+  const layoutJson = layoutObject ? JSON.stringify(layoutObject, null, 2) : '';
+
+  if (layoutJson) {
+    await writeFile(join(clientDir, 'dashboard_layout.json'), layoutJson + '\n', 'utf-8');
+  }
+
+  const configSql = buildClientDashboardConfigSql(
+    payload,
+    layoutJson,
+    sourceNormalizationRulesJson
+  );
+  await writeFile(join(clientDir, 'dashboard_config.sql'), configSql, 'utf-8');
+
+  const publishableValue = sanitizeString(payload.publishableKey) || 'YOUR_SUPABASE_PUBLISHABLE_KEY';
+  const envDashboardLines = [
+    `VITE_SUPABASE_URL=${payload.supabaseUrl}`,
+    `VITE_SUPABASE_PUBLISHABLE_KEY=${publishableValue}`,
+    `VITE_GHL_LOCATION_ID=${payload.locationId}`,
+    `VITE_DASHBOARD_TITLE=${sanitizeString(payload.dashboardTitle)}`,
+    `VITE_DASHBOARD_SUBTITLE=${sanitizeString(payload.dashboardSubtitle)}`,
+    `VITE_DASHBOARD_LOGO_URL=${sanitizeString(payload.logoUrl)}`,
+    `VITE_DASHBOARD_THEME=${themeKey}`
+  ];
+  if (brandPrimaryValue) envDashboardLines.push(`VITE_DASHBOARD_PRIMARY_COLOR=${brandPrimaryValue}`);
+  if (brandSecondaryValue) envDashboardLines.push(`VITE_DASHBOARD_SECONDARY_COLOR=${brandSecondaryValue}`);
+  await writeFile(join(clientDir, 'env.dashboard.example'), envDashboardLines.join('\n') + '\n', 'utf-8');
+
+  const envSync = [
+    `GHL_LOCATION_ID=${payload.locationId}`,
+    'GHL_PRIVATE_INTEGRATION_TOKEN=YOUR_GHL_PRIVATE_INTEGRATION_TOKEN',
+    `SUPABASE_URL=${payload.supabaseUrl}`,
+    `SUPABASE_PUBLISHABLE_KEY=${publishableValue}`,
+    'SUPABASE_SECRET_KEY=YOUR_SUPABASE_SECRET_KEY'
+  ].join('\n') + '\n';
+  await writeFile(join(clientDir, 'env.sync.example'), envSync, 'utf-8');
+
+  const scheduleSql = buildScheduleSql(payload);
+  await writeFile(join(clientDir, 'schedule.sql'), scheduleSql, 'utf-8');
+
+  return {
+    clientDir,
+    themeKey,
+    layoutObject,
+    sourceNormalizationRules
+  };
+};
+
+const buildScheduleSql = (payload) => {
+  const projectRef = sanitizeString(payload.projectRef);
+  const blocks = [];
+
+  blocks.push(`-- Schedule GHL sync every 15 minutes (requires pg_cron + pg_net extensions enabled).
+select
+  cron.schedule(
+    'ghl-sync-15m',
+    '*/15 * * * *',
+    $$
+    select
+      net.http_post(
+        url := 'https://PROJECT_REF.supabase.co/functions/v1/ghl-sync',
+        headers := jsonb_build_object('Content-Type', 'application/json'),
+        body := jsonb_build_object('entities', array['contacts','opportunities','appointments','lost_reasons'])
+      ) as request_id;
+    $$
+  );
+`);
+
+  const enableTeamleader =
+    Boolean(payload.teamleaderEnabled) &&
+    Boolean(payload.teamleaderClientId) &&
+    Boolean(payload.teamleaderClientSecret);
+  if (enableTeamleader) {
+    blocks.push(`-- Schedule Teamleader sync every 15 minutes (requires pg_cron + pg_net extensions enabled).
+select
+  cron.schedule(
+    'teamleader-sync-15m',
+    '*/15 * * * *',
+    $$
+    select
+      net.http_post(
+        url := 'https://PROJECT_REF.supabase.co/functions/v1/teamleader-sync',
+        headers := jsonb_build_object('Content-Type', 'application/json'),
+        body := jsonb_build_object(
+          'lookback_months', 12,
+          'entities', array['users','contacts','companies','deal_pipelines','deal_phases','lost_reasons','deals','meetings']
+        )
+      ) as request_id;
+    $$
+  );
+`);
+  }
+
+  const enableMeta =
+    Boolean(payload.metaEnabled) &&
+    Boolean(payload.metaAccessToken) &&
+    Boolean(payload.metaAdAccountId);
+  if (enableMeta) {
+    blocks.push(`-- Schedule Meta spend sync daily (pg_cron runs in UTC; adjust for CET/CEST).
+select
+  cron.schedule(
+    'meta-sync-daily',
+    '15 2 * * *',
+    $$
+    select
+      net.http_post(
+        url := 'https://PROJECT_REF.supabase.co/functions/v1/meta-sync',
+        headers := jsonb_build_object('Content-Type', 'application/json'),
+        body := jsonb_build_object('lookback_days', 7, 'end_offset_days', 1)
+      ) as request_id;
+    $$
+  );
+`);
+  }
+
+  const googleMode = sanitizeString(payload.googleSpendMode).toLowerCase() || 'none';
+  const enableGoogleApi =
+    googleMode === 'api' &&
+    Boolean(payload.googleDeveloperToken) &&
+    Boolean(payload.googleClientId) &&
+    Boolean(payload.googleClientSecret) &&
+    Boolean(payload.googleRefreshToken) &&
+    Boolean(payload.googleCustomerId);
+  const enableGoogleSheet = googleMode === 'sheet' && Boolean(payload.sheetCsvUrl);
+
+  if (enableGoogleApi) {
+    blocks.push(`-- Schedule Google Ads API spend sync daily (pg_cron runs in UTC; adjust for CET/CEST).
+select
+  cron.schedule(
+    'google-sync-daily',
+    '15 2 * * *',
+    $$
+    select
+      net.http_post(
+        url := 'https://PROJECT_REF.supabase.co/functions/v1/google-sync',
+        headers := jsonb_build_object('Content-Type', 'application/json'),
+        body := jsonb_build_object('lookback_days', 7, 'end_offset_days', 1)
+      ) as request_id;
+    $$
+  );
+`);
+  } else if (enableGoogleSheet) {
+    blocks.push(`-- Schedule Google Sheets spend sync daily (same schedule as Meta; pg_cron runs in UTC; adjust for CET/CEST).
+select
+  cron.schedule(
+    'google-sheet-sync-daily',
+    '15 2 * * *',
+    $$
+    select
+      net.http_post(
+        url := 'https://PROJECT_REF.supabase.co/functions/v1/google-sheet-sync',
+        headers := jsonb_build_object('Content-Type', 'application/json'),
+        body := jsonb_build_object('lookback_days', 7, 'end_offset_days', 1)
+      ) as request_id;
+    $$
+  );
+`);
+  }
+
+  let sql = blocks.join('\n\n').trim() + '\n';
+  if (projectRef) {
+    sql = sql.replaceAll('PROJECT_REF', projectRef);
+  }
+  return sql;
+};
+
+const buildSupabaseUpsertHeaders = (publishableKey, serviceRoleKey) => {
+  const publishable = sanitizeString(publishableKey);
+  const service = sanitizeString(serviceRoleKey);
+  const isSecret = service.startsWith('sb_secret_');
+
+  const headers = {
+    Prefer: 'resolution=merge-duplicates',
+    'Content-Type': 'application/json; charset=utf-8'
+  };
+
+  const apiKeyValue = isSecret ? service : publishable || service;
+  if (apiKeyValue) {
+    headers.apikey = apiKeyValue;
+  }
+  if (service && service.startsWith('eyJ')) {
+    headers.Authorization = `Bearer ${service}`;
+  } else if (service && isSecret) {
+    // sb_secret_ is accepted as bearer token too (supabase-js style).
+    headers.Authorization = `Bearer ${service}`;
+  }
+
+  return headers;
+};
+
+const supabaseUpsert = async ({ supabaseUrl, publishableKey, serviceRoleKey, table, onConflict, row }) => {
+  const url = new URL(`${supabaseUrl}/rest/v1/${table}`);
+  if (onConflict) url.searchParams.set('on_conflict', onConflict);
+  const response = await fetch(url.toString(), {
+    method: 'POST',
+    headers: buildSupabaseUpsertHeaders(publishableKey, serviceRoleKey),
+    body: JSON.stringify([row])
+  });
+
+  const text = await response.text();
+  let json = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    json = null;
+  }
+
+  return { ok: response.ok, status: response.status, data: json, raw: text };
+};
+
+const runNodeBootstrap = async (payload) => {
+  const stdout = [];
+  const stderr = [];
+
+  const log = (line = '') => {
+    stdout.push(String(line));
+  };
+  const warn = (line = '') => {
+    stderr.push(String(line));
+  };
+
+  log('[onboarding] PowerShell niet gevonden. Node bootstrap runner gestart.');
+
+  let scaffold = null;
+  try {
+    scaffold = await writeClientScaffold(payload);
+    log(`[scaffold] Geschreven: ${scaffold.clientDir}`);
+  } catch (error) {
+    warn(`[scaffold] Fout: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  const env = payload.accessToken
+    ? { ...process.env, SUPABASE_ACCESS_TOKEN: payload.accessToken }
+    : process.env;
+
+  const safeAppendOutput = (result) => {
+    const out = sanitizeString(result?.stdout);
+    const err = sanitizeString(result?.stderr);
+    if (out) log(out);
+    if (err) warn(err);
+  };
+
+  if (payload.accessToken) {
+    log('[supabase] Login via token...');
+    const result = await runCommandDirect(
+      'supabase',
+      ['login', '--token', payload.accessToken, '--no-browser'],
+      repoRoot,
+      { env }
+    );
+    safeAppendOutput(result);
+    if (!result.ok) {
+      throw new Error('Supabase login faalde. Controleer je access token (sbp_...).');
+    }
+  }
+
+  if (payload.linkProject) {
+    log('[supabase] Link project...');
+    const result = await runCommandDirect(
+      'supabase',
+      ['link', '--project-ref', payload.projectRef, '--password', payload.dbPassword],
+      repoRoot,
+      { env }
+    );
+    safeAppendOutput(result);
+    if (!result.ok) {
+      throw new Error('Supabase link faalde. Controleer project ref + DB password.');
+    }
+  }
+
+  if (payload.pushSchema) {
+    log('[supabase] Push base schema (db push)...');
+    const result = await runCommandDirect(
+      'supabase',
+      ['db', 'push', '--yes', '--password', payload.dbPassword],
+      repoRoot,
+      { env }
+    );
+    safeAppendOutput(result);
+    if (!result.ok) {
+      throw new Error('Supabase db push faalde.');
+    }
+  }
+
+  const secrets = [];
+  if (payload.teamleaderEnabled) {
+    secrets.push({ key: 'TEAMLEADER_CLIENT_ID', value: payload.teamleaderClientId });
+    secrets.push({ key: 'TEAMLEADER_CLIENT_SECRET', value: payload.teamleaderClientSecret });
+    secrets.push({ key: 'TEAMLEADER_REDIRECT_URL', value: payload.teamleaderRedirectUrl });
+    if (payload.teamleaderScopes) secrets.push({ key: 'TEAMLEADER_SCOPES', value: payload.teamleaderScopes });
+  }
+
+  if (payload.metaEnabled) {
+    secrets.push({ key: 'META_ACCESS_TOKEN', value: payload.metaAccessToken });
+    secrets.push({ key: 'META_AD_ACCOUNT_ID', value: payload.metaAdAccountId });
+    secrets.push({ key: 'META_LOCATION_ID', value: payload.locationId });
+    if (payload.metaTimezone) secrets.push({ key: 'META_TIMEZONE', value: payload.metaTimezone });
+  }
+
+  const googleMode = sanitizeString(payload.googleSpendMode).toLowerCase() || 'none';
+  if (googleMode === 'api') {
+    secrets.push({ key: 'GOOGLE_ADS_DEVELOPER_TOKEN', value: payload.googleDeveloperToken });
+    secrets.push({ key: 'GOOGLE_ADS_CLIENT_ID', value: payload.googleClientId });
+    secrets.push({ key: 'GOOGLE_ADS_CLIENT_SECRET', value: payload.googleClientSecret });
+    secrets.push({ key: 'GOOGLE_ADS_REFRESH_TOKEN', value: payload.googleRefreshToken });
+    secrets.push({ key: 'GOOGLE_ADS_CUSTOMER_ID', value: payload.googleCustomerId });
+    secrets.push({ key: 'GOOGLE_LOCATION_ID', value: payload.locationId });
+    if (payload.googleLoginCustomerId) {
+      secrets.push({ key: 'GOOGLE_ADS_LOGIN_CUSTOMER_ID', value: payload.googleLoginCustomerId });
+    }
+    if (payload.googleTimezone) secrets.push({ key: 'GOOGLE_TIMEZONE', value: payload.googleTimezone });
+  } else if (googleMode === 'sheet') {
+    secrets.push({ key: 'SHEET_CSV_URL', value: payload.sheetCsvUrl });
+    secrets.push({ key: 'SHEET_LOCATION_ID', value: payload.locationId });
+    if (payload.sheetHeaderRow && Number(payload.sheetHeaderRow) > 0) {
+      secrets.push({ key: 'SHEET_HEADER_ROW', value: String(payload.sheetHeaderRow) });
+    }
+  }
+
+  const secretsArgs = secrets
+    .map((item) => ({ key: sanitizeString(item.key), value: sanitizeString(item.value) }))
+    .filter((item) => item.key && item.value)
+    .map((item) => `${item.key}=${item.value}`);
+
+  if (secretsArgs.length) {
+    log('[supabase] Secrets zetten...');
+    const result = await runCommandDirect(
+      'supabase',
+      ['secrets', 'set', '--project-ref', payload.projectRef, ...secretsArgs],
+      repoRoot,
+      { env }
+    );
+    safeAppendOutput(result);
+    if (!result.ok) {
+      throw new Error('Supabase secrets set faalde.');
+    }
+  }
+
+  if (payload.applyConfig) {
+    log('[supabase] dashboard_config upsert via REST...');
+
+    const row = {
+      id: 1,
+      location_id: payload.locationId,
+      dashboard_title: payload.dashboardTitle || null,
+      dashboard_subtitle: payload.dashboardSubtitle || null,
+      dashboard_logo_url: payload.logoUrl || null,
+      dashboard_layout: scaffold?.layoutObject ?? null
+    };
+
+    if (Array.isArray(scaffold?.sourceNormalizationRules) && scaffold.sourceNormalizationRules.length) {
+      row.source_normalization_rules = scaffold.sourceNormalizationRules;
+    }
+
+    const result = await supabaseUpsert({
+      supabaseUrl: payload.supabaseUrl,
+      publishableKey: payload.publishableKey,
+      serviceRoleKey: payload.serviceRoleKey,
+      table: 'dashboard_config',
+      onConflict: 'id',
+      row
+    });
+
+    if (!result.ok) {
+      warn(result.raw || '');
+      throw new Error(`dashboard_config upsert faalde (${result.status}). Run eerst base schema (db push).`);
+    }
+    log('[supabase] dashboard_config OK.');
+  }
+
+  if (payload.ghlPrivateIntegrationToken) {
+    log('[supabase] GHL integratie upsert via REST...');
+    const row = {
+      location_id: payload.locationId,
+      private_integration_token: payload.ghlPrivateIntegrationToken,
+      active: true,
+      updated_at: new Date().toISOString()
+    };
+    const result = await supabaseUpsert({
+      supabaseUrl: payload.supabaseUrl,
+      publishableKey: payload.publishableKey,
+      serviceRoleKey: payload.serviceRoleKey,
+      table: 'ghl_integrations',
+      onConflict: 'location_id',
+      row
+    });
+    if (!result.ok) {
+      warn(result.raw || '');
+      throw new Error(`GHL integratie opslaan faalde (${result.status}).`);
+    }
+    log('[supabase] GHL integratie OK.');
+  }
+
+  if (payload.deployFunctions) {
+    log('[supabase] Edge functions deployen...');
+    const functions = ['ghl-sync', 'meta-sync', 'google-sync', 'google-sheet-sync', 'teamleader-oauth', 'teamleader-sync'];
+    for (const fnName of functions) {
+      log(`[supabase] Deploy ${fnName}...`);
+      const result = await runCommandDirect(
+        'supabase',
+        ['functions', 'deploy', fnName, '--project-ref', payload.projectRef],
+        repoRoot,
+        { env }
+      );
+      safeAppendOutput(result);
+      if (!result.ok) {
+        throw new Error(`Deploy faalde voor ${fnName}.`);
+      }
+    }
+  }
+
+  return {
+    ok: true,
+    exitCode: 0,
+    stdout: stdout.join('\n').trim() + '\n',
+    stderr: stderr.join('\n').trim()
+  };
 };
 
 const server = createServer(async (req, res) => {
@@ -1065,24 +1719,9 @@ const server = createServer(async (req, res) => {
         publishableKey: payload.publishableKey
       };
 
-      const args = buildArgs(payload);
-      isRunning = true;
-
-      const child = spawn('powershell', args, { cwd: repoRoot });
-      let stdout = '';
-      let stderr = '';
-
-      child.stdout.on('data', (chunk) => {
-        stdout += chunk.toString();
-      });
-      child.stderr.on('data', (chunk) => {
-        stderr += chunk.toString();
-      });
-
-      child.on('close', async (code) => {
-        isRunning = false;
+      const sendOnboardResult = async (result) => {
         let dashboardEnv = null;
-        if (code === 0 && payload.writeDashboardEnv) {
+        if (result?.ok && payload.writeDashboardEnv) {
           try {
             dashboardEnv = await writeDashboardEnvFile(payload);
           } catch (error) {
@@ -1092,12 +1731,103 @@ const server = createServer(async (req, res) => {
             };
           }
         }
+
         sendJson(res, 200, {
-          ok: code === 0,
-          exitCode: code,
-          stdout,
-          stderr,
+          ok: Boolean(result?.ok),
+          exitCode: typeof result?.exitCode === 'number' ? result.exitCode : 1,
+          stdout: result?.stdout || '',
+          stderr: result?.stderr || '',
           dashboardEnv
+        });
+      };
+
+      const forceNode = sanitizeString(process.env.ONBOARDING_FORCE_NODE_BOOTSTRAP) === '1';
+      if (forceNode) {
+        try {
+          const nodeResult = await runNodeBootstrap(payload);
+          isRunning = false;
+          await sendOnboardResult(nodeResult);
+        } catch (error) {
+          isRunning = false;
+          sendJson(res, 500, {
+            ok: false,
+            error: error instanceof Error ? error.message : 'Onbekende fout'
+          });
+        }
+        return;
+      }
+
+      const args = buildArgs(payload);
+      isRunning = true;
+
+      const psCommand = resolvePowerShellCommand();
+
+      const child = spawn(psCommand, args, { cwd: repoRoot });
+      let stdout = '';
+      let stderr = '';
+
+      child.on('error', async (error) => {
+        if (res.writableEnded) return;
+
+        const code = error && typeof error === 'object' ? error.code : '';
+        const isMissingBinary = code === 'ENOENT';
+        if (!isMissingBinary) {
+          isRunning = false;
+          sendJson(res, 500, {
+            ok: false,
+            error: `PowerShell starten faalde (${psCommand}). Installeer PowerShell (pwsh) of zet ONBOARDING_POWERSHELL_BIN.`,
+            details: [error instanceof Error ? error.message : String(error)]
+          });
+          return;
+        }
+
+        try {
+          const nodeResult = await runNodeBootstrap(payload);
+          isRunning = false;
+          await sendOnboardResult(nodeResult);
+        } catch (fallbackError) {
+          isRunning = false;
+          sendJson(res, 500, {
+            ok: false,
+            error: 'PowerShell ontbreekt en Node runner faalde.',
+            details: [fallbackError instanceof Error ? fallbackError.message : String(fallbackError)]
+          });
+        }
+      });
+
+      child.stdout.on('data', (chunk) => {
+        stdout += chunk.toString();
+      });
+      child.stderr.on('data', (chunk) => {
+        stderr += chunk.toString();
+      });
+
+      child.on('close', async (code) => {
+        if (res.writableEnded) return;
+        isRunning = false;
+
+        const exitCode = typeof code === 'number' ? code : 1;
+        const outTrimmed = sanitizeString(stdout);
+        const errTrimmed = sanitizeString(stderr);
+
+        // Some PowerShell failures (or streams like Write-Host) can result in an empty capture.
+        // When this happens, fall back to the Node runner to keep onboarding usable on non-Windows setups.
+        if (exitCode !== 0 && !outTrimmed && !errTrimmed) {
+          try {
+            const nodeResult = await runNodeBootstrap(payload);
+            nodeResult.stdout = `${sanitizeString(nodeResult.stdout)}\n\n[onboarding] Fallback: PowerShell exit code ${exitCode} zonder output.\n`.trim() + '\n';
+            await sendOnboardResult(nodeResult);
+            return;
+          } catch (_fallbackError) {
+            // Continue with the original (empty) PowerShell result.
+          }
+        }
+
+        await sendOnboardResult({
+          ok: exitCode === 0,
+          exitCode,
+          stdout,
+          stderr
         });
       });
     } catch (error) {
@@ -1835,6 +2565,36 @@ const server = createServer(async (req, res) => {
 });
 
 const port = process.env.ONBOARDING_PORT ? Number(process.env.ONBOARDING_PORT) : 8787;
-server.listen(port, () => {
-  console.log(`Onboarding app running at http://localhost:${port}`);
-});
+const host = sanitizeString(process.env.ONBOARDING_HOST);
+
+const getNetworkAddresses = () => {
+  const nets = os.networkInterfaces();
+  const addresses = new Set();
+
+  for (const netInterfaces of Object.values(nets)) {
+    for (const net of netInterfaces ?? []) {
+      if (net.family === 'IPv4' && !net.internal) {
+        addresses.add(net.address);
+      }
+    }
+  }
+
+  return [...addresses];
+};
+
+const onListen = () => {
+  console.log('Onboarding app running');
+  console.log(`  Local:   http://localhost:${port}`);
+
+  if (!host || host === '0.0.0.0' || host === '::') {
+    for (const address of getNetworkAddresses()) {
+      console.log(`  Network: http://${address}:${port}`);
+    }
+  }
+};
+
+if (host) {
+  server.listen(port, host, onListen);
+} else {
+  server.listen(port, onListen);
+}

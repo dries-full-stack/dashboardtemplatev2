@@ -57,6 +57,29 @@
               <input name="logoUrl" placeholder="/assets/logos/client.png of https://..." />
             </label>
           </div>
+
+          <div class="divider"></div>
+
+          <h3>Branding</h3>
+          <label class="checkbox">
+            <input type="checkbox" id="enableBrandColors" name="enableBrandColors" />
+            Custom dashboard kleuren instellen
+          </label>
+          <p class="muted" data-brand-colors>
+            Dit zet per klant brand colors in <code>dashboard_layout.branding.colors</code> en past automatisch de dashboard CSS variables aan.
+          </p>
+          <div class="grid" data-brand-colors>
+            <label>
+              Primary kleur
+              <span class="hint">Hoofdkleur voor knoppen, highlights en icons.</span>
+              <input id="brandPrimaryColor" name="brandPrimaryColor" type="color" value="#1e3a8a" />
+            </label>
+            <label>
+              Accent kleur
+              <span class="hint">Accentkleur voor badges, focus ring en gradients.</span>
+              <input id="brandSecondaryColor" name="brandSecondaryColor" type="color" value="#0ea5a4" />
+            </label>
+          </div>
         </section>
 
         <section class="wizard-panel" data-step="2">
