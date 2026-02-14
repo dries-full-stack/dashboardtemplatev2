@@ -14,13 +14,11 @@ create table if not exists public.contacts (
   synced_at timestamptz default now(),
   primary key (id, location_id)
 );
-
 create index if not exists contacts_email_idx on public.contacts (email);
 create index if not exists contacts_phone_idx on public.contacts (phone);
 create index if not exists contacts_updated_at_idx on public.contacts (updated_at);
 create index if not exists contacts_tags_idx on public.contacts using gin (tags);
 create index if not exists contacts_raw_data_idx on public.contacts using gin (raw_data);
-
 create table if not exists public.opportunities (
   id text not null,
   location_id text not null,
@@ -37,14 +35,12 @@ create table if not exists public.opportunities (
   synced_at timestamptz default now(),
   primary key (id, location_id)
 );
-
 create index if not exists opportunities_status_idx on public.opportunities (status);
 create index if not exists opportunities_pipeline_idx on public.opportunities (pipeline_id, pipeline_stage_id);
 create index if not exists opportunities_contact_idx on public.opportunities (contact_id);
 create index if not exists opportunities_location_created_idx on public.opportunities (location_id, created_at);
 create index if not exists opportunities_updated_at_idx on public.opportunities (updated_at);
 create index if not exists opportunities_raw_data_idx on public.opportunities using gin (raw_data);
-
 create table if not exists public.appointments (
   id text not null,
   location_id text not null,
@@ -61,14 +57,12 @@ create table if not exists public.appointments (
   synced_at timestamptz default now(),
   primary key (id, location_id)
 );
-
 create index if not exists appointments_calendar_idx on public.appointments (calendar_id);
 create index if not exists appointments_contact_idx on public.appointments (contact_id);
 create index if not exists appointments_status_idx on public.appointments (appointment_status);
 create index if not exists appointments_time_idx on public.appointments (start_time, end_time);
 create index if not exists appointments_updated_at_idx on public.appointments (updated_at);
 create index if not exists appointments_raw_data_idx on public.appointments using gin (raw_data);
-
 create table if not exists public.sync_state (
   entity text not null,
   location_id text not null,
@@ -77,7 +71,6 @@ create table if not exists public.sync_state (
   updated_at timestamptz default now(),
   primary key (entity, location_id)
 );
-
 create table if not exists public.marketing_spend_daily (
   date date not null,
   location_id text not null,
@@ -90,18 +83,15 @@ create table if not exists public.marketing_spend_daily (
   synced_at timestamptz not null default now(),
   primary key (date, location_id, source, account_id)
 );
-
 create index if not exists marketing_spend_location_date_idx on public.marketing_spend_daily (location_id, date);
 create index if not exists marketing_spend_source_idx on public.marketing_spend_daily (source);
 create index if not exists marketing_spend_raw_idx on public.marketing_spend_daily using gin (raw);
-
 alter table public.marketing_spend_daily enable row level security;
 drop policy if exists "Public read marketing spend" on public.marketing_spend_daily;
 create policy "Public read marketing spend"
   on public.marketing_spend_daily
   for select
   using (true);
-
 create table if not exists public.marketing_spend_adset_daily (
   date date not null,
   location_id text not null,
@@ -118,20 +108,17 @@ create table if not exists public.marketing_spend_adset_daily (
   synced_at timestamptz not null default now(),
   primary key (date, location_id, source, account_id, adset_id)
 );
-
 create index if not exists marketing_spend_adset_location_date_idx on public.marketing_spend_adset_daily (location_id, date);
 create index if not exists marketing_spend_adset_source_idx on public.marketing_spend_adset_daily (source);
 create index if not exists marketing_spend_adset_campaign_idx on public.marketing_spend_adset_daily (campaign_id);
 create index if not exists marketing_spend_adset_adset_idx on public.marketing_spend_adset_daily (adset_id);
 create index if not exists marketing_spend_adset_raw_idx on public.marketing_spend_adset_daily using gin (raw);
-
 alter table public.marketing_spend_adset_daily enable row level security;
 drop policy if exists "Public read marketing spend adset" on public.marketing_spend_adset_daily;
 create policy "Public read marketing spend adset"
   on public.marketing_spend_adset_daily
   for select
   using (true);
-
 create table if not exists public.marketing_spend_campaign_daily (
   date date not null,
   location_id text not null,
@@ -146,19 +133,16 @@ create table if not exists public.marketing_spend_campaign_daily (
   synced_at timestamptz not null default now(),
   primary key (date, location_id, source, account_id, campaign_id)
 );
-
 create index if not exists marketing_spend_campaign_location_date_idx on public.marketing_spend_campaign_daily (location_id, date);
 create index if not exists marketing_spend_campaign_source_idx on public.marketing_spend_campaign_daily (source);
 create index if not exists marketing_spend_campaign_id_idx on public.marketing_spend_campaign_daily (campaign_id);
 create index if not exists marketing_spend_campaign_raw_idx on public.marketing_spend_campaign_daily using gin (raw);
-
 alter table public.marketing_spend_campaign_daily enable row level security;
 drop policy if exists "Public read marketing spend campaign" on public.marketing_spend_campaign_daily;
 create policy "Public read marketing spend campaign"
   on public.marketing_spend_campaign_daily
   for select
   using (true);
-
 create table if not exists public.marketing_spend_ad_daily (
   date date not null,
   location_id text not null,
@@ -177,21 +161,18 @@ create table if not exists public.marketing_spend_ad_daily (
   synced_at timestamptz not null default now(),
   primary key (date, location_id, source, account_id, ad_id)
 );
-
 create index if not exists marketing_spend_ad_location_date_idx on public.marketing_spend_ad_daily (location_id, date);
 create index if not exists marketing_spend_ad_source_idx on public.marketing_spend_ad_daily (source);
 create index if not exists marketing_spend_ad_campaign_idx on public.marketing_spend_ad_daily (campaign_id);
 create index if not exists marketing_spend_ad_adset_idx on public.marketing_spend_ad_daily (adset_id);
 create index if not exists marketing_spend_ad_ad_idx on public.marketing_spend_ad_daily (ad_id);
 create index if not exists marketing_spend_ad_raw_idx on public.marketing_spend_ad_daily using gin (raw);
-
 alter table public.marketing_spend_ad_daily enable row level security;
 drop policy if exists "Public read marketing spend ad" on public.marketing_spend_ad_daily;
 create policy "Public read marketing spend ad"
   on public.marketing_spend_ad_daily
   for select
   using (true);
-
 create table if not exists public.marketing_spend_source_mapping (
   id bigint generated by default as identity primary key,
   location_id text not null,
@@ -204,26 +185,22 @@ create table if not exists public.marketing_spend_source_mapping (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
-
 create index if not exists marketing_spend_source_mapping_location_idx on public.marketing_spend_source_mapping (location_id);
 create index if not exists marketing_spend_source_mapping_platform_idx on public.marketing_spend_source_mapping (platform);
 create index if not exists marketing_spend_source_mapping_campaign_idx on public.marketing_spend_source_mapping (campaign_id);
 create index if not exists marketing_spend_source_mapping_adset_idx on public.marketing_spend_source_mapping (adset_id);
-
 alter table public.marketing_spend_source_mapping enable row level security;
 drop policy if exists "Public read marketing spend source mapping" on public.marketing_spend_source_mapping;
 create policy "Public read marketing spend source mapping"
   on public.marketing_spend_source_mapping
   for select
   using (true);
-
 drop policy if exists "Authenticated write marketing spend source mapping" on public.marketing_spend_source_mapping;
 create policy "Authenticated write marketing spend source mapping"
   on public.marketing_spend_source_mapping
   for all
   using (auth.role() = 'authenticated')
   with check (auth.role() = 'authenticated');
-
 create table if not exists public.ghl_integrations (
   id bigint generated by default as identity primary key,
   location_id text not null,
@@ -232,13 +209,10 @@ create table if not exists public.ghl_integrations (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
-
 create unique index if not exists ghl_integrations_location_idx on public.ghl_integrations (location_id);
 create index if not exists ghl_integrations_active_idx on public.ghl_integrations (active);
-
 alter table public.ghl_integrations enable row level security;
 revoke all on table public.ghl_integrations from anon, authenticated;
-
 create table if not exists public.teamleader_integrations (
   id bigint generated by default as identity primary key,
   location_id text not null,
@@ -250,12 +224,9 @@ create table if not exists public.teamleader_integrations (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
-
 create unique index if not exists teamleader_integrations_location_idx on public.teamleader_integrations (location_id);
-
 alter table public.teamleader_integrations enable row level security;
 revoke all on table public.teamleader_integrations from anon, authenticated;
-
 create table if not exists public.dashboard_config (
   id smallint primary key default 1,
   location_id text not null,
@@ -270,7 +241,6 @@ create table if not exists public.dashboard_config (
   updated_at timestamptz not null default now(),
   constraint dashboard_config_singleton check (id = 1)
 );
-
 alter table public.dashboard_config
   add column if not exists campaign_field_id text,
   add column if not exists hook_field_id text,
@@ -279,14 +249,12 @@ alter table public.dashboard_config
   add column if not exists dashboard_subtitle text,
   add column if not exists dashboard_logo_url text,
   add column if not exists dashboard_layout jsonb;
-
 alter table public.dashboard_config enable row level security;
 drop policy if exists "Public read dashboard config" on public.dashboard_config;
 create policy "Public read dashboard config"
   on public.dashboard_config
   for select
   using (true);
-
 create table if not exists public.lost_reason_lookup (
   location_id text not null,
   reason_id text not null,
@@ -295,16 +263,13 @@ create table if not exists public.lost_reason_lookup (
   updated_at timestamptz not null default now(),
   primary key (location_id, reason_id)
 );
-
 create index if not exists lost_reason_lookup_location_idx on public.lost_reason_lookup (location_id);
-
 alter table public.lost_reason_lookup enable row level security;
 drop policy if exists "Public read lost reason lookup" on public.lost_reason_lookup;
 create policy "Public read lost reason lookup"
   on public.lost_reason_lookup
   for select
   using (true);
-
 create or replace function public.custom_field_value(
   p_custom_fields jsonb,
   p_field_id text
@@ -334,7 +299,6 @@ as $$
     limit 1
   ) arr on true;
 $$;
-
 -- Convenience views (raw_data + common source keys)
 drop view if exists public.contacts_view;
 create view public.contacts_view as
@@ -404,7 +368,6 @@ select
     end
   ) as source_guess
 from public.contacts;
-
 drop view if exists public.opportunities_view;
 create view public.opportunities_view as
 select
@@ -464,7 +427,6 @@ select
     end
   ) as source_guess
 from public.opportunities;
-
 drop view if exists public.appointments_view;
 create view public.appointments_view as
 select
@@ -495,7 +457,6 @@ select
   raw_data->'customFields' as custom_fields,
   raw_data
 from public.appointments;
-
 -- RPC helpers for dashboards
 drop function if exists public.get_source_breakdown(text, timestamptz, timestamptz);
 drop function if exists public.get_source_records(text, timestamptz, timestamptz, text, text, integer);
@@ -510,7 +471,6 @@ drop function if exists public.normalize_source(text);
 drop function if exists public.normalize_hook_value(text, text);
 drop function if exists public.extract_url_param(text, text);
 drop function if exists public.get_custom_field_options(text);
-
 create or replace function public.extract_url_param(
   p_url text,
   p_key text
@@ -524,7 +484,6 @@ as $$
     else nullif((regexp_match(p_url, '(?:\\?|&)' || p_key || '=([^&]+)'))[1], '')
   end;
 $$;
-
 create or replace function public.normalize_hook_value(
   p_value text,
   p_source text
@@ -559,7 +518,6 @@ as $$
     else p_value
   end;
 $$;
-
 create or replace function public.normalize_source(
   p_source text
 )
@@ -574,7 +532,6 @@ as $$
     else nullif(trim(p_source), '')
   end;
 $$;
-
 create or replace function public.get_custom_field_options(
   p_location_id text
 )
@@ -738,7 +695,6 @@ as $$
   full join deals on deals.source = coalesce(leads.source, appts.source)
   order by leads desc nulls last, appointments desc nulls last, source asc;
 $$;
-
 create or replace function public.get_source_records(
   p_location_id text,
   p_start timestamptz,
@@ -1053,7 +1009,6 @@ as $$
   order by occurred_at desc nulls last
   limit least(greatest(p_limit, 1), 500);
 $$;
-
 create or replace function public.get_hook_records(
   p_location_id text,
   p_start timestamptz,
@@ -1385,7 +1340,6 @@ as $$
   order by occurred_at desc nulls last
   limit least(greatest(p_limit, 1), 500);
 $$;
-
 create or replace function public.get_hook_performance(
   p_location_id text,
   p_start timestamptz,
@@ -1561,7 +1515,6 @@ as $$
   full join appts on appts.hook = opps.hook and appts.campaign = opps.campaign and appts.source = opps.source
   order by leads desc nulls last, appointments desc nulls last, hook asc;
 $$;
-
 create or replace function public.get_lost_reason_records(
   p_location_id text,
   p_start timestamptz,
@@ -1720,7 +1673,6 @@ as $$
   order by occurred_at desc nulls last
   limit least(greatest(p_limit, 1), 500);
 $$;
-
 create or replace function public.get_lost_reasons(
   p_location_id text,
   p_start timestamptz,
@@ -1804,7 +1756,6 @@ as $$
   group by coalesce(l.reason_name, opps.reason)
   order by total desc, reason asc;
 $$;
-
 create or replace function public.get_lost_reason_id_candidates(
   p_location_id text,
   p_start timestamptz,
@@ -1829,7 +1780,6 @@ as $$
   having nullif(trim(o.raw_data->>'lostReasonId'), '') is not null
   order by occurrences desc, reason_id asc;
 $$;
-
 create or replace function public.get_lost_reason_key_candidates(
   p_location_id text,
   p_start timestamptz,
@@ -1882,7 +1832,6 @@ as $$
   group by key
   order by occurrences desc, key asc;
 $$;
-
 create or replace function public.get_finance_summary(
   p_location_id text,
   p_start timestamptz,

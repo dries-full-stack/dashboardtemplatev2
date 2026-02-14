@@ -3,13 +3,14 @@ param(
   [string]$ProjectRef,
   [string]$SupabaseUrl,
   [string]$LocationId,
+  [string]$HookFieldId,
+  [string]$CampaignFieldId,
   [string]$DashboardTitle,
   [string]$DashboardSubtitle,
   [string]$LogoUrl,
+  [string]$BrandPrimaryColor,
+  [string]$BrandSecondaryColor,
   [string]$DashboardTabs,
-  [string]$BillingPortalUrl,
-  [string]$BillingCheckoutUrl,
-  [switch]$BillingCheckoutEmbed,
   [string]$GhlPrivateIntegrationToken,
   [string]$AccessToken,
   [string]$DbPassword,
@@ -19,6 +20,20 @@ param(
   [string]$TeamleaderClientSecret,
   [string]$TeamleaderRedirectUrl,
   [string]$TeamleaderScopes,
+  [switch]$EnableMetaSpend,
+  [string]$MetaAccessToken,
+  [string]$MetaAdAccountId,
+  [string]$MetaTimezone,
+  [string]$GoogleSpendMode,
+  [string]$GoogleDeveloperToken,
+  [string]$GoogleClientId,
+  [string]$GoogleClientSecret,
+  [string]$GoogleRefreshToken,
+  [string]$GoogleCustomerId,
+  [string]$GoogleLoginCustomerId,
+  [string]$GoogleTimezone,
+  [string]$SheetCsvUrl,
+  [int]$SheetHeaderRow,
   [switch]$ApplyConfig,
   [switch]$CreateBranch,
   [string]$BranchName,
@@ -92,6 +107,32 @@ function To-SqlString($value) {
   }
   $escaped = $value.Replace("'", "''")
   return "'$escaped'"
+}
+
+function Resolve-BrandTheme($slug, $title, $logoUrl) {
+  $candidate = "$slug $title $logoUrl".ToLower()
+  if ($candidate -match 'belivert|belivet') {
+    return 'belivert'
+  }
+  return ''
+}
+
+function Normalize-HexColor($value) {
+  if ([string]::IsNullOrWhiteSpace($value)) { return '' }
+  $raw = $value.Trim()
+
+  if ($raw -match '^#?([0-9a-fA-F]{3})$') {
+    $short = $Matches[1].ToLower()
+    $expanded = ($short.ToCharArray() | ForEach-Object { "$_$_" }) -join ''
+    return "#$expanded"
+  }
+
+  if ($raw -match '^#?([0-9a-fA-F]{6})$') {
+    return '#' + $Matches[1].ToLower()
+  }
+
+  Write-Host "Ongeldige kleurwaarde: $raw (verwacht #RRGGBB)."
+  return ''
 }
 
 function Get-GitRemoteRepo() {
@@ -342,6 +383,28 @@ $repoRoot = Join-Path $PSScriptRoot '..'
 $clientDir = Join-Path $repoRoot "clients\\$Slug"
 New-Item -ItemType Directory -Force -Path $clientDir | Out-Null
 
+$themeKey = Resolve-BrandTheme -slug $Slug -title $DashboardTitle -logoUrl $LogoUrl
+$brandPrimaryValue = Normalize-HexColor $BrandPrimaryColor
+$brandSecondaryValue = Normalize-HexColor $BrandSecondaryColor
+$hookFieldIdValue = if (-not [string]::IsNullOrWhiteSpace($HookFieldId)) { $HookFieldId.Trim() } else { '' }
+$campaignFieldIdValue = if (-not [string]::IsNullOrWhiteSpace($CampaignFieldId)) { $CampaignFieldId.Trim() } else { '' }
+
+$sourceNormalizationRulesJson = $null
+if ($themeKey -eq 'belivert') {
+  if ([string]::IsNullOrWhiteSpace($hookFieldIdValue)) {
+    $hookFieldIdValue = 'R7CEVThNclchfzYqS5IT'
+  }
+  $sourceNormalizationRulesJson = @(
+    @{ bucket = 'Solvari'; patterns = @('solvari') },
+    @{ bucket = 'Bobex'; patterns = @('bobex') },
+    @{ bucket = 'Trustlocal'; patterns = @('trustlocal', 'trust local') },
+    @{ bucket = 'Bambelo'; patterns = @('bambelo') },
+    @{ bucket = 'Facebook Ads'; patterns = @('facebook', 'instagram', 'meta', 'fbclid', 'meta - calculator', 'meta ads - calculator') },
+    @{ bucket = 'Google Ads'; patterns = @('google', 'adwords', 'gclid', 'cpc', 'google - woning prijsberekening') },
+    @{ bucket = 'Organic'; patterns = @('organic', 'seo', 'direct', 'referral', '(none)', 'website') }
+  ) | ConvertTo-Json -Depth 6
+}
+
 $layoutJson = $null
 if (-not $NoLayout) {
   $selectedTabs = @()
@@ -357,6 +420,17 @@ if (-not $NoLayout) {
     [ordered]@{ id = 'sales'; label = 'Sales Resultaten'; enabled = $selectedTabs -contains 'sales' },
     [ordered]@{ id = 'call-center'; label = 'Call Center'; enabled = $selectedTabs -contains 'call-center' }
   )
+
+  $behaviorObject = [ordered]@{
+    appointments_provider = if ($themeKey -eq 'belivert') { 'teamleader_meetings' } else { 'ghl' }
+    source_breakdown = [ordered]@{
+      variant = if ($themeKey -eq 'belivert') { 'deals' } else { 'default' }
+      cost_denominator = if ($themeKey -eq 'belivert') { 'deals' } else { 'confirmed' }
+    }
+    hook_performance = [ordered]@{
+      source_bucket_filter = if ($themeKey -eq 'belivert') { 'Facebook Ads' } else { $null }
+    }
+  }
 
   $layoutObject = [ordered]@{
     dashboards = $dashboards
@@ -375,6 +449,16 @@ if (-not $NoLayout) {
       [ordered]@{ kind = 'hook_performance'; title = 'Ad Hook Performance' },
       [ordered]@{ kind = 'lost_reasons'; title = 'Verliesredenen' }
     )
+    behavior = $behaviorObject
+  }
+  if (-not [string]::IsNullOrWhiteSpace($themeKey)) {
+    $layoutObject.theme = $themeKey
+  }
+  if (-not [string]::IsNullOrWhiteSpace($brandPrimaryValue) -or -not [string]::IsNullOrWhiteSpace($brandSecondaryValue)) {
+    $brandingColors = [ordered]@{}
+    if (-not [string]::IsNullOrWhiteSpace($brandPrimaryValue)) { $brandingColors.primary = $brandPrimaryValue }
+    if (-not [string]::IsNullOrWhiteSpace($brandSecondaryValue)) { $brandingColors.secondary = $brandSecondaryValue }
+    $layoutObject.branding = [ordered]@{ colors = $brandingColors }
   }
 
   $layoutJson = $layoutObject | ConvertTo-Json -Depth 8
@@ -389,6 +473,29 @@ if ($layoutJson) {
   $layoutSql = "`$$`n$layoutJson`n`$$::jsonb"
 }
 
+$normalizationColumns = ''
+$normalizationValues = ''
+$normalizationUpdate = ''
+if ($sourceNormalizationRulesJson) {
+  $normalizationColumns = ",`n  source_normalization_rules"
+  $normalizationValues = ",`n  `$$`n$sourceNormalizationRulesJson`n`$$::jsonb"
+  $normalizationUpdate = ",`n  source_normalization_rules = excluded.source_normalization_rules"
+}
+
+$hookColumns = ''
+$hookValues = ''
+$hookUpdate = ''
+if (-not [string]::IsNullOrWhiteSpace($hookFieldIdValue)) {
+  $hookColumns += ",`n  hook_field_id"
+  $hookValues += ",`n  $(To-SqlString $hookFieldIdValue)"
+  $hookUpdate += ",`n  hook_field_id = excluded.hook_field_id"
+}
+if (-not [string]::IsNullOrWhiteSpace($campaignFieldIdValue)) {
+  $hookColumns += ",`n  campaign_field_id"
+  $hookValues += ",`n  $(To-SqlString $campaignFieldIdValue)"
+  $hookUpdate += ",`n  campaign_field_id = excluded.campaign_field_id"
+}
+
 $dashboardSql = @"
 -- Client dashboard_config for $Slug
 -- Run this in Supabase SQL editor (or via CLI).
@@ -398,10 +505,7 @@ insert into public.dashboard_config (
   dashboard_title,
   dashboard_subtitle,
   dashboard_logo_url,
-  dashboard_layout,
-  billing_portal_url,
-  billing_checkout_url,
-  billing_checkout_embed
+  dashboard_layout$normalizationColumns$hookColumns
 )
 values (
   1,
@@ -409,20 +513,14 @@ values (
   $(To-SqlString $DashboardTitle),
   $(To-SqlString $DashboardSubtitle),
   $(To-SqlString $LogoUrl),
-  $layoutSql,
-  $(To-SqlString $BillingPortalUrl),
-  $(To-SqlString $BillingCheckoutUrl),
-  $(if ($BillingCheckoutEmbed) { 'true' } else { 'false' })
+  $layoutSql$normalizationValues$hookValues
 )
 on conflict (id) do update set
   location_id = excluded.location_id,
   dashboard_title = excluded.dashboard_title,
   dashboard_subtitle = excluded.dashboard_subtitle,
   dashboard_logo_url = excluded.dashboard_logo_url,
-  dashboard_layout = excluded.dashboard_layout,
-  billing_portal_url = excluded.billing_portal_url,
-  billing_checkout_url = excluded.billing_checkout_url,
-  billing_checkout_embed = excluded.billing_checkout_embed,
+  dashboard_layout = excluded.dashboard_layout$normalizationUpdate$hookUpdate,
   updated_at = now();
 "@
 
@@ -433,62 +531,23 @@ if ([string]::IsNullOrWhiteSpace($publishableValue)) {
   $publishableValue = 'YOUR_SUPABASE_PUBLISHABLE_KEY'
 }
 
-$brandTitle = if ([string]::IsNullOrWhiteSpace($DashboardTitle)) { 'Your Company' } else { $DashboardTitle.Trim() }
-$brandSubtitle = if ([string]::IsNullOrWhiteSpace($DashboardSubtitle)) { 'Performance Dashboard' } else { $DashboardSubtitle.Trim() }
-$brandPageSubtitle = if ([string]::IsNullOrWhiteSpace($DashboardSubtitle)) { 'Performance Dashboard - Leads, afspraken & ROI' } else { $DashboardSubtitle.Trim() }
-$brandLogoUrl = if ([string]::IsNullOrWhiteSpace($LogoUrl)) { '/assets/logos/placeholder-logo.svg' } else { $LogoUrl.Trim() }
-$normalizedSlug = if ([string]::IsNullOrWhiteSpace($Slug)) { '' } else { ($Slug.Trim().ToLower() -replace '\s+', '-' -replace '[^a-z0-9\-]', '') }
-$normalizedTitle = if ([string]::IsNullOrWhiteSpace($DashboardTitle)) { '' } else { ($DashboardTitle.Trim().ToLower() -replace '\s+', '-' -replace '[^a-z0-9\-]', '') }
-$brandTheme =
-  if ($normalizedSlug -like '*belivert*' -or $normalizedTitle -like '*belivert*') {
-    'belivert'
-  } else {
-    ''
-  }
-
-$siteUrl = ''
-if (-not [string]::IsNullOrWhiteSpace($NetlifyCustomDomain)) {
-  $domainCandidate = $NetlifyCustomDomain.Trim().TrimEnd('/')
-  if ($domainCandidate -match '^https?://') {
-    $siteUrl = $domainCandidate
-  } elseif ($domainCandidate -match '^[a-z0-9.-]+\.[a-z]{2,}$') {
-    $siteUrl = "https://$domainCandidate"
-  }
-} elseif (-not [string]::IsNullOrWhiteSpace($NetlifySiteName)) {
-  $siteUrl = "https://$($NetlifySiteName.Trim()).netlify.app"
+$dashboardEnvLines = @(
+  "VITE_SUPABASE_URL=$SupabaseUrl",
+  "VITE_SUPABASE_PUBLISHABLE_KEY=$publishableValue",
+  "VITE_GHL_LOCATION_ID=$LocationId",
+  "VITE_DASHBOARD_TITLE=$DashboardTitle",
+  "VITE_DASHBOARD_SUBTITLE=$DashboardSubtitle",
+  "VITE_DASHBOARD_LOGO_URL=$LogoUrl",
+  "VITE_DASHBOARD_THEME=$themeKey"
+)
+$dashboardEnvLines = $dashboardEnvLines | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+if (-not [string]::IsNullOrWhiteSpace($brandPrimaryValue)) {
+  $dashboardEnvLines += "VITE_DASHBOARD_PRIMARY_COLOR=$brandPrimaryValue"
 }
-
-$previewTitle = if ([string]::IsNullOrWhiteSpace($brandTitle)) { 'GHL Dashboard Template' } else { "$brandTitle Dashboard" }
-$previewDescription = if ([string]::IsNullOrWhiteSpace($brandPageSubtitle)) { 'Performance dashboard template - Leads, afspraken & ROI' } else { $brandPageSubtitle }
-$previewAuthor = if ([string]::IsNullOrWhiteSpace($brandTitle)) { 'Your Company' } else { $brandTitle }
-$previewImageUrl = ''
-if (-not [string]::IsNullOrWhiteSpace($brandLogoUrl) -and $brandLogoUrl -match '^https?://') {
-  $previewImageUrl = $brandLogoUrl
-} elseif (-not [string]::IsNullOrWhiteSpace($siteUrl) -and $brandLogoUrl.StartsWith('/')) {
-  $previewImageUrl = "$siteUrl$brandLogoUrl"
-} elseif ($brandLogoUrl.StartsWith('/')) {
-  $previewImageUrl = $brandLogoUrl
-} elseif (-not [string]::IsNullOrWhiteSpace($siteUrl)) {
-  $previewImageUrl = "$siteUrl/favicon-512.png"
-} else {
-  $previewImageUrl = '/favicon-512.png'
+if (-not [string]::IsNullOrWhiteSpace($brandSecondaryValue)) {
+  $dashboardEnvLines += "VITE_DASHBOARD_SECONDARY_COLOR=$brandSecondaryValue"
 }
-
-$dashboardEnv = @"
-VITE_SUPABASE_URL=$SupabaseUrl
-VITE_SUPABASE_PUBLISHABLE_KEY=$publishableValue
-VITE_GHL_LOCATION_ID=$LocationId
-VITE_BRAND_TITLE=$brandTitle
-VITE_BRAND_SUBTITLE=$brandSubtitle
-VITE_BRAND_PAGE_SUBTITLE=$brandPageSubtitle
-VITE_BRAND_LOGO_URL=$brandLogoUrl
-VITE_BRAND_THEME=$brandTheme
-VITE_PREVIEW_TITLE=$previewTitle
-VITE_PREVIEW_DESCRIPTION=$previewDescription
-VITE_PREVIEW_AUTHOR=$previewAuthor
-VITE_PREVIEW_IMAGE_URL=$previewImageUrl
-VITE_SITE_URL=$siteUrl
-"@
+$dashboardEnv = ($dashboardEnvLines -join "`n") + "`n"
 Set-Content -Path (Join-Path $clientDir 'env.dashboard.example') -Value $dashboardEnv -Encoding utf8
 
 $syncEnv = @"
@@ -501,6 +560,9 @@ SUPABASE_SECRET_KEY=YOUR_SUPABASE_SECRET_KEY
 Set-Content -Path (Join-Path $clientDir 'env.sync.example') -Value $syncEnv -Encoding utf8
 
 if (-not [string]::IsNullOrWhiteSpace($AccessToken)) {
+  # Supabase CLI uses SUPABASE_ACCESS_TOKEN env var with highest priority; set it so
+  # a globally exported token can't override what was passed to this script.
+  $env:SUPABASE_ACCESS_TOKEN = $AccessToken
   & supabase login --token $AccessToken --no-browser
 }
 
@@ -532,6 +594,181 @@ if ($hasTeamleaderSecrets) {
     Write-Host 'Teamleader secrets gezet via Supabase.'
   }
 }
+
+if ($EnableMetaSpend) {
+  if ([string]::IsNullOrWhiteSpace($AccessToken)) {
+    Write-Host 'Skip Meta secrets: Supabase access token ontbreekt.'
+  } elseif ([string]::IsNullOrWhiteSpace($MetaAccessToken) -or [string]::IsNullOrWhiteSpace($MetaAdAccountId)) {
+    Write-Host 'Skip Meta secrets: access token of ad account ID ontbreken.'
+  } else {
+    $secretArgs = @(
+      "META_ACCESS_TOKEN=$MetaAccessToken",
+      "META_AD_ACCOUNT_ID=$MetaAdAccountId",
+      "META_LOCATION_ID=$LocationId"
+    )
+    if (-not [string]::IsNullOrWhiteSpace($MetaTimezone)) {
+      $secretArgs += "META_TIMEZONE=$MetaTimezone"
+    }
+    & supabase secrets set --project-ref $ProjectRef @secretArgs
+    Write-Host 'Meta secrets gezet via Supabase.'
+  }
+}
+
+$googleMode = if ([string]::IsNullOrWhiteSpace($GoogleSpendMode)) { 'none' } else { $GoogleSpendMode.Trim().ToLower() }
+if ($googleMode -eq 'api') {
+  if ([string]::IsNullOrWhiteSpace($AccessToken)) {
+    Write-Host 'Skip Google Ads secrets: Supabase access token ontbreekt.'
+  } elseif (
+    [string]::IsNullOrWhiteSpace($GoogleDeveloperToken) -or
+    [string]::IsNullOrWhiteSpace($GoogleClientId) -or
+    [string]::IsNullOrWhiteSpace($GoogleClientSecret) -or
+    [string]::IsNullOrWhiteSpace($GoogleRefreshToken) -or
+    [string]::IsNullOrWhiteSpace($GoogleCustomerId)
+  ) {
+    Write-Host 'Skip Google Ads secrets: verplichte velden ontbreken.'
+  } else {
+    $secretArgs = @(
+      "GOOGLE_ADS_DEVELOPER_TOKEN=$GoogleDeveloperToken",
+      "GOOGLE_ADS_CLIENT_ID=$GoogleClientId",
+      "GOOGLE_ADS_CLIENT_SECRET=$GoogleClientSecret",
+      "GOOGLE_ADS_REFRESH_TOKEN=$GoogleRefreshToken",
+      "GOOGLE_ADS_CUSTOMER_ID=$GoogleCustomerId",
+      "GOOGLE_LOCATION_ID=$LocationId"
+    )
+    if (-not [string]::IsNullOrWhiteSpace($GoogleLoginCustomerId)) {
+      $secretArgs += "GOOGLE_ADS_LOGIN_CUSTOMER_ID=$GoogleLoginCustomerId"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($GoogleTimezone)) {
+      $secretArgs += "GOOGLE_TIMEZONE=$GoogleTimezone"
+    }
+    & supabase secrets set --project-ref $ProjectRef @secretArgs
+    Write-Host 'Google Ads secrets gezet via Supabase.'
+  }
+} elseif ($googleMode -eq 'sheet') {
+  if ([string]::IsNullOrWhiteSpace($AccessToken)) {
+    Write-Host 'Skip Google Sheet secrets: Supabase access token ontbreekt.'
+  } elseif ([string]::IsNullOrWhiteSpace($SheetCsvUrl)) {
+    Write-Host 'Skip Google Sheet secrets: CSV URL ontbreekt.'
+  } else {
+    $secretArgs = @(
+      "SHEET_CSV_URL=$SheetCsvUrl",
+      "SHEET_LOCATION_ID=$LocationId"
+    )
+    if ($SheetHeaderRow -gt 0) {
+      $secretArgs += "SHEET_HEADER_ROW=$SheetHeaderRow"
+    }
+    & supabase secrets set --project-ref $ProjectRef @secretArgs
+    Write-Host 'Google Sheet secrets gezet via Supabase.'
+  }
+}
+
+$enableTeamleaderSchedule = -not [string]::IsNullOrWhiteSpace($TeamleaderClientId) -and -not [string]::IsNullOrWhiteSpace($TeamleaderClientSecret)
+$enableMetaSchedule = $EnableMetaSpend -and -not [string]::IsNullOrWhiteSpace($MetaAccessToken) -and -not [string]::IsNullOrWhiteSpace($MetaAdAccountId)
+$enableGoogleApiSchedule = $googleMode -eq 'api' -and -not [string]::IsNullOrWhiteSpace($GoogleDeveloperToken) -and -not [string]::IsNullOrWhiteSpace($GoogleClientId) -and -not [string]::IsNullOrWhiteSpace($GoogleClientSecret) -and -not [string]::IsNullOrWhiteSpace($GoogleRefreshToken) -and -not [string]::IsNullOrWhiteSpace($GoogleCustomerId)
+$enableGoogleSheetSchedule = $googleMode -eq 'sheet' -and -not [string]::IsNullOrWhiteSpace($SheetCsvUrl)
+
+$scheduleBlocks = @()
+$scheduleBlocks += @'
+-- Schedule GHL sync every 15 minutes (requires pg_cron + pg_net extensions enabled).
+-- Replace PROJECT_REF before running (done automatically in clients/<slug>/schedule.sql).
+
+select
+  cron.schedule(
+    'ghl-sync-15m',
+    '*/15 * * * *',
+    $$
+    select
+      net.http_post(
+        url := 'https://PROJECT_REF.supabase.co/functions/v1/ghl-sync',
+        headers := jsonb_build_object('Content-Type', 'application/json'),
+        body := jsonb_build_object('entities', array['contacts','opportunities','appointments','lost_reasons'])
+      ) as request_id;
+    $$
+  );
+'@
+
+if ($enableTeamleaderSchedule) {
+  $scheduleBlocks += @'
+-- Schedule Teamleader sync every 15 minutes (requires pg_cron + pg_net extensions enabled).
+select
+  cron.schedule(
+    'teamleader-sync-15m',
+    '*/15 * * * *',
+    $$
+    select
+      net.http_post(
+        url := 'https://PROJECT_REF.supabase.co/functions/v1/teamleader-sync',
+        headers := jsonb_build_object('Content-Type', 'application/json'),
+        body := jsonb_build_object(
+          'lookback_months', 12,
+          'entities', array['users','contacts','companies','deal_pipelines','deal_phases','lost_reasons','deals','meetings']
+        )
+      ) as request_id;
+    $$
+  );
+'@
+}
+
+if ($enableMetaSchedule) {
+  $scheduleBlocks += @'
+-- Schedule Meta spend sync daily (pg_cron runs in UTC; adjust for CET/CEST).
+select
+  cron.schedule(
+    'meta-sync-daily',
+    '15 2 * * *',
+    $$
+    select
+      net.http_post(
+        url := 'https://PROJECT_REF.supabase.co/functions/v1/meta-sync',
+        headers := jsonb_build_object('Content-Type', 'application/json'),
+        body := jsonb_build_object('lookback_days', 7, 'end_offset_days', 1)
+      ) as request_id;
+    $$
+  );
+'@
+}
+
+if ($enableGoogleApiSchedule) {
+  $scheduleBlocks += @'
+-- Schedule Google Ads API spend sync daily (pg_cron runs in UTC; adjust for CET/CEST).
+select
+  cron.schedule(
+    'google-sync-daily',
+    '15 2 * * *',
+    $$
+    select
+      net.http_post(
+        url := 'https://PROJECT_REF.supabase.co/functions/v1/google-sync',
+        headers := jsonb_build_object('Content-Type', 'application/json'),
+        body := jsonb_build_object('lookback_days', 7, 'end_offset_days', 1)
+      ) as request_id;
+    $$
+  );
+'@
+} elseif ($enableGoogleSheetSchedule) {
+  $scheduleBlocks += @'
+-- Schedule Google Sheets spend sync daily (same schedule as Meta; pg_cron runs in UTC; adjust for CET/CEST).
+select
+  cron.schedule(
+    'google-sheet-sync-daily',
+    '15 2 * * *',
+    $$
+    select
+      net.http_post(
+        url := 'https://PROJECT_REF.supabase.co/functions/v1/google-sheet-sync',
+        headers := jsonb_build_object('Content-Type', 'application/json'),
+        body := jsonb_build_object('lookback_days', 7, 'end_offset_days', 1)
+      ) as request_id;
+    $$
+  );
+'@
+}
+
+$scheduleSql = ($scheduleBlocks -join "`n`n") + "`n"
+if (-not [string]::IsNullOrWhiteSpace($ProjectRef)) {
+  $scheduleSql = $scheduleSql.Replace('PROJECT_REF', $ProjectRef)
+}
+Set-Content -Path (Join-Path $clientDir 'schedule.sql') -Value $scheduleSql -Encoding utf8
 
 $shouldCreateBranch = $false
 if ($PSBoundParameters.ContainsKey('CreateBranch')) {
@@ -862,8 +1099,9 @@ Write-Host 'Volgende stappen:'
 Write-Host "1) Run base schema: supabase login (1x) -> supabase link --project-ref $ProjectRef -> supabase db push"
 Write-Host "2) Run client config: clients\\$Slug\\dashboard_config.sql (of -ApplyConfig met ServiceRoleKey)"
 Write-Host "3) Deploy functions: supabase functions deploy ghl-sync --project-ref $ProjectRef (idem voor meta-sync/google-sync/google-sheet-sync/teamleader-oauth/teamleader-sync)"
-Write-Host "4) Netlify env sync (optioneel): netlify env:import clients\\$Slug\\env.dashboard.example"
-Write-Host "5) Git branch (optioneel): git branch $BranchName origin/$BaseBranch && git push -u origin $BranchName"
+Write-Host "4) Cron jobs (optioneel): enable pg_cron + pg_net extensions en run clients\\$Slug\\schedule.sql"
+Write-Host "5) Netlify env sync (optioneel): netlify env:import clients\\$Slug\\env.dashboard.example"
+Write-Host "6) Git branch (optioneel): git branch $BranchName origin/$BaseBranch && git push -u origin $BranchName"
 
 if ($LinkProject -or $PushSchema -or $DeployFunctions) {
   if ($LinkProject -or $PushSchema) {
@@ -917,14 +1155,14 @@ if ($shouldApplyConfig) {
     if ($layoutJson) {
       $payload.dashboard_layout = $layoutJson | ConvertFrom-Json
     }
-    if (-not [string]::IsNullOrWhiteSpace($BillingPortalUrl)) {
-      $payload.billing_portal_url = $BillingPortalUrl
+    if ($sourceNormalizationRulesJson) {
+      $payload.source_normalization_rules = $sourceNormalizationRulesJson | ConvertFrom-Json
     }
-    if (-not [string]::IsNullOrWhiteSpace($BillingCheckoutUrl)) {
-      $payload.billing_checkout_url = $BillingCheckoutUrl
+    if (-not [string]::IsNullOrWhiteSpace($hookFieldIdValue)) {
+      $payload.hook_field_id = $hookFieldIdValue
     }
-    if ($BillingCheckoutEmbed) {
-      $payload.billing_checkout_embed = $true
+    if (-not [string]::IsNullOrWhiteSpace($campaignFieldIdValue)) {
+      $payload.campaign_field_id = $campaignFieldIdValue
     }
 
     $apiUrl = "$SupabaseUrl/rest/v1/dashboard_config?on_conflict=id"

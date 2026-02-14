@@ -21,6 +21,45 @@
     <meta name="twitter:title" content="%VITE_PREVIEW_TITLE%" />
     <meta name="twitter:description" content="%VITE_PREVIEW_DESCRIPTION%" />
     <meta name="twitter:image" content="%VITE_PREVIEW_IMAGE_URL%" />
+
+    <script>
+      (function () {
+        var host = (window.location.hostname || '').toLowerCase();
+        var isOpsHost = host === 'app.profitpulse.be' || host === 'profitpulsebilling.netlify.app';
+        if (!isOpsHost) return;
+
+        var path = window.location.pathname || '/';
+        var isHubPath = path === '/hub.html';
+        var isAdminPath = path === '/billing-overview-admin.html' || path === '/billing-seats-admin.html';
+        var isBillingPublicPath =
+          path === '/billing-belivert.html' ||
+          path === '/billing-belivert-sales.html' ||
+          path === '/billing-checkout.html' ||
+          path === '/billing-seats-setup.html' ||
+          path === '/billing-seats-return.html' ||
+          path === '/billing-return.html' ||
+          path === '/onboarding-hub.html';
+
+        if (isHubPath || isAdminPath || isBillingPublicPath) return;
+        window.location.replace('/hub.html');
+      })();
+    </script>
+    <script>
+      (function () {
+        try {
+          var theme = (localStorage.getItem('dashboard_brand_theme') || '').trim();
+          if (!theme) return;
+          theme = theme
+            .toLowerCase()
+            .replace(/[^a-z0-9-]+/g, '-')
+            .replace(/-+/g, '-')
+            .replace(/^-|-$/g, '');
+          if (theme) document.documentElement.setAttribute('data-brand-theme', theme);
+        } catch (e) {
+          // Ignore localStorage access issues (privacy mode, blocked storage, etc.).
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Subscriptions Hub (Visual)</title>
+    <meta
+      name="description"
+      content="Interne read-only subscriptions hub met klantflows en snelle links naar Stripe Dashboard."
+    />
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@500&display=swap');
+
+      :root {
+        --bg: #0f1726;
+        --card: #162238;
+        --line: #2a3c5b;
+        --ink: #f3f7ff;
+        --muted: #9bb1d0;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+        color: var(--ink);
+        background: radial-gradient(circle at 20% 10%, #1f3a62, transparent 32%), var(--bg);
+        padding: 24px;
+      }
+
+      .container {
+        width: min(1240px, 100%);
+        margin: 0 auto;
+        display: grid;
+        gap: 14px;
+      }
+
+      .card {
+        background: linear-gradient(180deg, #182743, #152136);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 18px;
+      }
+
+      h1,
+      h2 {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: clamp(24px, 4vw, 32px);
+        letter-spacing: -0.02em;
+      }
+
+      h2 {
+        font-size: 18px;
+      }
+
+      p {
+        margin: 8px 0 0;
+        color: var(--muted);
+      }
+
+      .top-actions {
+        margin-top: 12px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .top-actions a {
+        height: 38px;
+        border-radius: 10px;
+        border: 1px solid #34507a;
+        background: #10213c;
+        color: #d4e7ff;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 12px;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .controls {
+        margin-top: 14px;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .field {
+        display: grid;
+        gap: 6px;
+      }
+
+      label {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #a9bcda;
+      }
+
+      input,
+      select {
+        height: 40px;
+        border-radius: 10px;
+        border: 1px solid #334a6f;
+        background: #0f1b31;
+        color: #f5f8ff;
+        padding: 0 12px;
+        font-size: 13px;
+      }
+
+      .stats {
+        margin-top: 14px;
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .stat {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #0f1b31;
+        padding: 10px;
+      }
+
+      .stat .label {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #9fb5d4;
+      }
+
+      .stat .value {
+        margin-top: 4px;
+        font-size: 24px;
+        font-weight: 800;
+      }
+
+      .status {
+        margin-top: 10px;
+        font-size: 13px;
+        color: #c8d7f0;
+      }
+
+      .table-wrap {
+        margin-top: 12px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        overflow: auto;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        min-width: 1100px;
+      }
+
+      th,
+      td {
+        padding: 10px;
+        border-bottom: 1px solid #243652;
+        text-align: left;
+        font-size: 12px;
+        vertical-align: top;
+      }
+
+      th {
+        color: #a9bcda;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        font-size: 11px;
+      }
+
+      tr:last-child td {
+        border-bottom: none;
+      }
+
+      .mono {
+        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 11px;
+      }
+
+      .pill {
+        display: inline-block;
+        border-radius: 999px;
+        padding: 3px 8px;
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .pill.seats {
+        color: #0e6d61;
+        background: #d9f6f2;
+        border: 1px solid #93e5dc;
+      }
+
+      .pill.payment {
+        color: #9bb1d0;
+        background: #20314e;
+        border: 1px solid #2f4568;
+      }
+
+      a {
+        color: #86d8d0;
+      }
+
+      .row-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .row-actions a {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        height: 28px;
+        padding: 0 8px;
+        border-radius: 8px;
+        border: 1px solid #32507a;
+        background: #10213c;
+        color: #d4e7ff;
+        text-decoration: none;
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      @media (max-width: 980px) {
+        .controls {
+          grid-template-columns: 1fr;
+        }
+
+        .stats {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="container">
+      <section class="card">
+        <h1>Subscriptions Hub (Visual Only)</h1>
+        <p>
+          Read-only overzicht. Geen writes, geen subscription wijzigingen vanuit deze pagina.
+          Voor seat-aanpassingen gebruik je Stripe Dashboard.
+        </p>
+
+        <div class="top-actions">
+          <a href="https://dashboard.stripe.com/subscriptions" target="_blank" rel="noopener noreferrer">Open Stripe Subscriptions</a>
+          <a href="https://dashboard.stripe.com/customers" target="_blank" rel="noopener noreferrer">Open Stripe Customers</a>
+          <a href="/onboarding-hub.html">Open Onboarding Hub</a>
+          <a href="/hub.html">Terug naar Hub</a>
+        </div>
+
+        <div class="controls">
+          <div class="field">
+            <label for="filter-text">Zoek op client/company</label>
+            <input id="filter-text" type="text" placeholder="belivert" />
+          </div>
+          <div class="field">
+            <label for="filter-flow">Filter flow</label>
+            <select id="filter-flow">
+              <option value="all">Alles</option>
+              <option value="seats_setup">Seats setup</option>
+              <option value="payment_link">Payment link</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="stripe-mode">Stripe omgeving links</label>
+            <select id="stripe-mode">
+              <option value="live">Live dashboard</option>
+              <option value="test">Test dashboard</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="stats">
+          <div class="stat">
+            <div class="label">Totaal profielen</div>
+            <div id="stat-total" class="value">-</div>
+          </div>
+          <div class="stat">
+            <div class="label">Seats setup flow</div>
+            <div id="stat-seats" class="value">-</div>
+          </div>
+          <div class="stat">
+            <div class="label">Payment link flow</div>
+            <div id="stat-payment" class="value">-</div>
+          </div>
+          <div class="stat">
+            <div class="label">Gefilterd resultaat</div>
+            <div id="stat-filtered" class="value">-</div>
+          </div>
+        </div>
+
+        <div id="status" class="status">Config laden...</div>
+      </section>
+
+      <section class="card">
+        <h2>Klantflows</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Client key</th>
+                <th>Company</th>
+                <th>Flow</th>
+                <th>Klant setup</th>
+                <th>Klant entry / tweede flow</th>
+                <th>Directe payment link</th>
+                <th>Stripe dashboard</th>
+              </tr>
+            </thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const ALLOWED_HOSTS = new Set(['app.profitpulse.be', 'profitpulsebilling.netlify.app', 'localhost', '127.0.0.1']);
+      if (!ALLOWED_HOSTS.has(window.location.hostname)) {
+        document.body.innerHTML = `
+          <main style="min-height:100vh;display:grid;place-items:center;padding:24px;background:#0f1726;color:#f3f7ff;font-family:system-ui,sans-serif;">
+            <section style="max-width:720px;width:100%;border:1px solid #2a3c5b;border-radius:16px;padding:20px;background:#162238;">
+              <h1 style="margin:0 0 10px;font-size:24px;">Interne pagina</h1>
+              <p style="margin:0;color:#9bb1d0;line-height:1.6;">
+                Deze subscriptions hub is enkel beschikbaar op
+                <a href="https://app.profitpulse.be/billing-overview-admin.html" style="color:#86d8d0;">app.profitpulse.be</a>.
+              </p>
+            </section>
+          </main>
+        `;
+        throw new Error('Host not allowed for billing-overview-admin');
+      }
+
+      const statusEl = document.getElementById('status');
+      const rowsEl = document.getElementById('rows');
+      const filterTextEl = document.getElementById('filter-text');
+      const filterFlowEl = document.getElementById('filter-flow');
+      const stripeModeEl = document.getElementById('stripe-mode');
+      const statTotalEl = document.getElementById('stat-total');
+      const statSeatsEl = document.getElementById('stat-seats');
+      const statPaymentEl = document.getElementById('stat-payment');
+      const statFilteredEl = document.getElementById('stat-filtered');
+
+      let allProfiles = [];
+
+      const readText = (value) => String(value ?? '').trim();
+      const readBool = (value) => {
+        if (typeof value === 'boolean') return value;
+        return readText(value).toLowerCase() === 'true';
+      };
+      const setStatus = (text) => {
+        statusEl.textContent = readText(text) || '';
+      };
+
+      const parseConfig = (raw) => {
+        const cfg = raw && typeof raw === 'object' ? raw : {};
+        const defaults = cfg.defaults && typeof cfg.defaults === 'object' ? cfg.defaults : {};
+        const profiles = cfg.profiles && typeof cfg.profiles === 'object' ? cfg.profiles : {};
+        return { defaults, profiles };
+      };
+
+      const domainFromFunctionUrl = (value) => {
+        const url = readText(value);
+        if (!url) return '';
+        try {
+          const parsed = new URL(url);
+          return readText(parsed.hostname).replace(/\.supabase\.co$/i, '');
+        } catch (_error) {
+          return '';
+        }
+      };
+
+      const normalizeUrlOrPath = (value) => {
+        const raw = readText(value);
+        if (!raw) return '';
+        if (/^https?:\/\//i.test(raw)) return raw;
+        const withSlash = raw.startsWith('/') ? raw : `/${raw}`;
+        return `${window.location.origin}${withSlash}`;
+      };
+
+      const tdText = (text, className = '') => {
+        const td = document.createElement('td');
+        td.textContent = text || '-';
+        if (className) td.className = className;
+        return td;
+      };
+
+      const tdLink = (href, label) => {
+        const td = document.createElement('td');
+        const clean = readText(href);
+        if (!clean) {
+          td.textContent = '-';
+          return td;
+        }
+        const a = document.createElement('a');
+        a.href = clean;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.textContent = label || clean;
+        td.appendChild(a);
+        return td;
+      };
+
+      const tdFlow = (flow) => {
+        const td = document.createElement('td');
+        const pill = document.createElement('span');
+        const normalized = flow === 'seats_setup' ? 'seats_setup' : 'payment_link';
+        pill.className = `pill ${normalized === 'seats_setup' ? 'seats' : 'payment'}`;
+        pill.textContent = normalized;
+        td.appendChild(pill);
+        return td;
+      };
+
+      const buildStripeBase = () =>
+        readText(stripeModeEl.value) === 'test' ? 'https://dashboard.stripe.com/test' : 'https://dashboard.stripe.com';
+
+      const tdStripeActions = () => {
+        const td = document.createElement('td');
+        const base = buildStripeBase();
+        const wrap = document.createElement('div');
+        wrap.className = 'row-actions';
+
+        const subs = document.createElement('a');
+        subs.href = `${base}/subscriptions`;
+        subs.target = '_blank';
+        subs.rel = 'noopener noreferrer';
+        subs.textContent = 'Subscriptions';
+        wrap.appendChild(subs);
+
+        const customers = document.createElement('a');
+        customers.href = `${base}/customers`;
+        customers.target = '_blank';
+        customers.rel = 'noopener noreferrer';
+        customers.textContent = 'Customers';
+        wrap.appendChild(customers);
+
+        td.appendChild(wrap);
+        return td;
+      };
+
+      const buildRows = (profiles, defaults) =>
+        profiles
+          .filter(([, profile]) => !readBool(profile.hidden))
+          .map(([clientKey, profile]) => {
+            const flow = readText(profile.billing_flow) || 'payment_link';
+            const company = readText(profile.company) || '-';
+            const paymentLink = readText(profile.payment_link) || readText(defaults.payment_link);
+            const setupOverride = normalizeUrlOrPath(profile.setup_url || profile.setup_path);
+            const setupUrl =
+              flow === 'seats_setup'
+                ? setupOverride || `${window.location.origin}/billing-seats-setup.html?client=${encodeURIComponent(clientKey)}`
+                : '';
+            const entryClient = readText(profile.entry_client);
+            const entryOverride = normalizeUrlOrPath(profile.entry_url || profile.entry_path);
+            const entryUrl = entryClient
+              ? `${window.location.origin}/billing-seats-setup.html?client=${encodeURIComponent(entryClient)}`
+              : entryOverride || (flow === 'seats_setup' ? '' : `${window.location.origin}/billing-checkout.html?client=${encodeURIComponent(clientKey)}`);
+            const hasDirectEntry = Boolean(entryOverride) || flow !== 'seats_setup';
+            const entryLabel = entryClient ? `Open ${entryClient}` : hasDirectEntry ? 'Open entry' : '';
+            const projectRefGuess = domainFromFunctionUrl(profile.seats_function_url);
+            return {
+              clientKey,
+              company,
+              flow,
+              paymentLink,
+              setupUrl,
+              entryUrl,
+              entryLabel,
+              projectRefGuess
+            };
+          });
+
+      const renderStats = (rows) => {
+        const total = allProfiles.length;
+        const seats = allProfiles.filter((item) => item.flow === 'seats_setup').length;
+        const payment = allProfiles.filter((item) => item.flow !== 'seats_setup').length;
+        statTotalEl.textContent = String(total);
+        statSeatsEl.textContent = String(seats);
+        statPaymentEl.textContent = String(payment);
+        statFilteredEl.textContent = String(rows.length);
+      };
+
+      const renderTable = () => {
+        const q = readText(filterTextEl.value).toLowerCase();
+        const flowFilter = readText(filterFlowEl.value) || 'all';
+
+        const filtered = allProfiles.filter((item) => {
+          const flowOk = flowFilter === 'all' ? true : item.flow === flowFilter;
+          const textOk =
+            !q ||
+            item.clientKey.toLowerCase().includes(q) ||
+            item.company.toLowerCase().includes(q) ||
+            item.projectRefGuess.toLowerCase().includes(q);
+          return flowOk && textOk;
+        });
+
+        rowsEl.innerHTML = '';
+        for (const item of filtered) {
+          const tr = document.createElement('tr');
+          tr.appendChild(tdText(item.clientKey, 'mono'));
+          tr.appendChild(tdText(item.company));
+          tr.appendChild(tdFlow(item.flow));
+          tr.appendChild(tdLink(item.setupUrl, 'Open setup'));
+          tr.appendChild(tdLink(item.entryUrl, item.entryLabel));
+          tr.appendChild(tdLink(item.paymentLink, 'Open payment link'));
+          tr.appendChild(tdStripeActions());
+          rowsEl.appendChild(tr);
+        }
+
+        if (!filtered.length) {
+          const tr = document.createElement('tr');
+          const td = document.createElement('td');
+          td.colSpan = 7;
+          td.textContent = 'Geen resultaten voor deze filters.';
+          tr.appendChild(td);
+          rowsEl.appendChild(tr);
+        }
+
+        renderStats(filtered);
+        setStatus(`Read-only overzicht geladen (${filtered.length}/${allProfiles.length}).`);
+      };
+
+      const init = async () => {
+        try {
+          const response = await fetch('/billing-clients.json', { cache: 'no-store' });
+          if (!response.ok) throw new Error(`billing-clients.json kon niet geladen worden (${response.status})`);
+          const raw = await response.json();
+          const { defaults, profiles } = parseConfig(raw);
+          allProfiles = buildRows(Object.entries(profiles).sort(([a], [b]) => a.localeCompare(b)), defaults);
+          renderTable();
+        } catch (error) {
+          setStatus(error instanceof Error ? error.message : 'Onbekende fout bij laden van config.');
+        }
+      };
+
+      [filterTextEl, filterFlowEl, stripeModeEl].forEach((el) => {
+        el.addEventListener('input', renderTable);
+        el.addEventListener('change', renderTable);
+      });
+
+      init();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,2332 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dashboard Onboarding Hub</title>
+    <meta
+      name="description"
+      content="Interne onboarding wizard voor nieuwe dashboard-klanten, billing profielen en provisioning."
+    />
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@500&display=swap');
+
+      :root {
+        --bg: #0c1424;
+        --card: #142541;
+        --line: #2a3e63;
+        --ink: #f2f7ff;
+        --muted: #9cb4d8;
+        --primary: #18b6ac;
+        --primary-ink: #083330;
+        --warn: #f8c266;
+        --error: #ffb2b2;
+        --ok: #8af0d9;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 12% 8%, rgba(24, 182, 172, 0.16), transparent 32%),
+          radial-gradient(circle at 82% 14%, rgba(125, 207, 255, 0.12), transparent 30%),
+          linear-gradient(160deg, #0c1424 0%, #09101d 100%);
+        padding: 24px;
+      }
+
+      .shell {
+        width: min(1380px, 100%);
+        margin: 0 auto;
+        display: grid;
+        gap: 14px;
+      }
+
+      .hero {
+        border: 1px solid var(--line);
+        background: linear-gradient(180deg, #172b4b, var(--card));
+        border-radius: 18px;
+        padding: 22px;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        border: 1px solid #2ad4c8;
+        background: rgba(24, 182, 172, 0.16);
+        color: #86efe7;
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        padding: 8px 12px;
+      }
+
+      h1 {
+        margin: 12px 0 8px;
+        font-size: clamp(26px, 5vw, 38px);
+        letter-spacing: -0.02em;
+      }
+
+      p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .top-actions {
+        margin-top: 10px;
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .btn-link,
+      button {
+        height: 40px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        padding: 0 14px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+        text-decoration: none;
+        background: #0d1a31;
+        color: var(--ink);
+      }
+
+      button.primary {
+        background: linear-gradient(90deg, #19b8ae, #33d2c8);
+        border-color: #37d3c9;
+        color: var(--primary-ink);
+      }
+
+      button.danger {
+        border-color: #7d3348;
+        background: #2a1420;
+        color: #ffd7de;
+      }
+
+      button:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: 1.25fr 1fr;
+        gap: 14px;
+      }
+
+      .card {
+        border: 1px solid var(--line);
+        background: linear-gradient(180deg, #13233e, #101d35);
+        border-radius: 16px;
+        padding: 18px;
+      }
+
+      h2 {
+        margin: 0 0 6px;
+        font-size: 19px;
+        letter-spacing: -0.01em;
+      }
+
+      .muted {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .wizard-meta {
+        margin-top: 12px;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+      }
+
+      .wizard-nav {
+        margin-top: 12px;
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .step-pill {
+        height: 36px;
+        border-radius: 999px;
+        border: 1px solid #324b72;
+        background: #0e1a31;
+        color: #c7d9f8;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .step-pill.active {
+        border-color: #3ad7cc;
+        background: #123038;
+        color: #aaf5ef;
+      }
+
+      .step-pill.done {
+        border-color: #2ca191;
+        background: #102b2a;
+        color: #8ff0df;
+      }
+
+      .progress-wrap {
+        margin-top: 10px;
+        border: 1px solid #30476d;
+        background: #0c182d;
+        border-radius: 999px;
+        overflow: hidden;
+        height: 12px;
+      }
+
+      .progress-bar {
+        height: 100%;
+        width: 0;
+        background: linear-gradient(90deg, #18b6ac, #5ee0d6);
+        transition: width 200ms ease;
+      }
+
+      .step-panel {
+        display: none;
+        margin-top: 12px;
+      }
+
+      .step-panel.active {
+        display: block;
+      }
+
+      .step-help {
+        margin-top: 10px;
+        border: 1px solid #324a70;
+        background: #0d1a31;
+        border-radius: 10px;
+        padding: 10px;
+      }
+
+      .step-help-title {
+        font-size: 12px;
+        font-weight: 800;
+        color: #d8e8ff;
+      }
+
+      .step-help-links {
+        margin-top: 8px;
+        display: grid;
+        gap: 6px;
+      }
+
+      .step-help-links a {
+        color: #8fe5dd;
+        text-decoration: none;
+        font-size: 12px;
+      }
+
+      .step-help-links a.disabled {
+        pointer-events: none;
+        opacity: 0.5;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .field {
+        display: grid;
+        gap: 6px;
+      }
+
+      .field.span-2 {
+        grid-column: span 2;
+      }
+
+      label {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #a9bcda;
+      }
+
+      input,
+      select,
+      textarea {
+        width: 100%;
+        border-radius: 10px;
+        border: 1px solid #334a6f;
+        background: #0f1b31;
+        color: #f5f8ff;
+        padding: 10px 12px;
+        font-size: 13px;
+      }
+
+      input,
+      select {
+        height: 40px;
+      }
+
+      input.invalid,
+      select.invalid,
+      textarea.invalid {
+        border-color: #c85073;
+        box-shadow: 0 0 0 1px rgba(200, 80, 115, 0.25);
+      }
+
+      .checks {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 6px;
+      }
+
+      .check {
+        border: 1px solid #324a70;
+        background: #0d1a31;
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-size: 12px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .check input {
+        width: 14px;
+        height: 14px;
+        margin: 0;
+      }
+
+      .mode-row {
+        margin-top: 8px;
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .mode-pill {
+        border: 1px solid #32507a;
+        background: #0d1a31;
+        border-radius: 999px;
+        padding: 8px 12px;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+      }
+
+      .mode-pill input {
+        width: 14px;
+        height: 14px;
+        margin: 0;
+      }
+
+      .live-only {
+        display: none;
+      }
+
+      .live-only.show {
+        display: grid;
+      }
+
+      .actions {
+        margin-top: 12px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .status {
+        margin-top: 10px;
+        font-size: 13px;
+        color: #c8d7f0;
+      }
+
+      .status.warn {
+        color: var(--warn);
+      }
+
+      .status.error {
+        color: var(--error);
+      }
+
+      .status.ok {
+        color: var(--ok);
+      }
+
+      .validation-box {
+        margin-top: 10px;
+        border: 1px solid #324a70;
+        background: #0d1a31;
+        border-radius: 10px;
+        padding: 10px;
+      }
+
+      .validation-title {
+        font-size: 12px;
+        font-weight: 800;
+        color: #d8e8ff;
+      }
+
+      .validation-list {
+        margin-top: 8px;
+        display: grid;
+        gap: 6px;
+      }
+
+      .val-item {
+        font-size: 12px;
+        color: #baceef;
+      }
+
+      .val-item.error {
+        color: #ffb2b2;
+      }
+
+      .val-item.warn {
+        color: #f8c266;
+      }
+
+      .readiness {
+        border: 1px solid #34517b;
+        background: #0d1a31;
+        border-radius: 12px;
+        padding: 12px;
+      }
+
+      .readiness-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .readiness-score {
+        font-size: 26px;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+      }
+
+      .readiness-pill {
+        border: 1px solid #33507a;
+        border-radius: 999px;
+        padding: 5px 10px;
+        font-size: 11px;
+        font-weight: 700;
+        color: #b9d0f2;
+      }
+
+      .meter {
+        margin-top: 8px;
+        border: 1px solid #30476d;
+        background: #0c182d;
+        border-radius: 999px;
+        overflow: hidden;
+        height: 12px;
+      }
+
+      .meter > div {
+        height: 100%;
+        width: 0;
+        background: linear-gradient(90deg, #18b6ac, #79f0dd);
+        transition: width 200ms ease;
+      }
+
+      .readiness-list {
+        margin-top: 8px;
+        display: grid;
+        gap: 4px;
+        font-size: 12px;
+      }
+
+      .readiness-ok {
+        color: #8ff0df;
+      }
+
+      .readiness-miss {
+        color: #f8c266;
+      }
+
+      .summary {
+        margin-top: 10px;
+        border: 1px solid #324a70;
+        background: #0d1a31;
+        border-radius: 10px;
+        padding: 10px;
+        font-size: 12px;
+        color: #b8cae5;
+        line-height: 1.6;
+      }
+
+      .inline-link {
+        color: #86d8d0;
+      }
+
+      .output-grid {
+        margin-top: 10px;
+        display: grid;
+        gap: 10px;
+      }
+
+      .output-block {
+        border: 1px solid #2a3d60;
+        border-radius: 12px;
+        background: #0f1b31;
+        padding: 10px;
+      }
+
+      .output-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+
+      .output-title {
+        font-size: 13px;
+        font-weight: 800;
+        letter-spacing: 0.01em;
+        color: #d7e6ff;
+      }
+
+      .copy-btn {
+        height: 30px;
+        border-radius: 8px;
+        border: 1px solid #36517b;
+        background: #12223f;
+        color: #d8e9ff;
+        padding: 0 10px;
+        font-size: 12px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      textarea {
+        min-height: 130px;
+        resize: vertical;
+        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .quick-links {
+        margin-top: 10px;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .quick-links a {
+        height: 36px;
+        border-radius: 9px;
+        border: 1px solid #34507a;
+        background: #10213c;
+        color: #d4e7ff;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .quick-links a.disabled {
+        pointer-events: none;
+        opacity: 0.45;
+      }
+
+      .history {
+        margin-top: 10px;
+        border: 1px solid #2a3d60;
+        border-radius: 12px;
+        background: #0f1b31;
+        padding: 10px;
+      }
+
+      .history-title {
+        font-size: 13px;
+        font-weight: 800;
+        color: #d7e6ff;
+      }
+
+      .history-list {
+        margin-top: 8px;
+        display: grid;
+        gap: 8px;
+      }
+
+      .history-item {
+        border: 1px solid #30486f;
+        border-radius: 10px;
+        background: #101e36;
+        padding: 8px;
+      }
+
+      .history-meta {
+        font-size: 12px;
+        color: #aecaed;
+      }
+
+      .history-actions {
+        margin-top: 6px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .history-actions button {
+        height: 30px;
+        border-radius: 8px;
+        font-size: 12px;
+        padding: 0 10px;
+      }
+
+      code {
+        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+      }
+
+      @media (max-width: 1120px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 720px) {
+        .wizard-meta {
+          grid-template-columns: 1fr;
+        }
+
+        .grid {
+          grid-template-columns: 1fr;
+        }
+
+        .field.span-2 {
+          grid-column: span 1;
+        }
+
+        .wizard-nav {
+          grid-template-columns: 1fr 1fr;
+        }
+
+        .quick-links {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <div class="badge">Profit Pulse Internal</div>
+        <h1>Hosted Dashboard Onboarding</h1>
+        <p>
+          Volledige onboarding wizard met dry run/live write, readiness score, run history en retry per stap.
+        </p>
+        <div class="top-actions">
+          <a class="btn-link" href="/hub.html">Terug naar Hub</a>
+          <a class="btn-link" href="/billing-overview-admin.html">Open Billing Overzicht</a>
+          <a
+            class="btn-link"
+            id="dashboard-wizard-link"
+            href="http://localhost:8787"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Start lokaal: cd /home/dries/code/dashboardtemplatev2 && npm run onboard"
+            >Open Dashboard Wizard (lokaal)</a
+          >
+        </div>
+      </section>
+
+      <section class="layout">
+        <article class="card">
+          <h2>Wizard</h2>
+          <p class="muted">Volg de stappen: Klant → Billing → Provision → Resultaat.</p>
+
+          <div class="wizard-nav" id="wizard-nav">
+            <button class="step-pill" data-step="1" type="button">1. Klant</button>
+            <button class="step-pill" data-step="2" type="button">2. Billing</button>
+            <button class="step-pill" data-step="3" type="button">3. Provision</button>
+            <button class="step-pill" data-step="4" type="button">4. Resultaat</button>
+          </div>
+          <div class="progress-wrap"><div class="progress-bar" id="wizard-progress"></div></div>
+
+          <div class="wizard-meta">
+            <div class="field">
+              <label for="preset-select">Preset</label>
+              <select id="preset-select">
+                <option value="blank">Nieuwe klant (leeg)</option>
+                <option value="belivert">Belivert (live)</option>
+                <option value="belivert_test">Belivert (testproject)</option>
+              </select>
+            </div>
+            <div class="actions" style="margin-top:20px;">
+              <button id="apply-preset-btn" class="secondary" type="button">Preset toepassen</button>
+            </div>
+          </div>
+
+          <form id="wizard-form">
+            <section class="step-panel" data-step-panel="1">
+              <div class="grid">
+                <div class="field">
+                  <label for="company">Klantnaam</label>
+                  <input id="company" type="text" placeholder="Belivert" />
+                </div>
+
+                <div class="field">
+                  <label for="slug">Slug</label>
+                  <input id="slug" type="text" placeholder="belivert" />
+                </div>
+
+                <div class="field span-2">
+                  <label for="client-key">Billing client key (`billing-clients.json`)</label>
+                  <input id="client-key" type="text" placeholder="belivert-sales" />
+                </div>
+
+                <div class="field">
+                  <label for="customer-domain">Klantdomein</label>
+                  <input id="customer-domain" type="text" placeholder="belivert.profitpulse.be" />
+                </div>
+
+                <div class="field">
+                  <label for="return-to">Return pad</label>
+                  <input id="return-to" type="text" value="/sales-resultaten" />
+                </div>
+
+                <div class="field span-2">
+                  <label>Dashboards</label>
+                  <div class="checks">
+                    <label class="check"><input id="db-lead" type="checkbox" checked />Lead</label>
+                    <label class="check"><input id="db-sales" type="checkbox" checked />Sales</label>
+                    <label class="check"><input id="db-call" type="checkbox" />Call Center</label>
+                  </div>
+                </div>
+              </div>
+              <div class="step-help">
+                <div class="step-help-title">Waar stel je dit in?</div>
+                <div class="step-help-links">
+                  <a id="help-link-netlify-domains" class="disabled" href="#">Open Netlify Domain Management</a>
+                  <a id="help-link-billing-config" href="/billing-clients.json" target="_blank" rel="noopener noreferrer"
+                    >Open billing-clients.json</a
+                  >
+                </div>
+              </div>
+            </section>
+
+            <section class="step-panel" data-step-panel="2">
+              <div class="grid">
+                <div class="field">
+                  <label for="project-ref">Supabase Project Ref</label>
+                  <input id="project-ref" type="text" placeholder="djikubaydznmgiqajfdz" />
+                </div>
+
+                <div class="field">
+                  <label for="supabase-url">Supabase URL</label>
+                  <input id="supabase-url" type="url" placeholder="https://PROJECT_REF.supabase.co" />
+                </div>
+
+                <div class="field span-2">
+                  <label for="stripe-price-id">Stripe Seats Price ID</label>
+                  <input id="stripe-price-id" type="text" placeholder="price_..." />
+                </div>
+
+                <div class="field">
+                  <label for="seats-price">Prijs per seat</label>
+                  <input id="seats-price" type="number" min="0" step="0.01" value="34.99" />
+                </div>
+
+                <div class="field">
+                  <label for="seats-currency">Munt</label>
+                  <input id="seats-currency" type="text" value="EUR" maxlength="3" />
+                </div>
+
+                <div class="field">
+                  <label for="seats-interval">Interval label</label>
+                  <input id="seats-interval" type="text" value="maand" />
+                </div>
+
+                <div class="field">
+                  <label for="setup-currency">Setup currency</label>
+                  <input id="setup-currency" type="text" value="eur" maxlength="3" />
+                </div>
+
+                <div class="field">
+                  <label for="seats-min">Seats min</label>
+                  <input id="seats-min" type="number" min="1" step="1" value="1" />
+                </div>
+
+                <div class="field">
+                  <label for="seats-max">Seats max</label>
+                  <input id="seats-max" type="number" min="1" step="1" value="150" />
+                </div>
+              </div>
+              <div class="step-help">
+                <div class="step-help-title">Waar vind je deze data?</div>
+                <div class="step-help-links">
+                  <a id="help-link-supabase-project" class="disabled" href="#">Open Supabase project dashboard</a>
+                  <a id="help-link-supabase-secrets" class="disabled" href="#">Open Supabase Secrets (BILLING_ADMIN_TOKEN)</a>
+                  <a id="help-link-stripe-prices" href="https://dashboard.stripe.com/prices" target="_blank" rel="noopener noreferrer"
+                    >Open Stripe Prices (Price ID)</a
+                  >
+                  <a id="help-link-stripe-webhooks" href="https://dashboard.stripe.com/webhooks" target="_blank" rel="noopener noreferrer"
+                    >Open Stripe Webhooks (webhook secret)</a
+                  >
+                </div>
+              </div>
+            </section>
+
+            <section class="step-panel" data-step-panel="3">
+              <div class="grid">
+                <div class="field span-2">
+                  <label>Run mode</label>
+                  <div class="mode-row">
+                    <label class="mode-pill"><input type="radio" name="run-mode" value="dry_run" checked />Dry run (aanbevolen)</label>
+                    <label class="mode-pill"><input type="radio" name="run-mode" value="live_write" />Live write</label>
+                  </div>
+                  <p class="muted">Dry run doet alleen checks. Live write kan effectief site/secrets updaten.</p>
+                </div>
+
+                <div class="field span-2">
+                  <label for="provision-function-url">Provision endpoint</label>
+                  <input id="provision-function-url" type="text" value="/.netlify/functions/provision-client" />
+                </div>
+
+                <div class="field">
+                  <label for="customer-site-id">Klant Netlify Site ID (optioneel)</label>
+                  <input id="customer-site-id" type="text" placeholder="b81e..." />
+                </div>
+
+                <div class="field">
+                  <label for="internal-site-id">Interne Netlify Site ID (optioneel)</label>
+                  <input id="internal-site-id" type="text" placeholder="50ae..." />
+                </div>
+
+                <div class="field">
+                  <label for="customer-site-name">Klant site naam (optioneel)</label>
+                  <input id="customer-site-name" type="text" placeholder="dashboard-belivert" />
+                </div>
+
+                <div class="field">
+                  <label for="netlify-account-slug">Netlify account slug (optioneel)</label>
+                  <input id="netlify-account-slug" type="text" placeholder="dries-full-stack" />
+                </div>
+
+                <div class="field span-2">
+                  <label>Live write actions</label>
+                  <div class="checks">
+                    <label class="check"><input id="action-create-site" type="checkbox" />Create/Update customer site</label>
+                    <label class="check"><input id="action-write-secrets" type="checkbox" />Write Supabase secrets</label>
+                  </div>
+                </div>
+
+                <div class="field span-2">
+                  <label for="retry-step">Retry per step (optioneel)</label>
+                  <select id="retry-step">
+                    <option value="">Geen (full run)</option>
+                    <option value="supabase_function_health">Retry function health</option>
+                    <option value="netlify_customer_site_write">Retry customer site write</option>
+                    <option value="supabase_secrets_write">Retry Supabase secrets write</option>
+                  </select>
+                </div>
+
+                <div class="field">
+                  <label for="provision-token">Provision admin token</label>
+                  <input id="provision-token" type="password" placeholder="PROVISION_ADMIN_TOKEN" />
+                </div>
+
+                <div class="field">
+                  <label for="live-confirm">Bevestiging (typ LIVE voor writes)</label>
+                  <input id="live-confirm" type="text" placeholder="LIVE" />
+                </div>
+
+                <div class="field span-2 live-only" id="live-secrets-group">
+                  <label>Secrets voor write_supabase_secrets</label>
+                  <div class="grid" style="margin-top:6px;">
+                    <div class="field">
+                      <label for="secret-stripe-key">STRIPE_SECRET_KEY</label>
+                      <input id="secret-stripe-key" type="password" placeholder="sk_live_..." />
+                    </div>
+
+                    <div class="field">
+                      <label for="secret-webhook-key">STRIPE_WEBHOOK_SECRET</label>
+                      <input id="secret-webhook-key" type="password" placeholder="whsec_..." />
+                    </div>
+
+                    <div class="field span-2">
+                      <label for="secret-billing-admin-token">BILLING_ADMIN_TOKEN (voor Supabase functie)</label>
+                      <input id="secret-billing-admin-token" type="password" placeholder="sterke token" />
+                    </div>
+                  </div>
+                  <label class="check" style="margin-top:8px;">
+                    <input id="remember-billing-token" type="checkbox" />
+                    Onthoud BILLING_ADMIN_TOKEN per Supabase project op deze browser
+                  </label>
+                  <p class="muted">Secret velden worden nooit in share URL bewaard. Alleen BILLING_ADMIN_TOKEN kan optioneel lokaal onthouden worden.</p>
+                </div>
+
+                <div class="field span-2">
+                  <label class="check"><input id="auto-open-links" type="checkbox" checked />Auto-open links na succesvolle run</label>
+                </div>
+              </div>
+              <div class="step-help">
+                <div class="step-help-title">Waar haal je tokens op?</div>
+                <div class="step-help-links">
+                  <a
+                    id="help-link-netlify-env"
+                    href="https://app.netlify.com/projects/profitpulsebilling/configuration/env"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    >Open Netlify env (PROVISION_ADMIN_TOKEN)</a
+                  >
+                  <a id="help-link-supabase-secrets-step3" class="disabled" href="#">Open Supabase Secrets (BILLING_ADMIN_TOKEN)</a>
+                  <a id="help-link-stripe-apikeys" href="https://dashboard.stripe.com/apikeys" target="_blank" rel="noopener noreferrer"
+                    >Open Stripe API Keys (STRIPE_SECRET_KEY)</a
+                  >
+                </div>
+              </div>
+            </section>
+
+            <section class="step-panel" data-step-panel="4">
+              <div class="grid">
+                <div class="field span-2">
+                  <label>Resultaat</label>
+                  <p class="muted">Gebruik rechts de output, quick links en run history. Je kan ook per step retryen.</p>
+                </div>
+              </div>
+            </section>
+
+            <div class="actions">
+              <button id="prev-step-btn" class="secondary" type="button">Vorige</button>
+              <button id="next-step-btn" class="secondary" type="button">Volgende</button>
+              <button id="generate-btn" class="primary" type="button">Genereer Pakket</button>
+              <button id="share-btn" class="secondary" type="button">Kopieer Share URL</button>
+              <button id="reset-btn" class="secondary" type="button">Reset</button>
+            </div>
+
+            <div class="actions">
+              <button id="provision-btn" class="primary" type="button">Provision Client</button>
+              <button id="retry-health-btn" class="secondary" type="button">Retry Health Step</button>
+              <button id="retry-site-btn" class="secondary" type="button">Retry Site Step</button>
+              <button id="retry-secrets-btn" class="secondary" type="button">Retry Secrets Step</button>
+            </div>
+          </form>
+
+          <div id="status" class="status">Klaar om te starten.</div>
+          <div class="validation-box">
+            <div class="validation-title">Inline Validatie</div>
+            <div id="validation-list" class="validation-list"></div>
+          </div>
+          <div id="summary" class="summary"></div>
+        </article>
+
+        <article class="card">
+          <h2>Readiness & Output</h2>
+          <p class="muted">Readiness score + gegenereerde snippets + logs + run history.</p>
+
+          <section class="readiness">
+            <div class="readiness-top">
+              <div class="readiness-score" id="readiness-score">0%</div>
+              <div class="readiness-pill" id="readiness-pill">Niet klaar</div>
+            </div>
+            <div class="meter"><div id="readiness-meter"></div></div>
+            <div id="readiness-list" class="readiness-list"></div>
+          </section>
+
+          <div class="quick-links" style="margin-top:12px;">
+            <a id="link-setup" class="disabled" href="#">Open klant setup</a>
+            <a id="link-entry" class="disabled" href="#">Open klant entry</a>
+            <a id="link-overview" class="disabled" href="#">Open billing overview</a>
+            <a id="link-stripe-subscriptions" class="disabled" href="#">Open Stripe subscriptions</a>
+          </div>
+
+          <div class="output-grid">
+            <section class="output-block">
+              <div class="output-head">
+                <div class="output-title">1) billing-clients.json profiel</div>
+                <button class="copy-btn" data-target="out-profile" type="button">Copy</button>
+              </div>
+              <textarea id="out-profile" readonly></textarea>
+            </section>
+
+            <section class="output-block">
+              <div class="output-head">
+                <div class="output-title">2) Secrets template</div>
+                <button class="copy-btn" data-target="out-secrets" type="button">Copy</button>
+              </div>
+              <textarea id="out-secrets" readonly></textarea>
+            </section>
+
+            <section class="output-block">
+              <div class="output-head">
+                <div class="output-title">3) Rollout commands</div>
+                <button class="copy-btn" data-target="out-commands" type="button">Copy</button>
+              </div>
+              <textarea id="out-commands" readonly></textarea>
+            </section>
+
+            <section class="output-block">
+              <div class="output-head">
+                <div class="output-title">4) QA checklist</div>
+                <button class="copy-btn" data-target="out-checklist" type="button">Copy</button>
+              </div>
+              <textarea id="out-checklist" readonly></textarea>
+            </section>
+
+            <section class="output-block">
+              <div class="output-head">
+                <div class="output-title">5) Provision run logs</div>
+                <button class="copy-btn" data-target="out-provision" type="button">Copy</button>
+              </div>
+              <textarea id="out-provision" readonly></textarea>
+            </section>
+          </div>
+
+          <section class="history">
+            <div class="history-title">Run History</div>
+            <div id="history-list" class="history-list"></div>
+          </section>
+        </article>
+      </section>
+    </main>
+
+    <script>
+      const ALLOWED_HOSTS = new Set(['app.profitpulse.be', 'profitpulsebilling.netlify.app', 'localhost', '127.0.0.1']);
+      if (!ALLOWED_HOSTS.has(window.location.hostname)) {
+        document.body.innerHTML = `
+          <main style="min-height:100vh;display:grid;place-items:center;padding:24px;background:#0f1726;color:#f3f7ff;font-family:system-ui,sans-serif;">
+            <section style="max-width:760px;width:100%;border:1px solid #2a3c5b;border-radius:16px;padding:20px;background:#162238;">
+              <h1 style="margin:0 0 10px;font-size:24px;">Interne pagina</h1>
+              <p style="margin:0;color:#9bb1d0;line-height:1.6;">
+                Deze onboarding hub is enkel beschikbaar op
+                <a href="https://app.profitpulse.be/onboarding-hub.html" style="color:#86d8d0;">app.profitpulse.be</a>.
+              </p>
+            </section>
+          </main>
+        `;
+        throw new Error('Host not allowed for onboarding-hub');
+      }
+
+      const STORAGE_KEY = 'profitpulse-onboarding-hub-v3';
+      const HISTORY_KEY = 'profitpulse-onboarding-runs-v1';
+      const BILLING_TOKEN_MAP_KEY = 'profitpulse-onboarding-billing-token-map-v1';
+      const TOTAL_STEPS = 4;
+
+      const PRESETS = {
+        blank: {
+          company: '',
+          slug: '',
+          clientKey: '',
+          customerDomain: '',
+          returnTo: '/sales-resultaten',
+          projectRef: '',
+          supabaseUrl: '',
+          stripePriceId: '',
+          seatsPrice: '34.99',
+          seatsCurrency: 'EUR',
+          seatsInterval: 'maand',
+          setupCurrency: 'eur',
+          seatsMin: '1',
+          seatsMax: '150',
+          dashboards: ['lead', 'sales'],
+          mode: 'dry_run'
+        },
+        belivert: {
+          company: 'Belivert',
+          slug: 'belivert',
+          clientKey: 'belivert-sales',
+          customerDomain: 'belivert.profitpulse.be',
+          returnTo: '/sales-resultaten',
+          projectRef: 'djikubaydznmgiqajfdz',
+          supabaseUrl: 'https://djikubaydznmgiqajfdz.supabase.co',
+          stripePriceId: '',
+          seatsPrice: '34.99',
+          seatsCurrency: 'EUR',
+          seatsInterval: 'maand',
+          setupCurrency: 'eur',
+          seatsMin: '1',
+          seatsMax: '150',
+          customerSiteId: 'b81e938f-d29c-41cc-a8a7-c3f4e99d9b2f',
+          customerSiteName: 'dashboard-belivert',
+          internalSiteId: '50ae160a-1f7f-4631-bae4-d014d3484b85',
+          netlifyAccountSlug: 'dries-full-stack',
+          dashboards: ['lead', 'sales'],
+          mode: 'dry_run'
+        },
+        belivert_test: {
+          company: 'Belivert',
+          slug: 'belivert',
+          clientKey: 'belivert-sales-test',
+          customerDomain: 'belivert.profitpulse.be',
+          returnTo: '/sales-resultaten',
+          projectRef: 'zpcbuyfzlimuiaaryzne',
+          supabaseUrl: 'https://zpcbuyfzlimuiaaryzne.supabase.co',
+          stripePriceId: '',
+          seatsPrice: '34.99',
+          seatsCurrency: 'EUR',
+          seatsInterval: 'maand',
+          setupCurrency: 'eur',
+          seatsMin: '1',
+          seatsMax: '150',
+          customerSiteId: 'b81e938f-d29c-41cc-a8a7-c3f4e99d9b2f',
+          customerSiteName: 'dashboard-belivert',
+          internalSiteId: '50ae160a-1f7f-4631-bae4-d014d3484b85',
+          netlifyAccountSlug: 'dries-full-stack',
+          dashboards: ['lead', 'sales'],
+          mode: 'dry_run'
+        }
+      };
+
+      let currentStep = 1;
+      let latestGenerated = null;
+
+      const el = {
+        form: document.getElementById('wizard-form'),
+        stepPills: Array.from(document.querySelectorAll('.step-pill')),
+        stepPanels: Array.from(document.querySelectorAll('.step-panel')),
+        stepProgress: document.getElementById('wizard-progress'),
+        prevStepBtn: document.getElementById('prev-step-btn'),
+        nextStepBtn: document.getElementById('next-step-btn'),
+
+        presetSelect: document.getElementById('preset-select'),
+        applyPresetBtn: document.getElementById('apply-preset-btn'),
+
+        company: document.getElementById('company'),
+        slug: document.getElementById('slug'),
+        clientKey: document.getElementById('client-key'),
+        customerDomain: document.getElementById('customer-domain'),
+        returnTo: document.getElementById('return-to'),
+        projectRef: document.getElementById('project-ref'),
+        supabaseUrl: document.getElementById('supabase-url'),
+        stripePriceId: document.getElementById('stripe-price-id'),
+        seatsPrice: document.getElementById('seats-price'),
+        seatsCurrency: document.getElementById('seats-currency'),
+        seatsInterval: document.getElementById('seats-interval'),
+        setupCurrency: document.getElementById('setup-currency'),
+        seatsMin: document.getElementById('seats-min'),
+        seatsMax: document.getElementById('seats-max'),
+
+        dbLead: document.getElementById('db-lead'),
+        dbSales: document.getElementById('db-sales'),
+        dbCall: document.getElementById('db-call'),
+
+        provisionFunctionUrl: document.getElementById('provision-function-url'),
+        customerSiteId: document.getElementById('customer-site-id'),
+        internalSiteId: document.getElementById('internal-site-id'),
+        customerSiteName: document.getElementById('customer-site-name'),
+        netlifyAccountSlug: document.getElementById('netlify-account-slug'),
+
+        actionCreateSite: document.getElementById('action-create-site'),
+        actionWriteSecrets: document.getElementById('action-write-secrets'),
+        retryStep: document.getElementById('retry-step'),
+        provisionToken: document.getElementById('provision-token'),
+        liveConfirm: document.getElementById('live-confirm'),
+        autoOpenLinks: document.getElementById('auto-open-links'),
+
+        secretStripeKey: document.getElementById('secret-stripe-key'),
+        secretWebhookKey: document.getElementById('secret-webhook-key'),
+        secretBillingAdminToken: document.getElementById('secret-billing-admin-token'),
+        rememberBillingToken: document.getElementById('remember-billing-token'),
+        liveSecretsGroup: document.getElementById('live-secrets-group'),
+
+        generateBtn: document.getElementById('generate-btn'),
+        shareBtn: document.getElementById('share-btn'),
+        resetBtn: document.getElementById('reset-btn'),
+        provisionBtn: document.getElementById('provision-btn'),
+        retryHealthBtn: document.getElementById('retry-health-btn'),
+        retrySiteBtn: document.getElementById('retry-site-btn'),
+        retrySecretsBtn: document.getElementById('retry-secrets-btn'),
+
+        status: document.getElementById('status'),
+        validationList: document.getElementById('validation-list'),
+        summary: document.getElementById('summary'),
+
+        readinessScore: document.getElementById('readiness-score'),
+        readinessPill: document.getElementById('readiness-pill'),
+        readinessMeter: document.getElementById('readiness-meter'),
+        readinessList: document.getElementById('readiness-list'),
+
+        outProfile: document.getElementById('out-profile'),
+        outSecrets: document.getElementById('out-secrets'),
+        outCommands: document.getElementById('out-commands'),
+        outChecklist: document.getElementById('out-checklist'),
+        outProvision: document.getElementById('out-provision'),
+
+        linkSetup: document.getElementById('link-setup'),
+        linkEntry: document.getElementById('link-entry'),
+        linkOverview: document.getElementById('link-overview'),
+        linkStripeSubscriptions: document.getElementById('link-stripe-subscriptions'),
+        helpLinkSupabaseProject: document.getElementById('help-link-supabase-project'),
+        helpLinkSupabaseSecrets: document.getElementById('help-link-supabase-secrets'),
+        helpLinkSupabaseSecretsStep3: document.getElementById('help-link-supabase-secrets-step3'),
+        helpLinkStripePrices: document.getElementById('help-link-stripe-prices'),
+        helpLinkStripeWebhooks: document.getElementById('help-link-stripe-webhooks'),
+        helpLinkStripeApiKeys: document.getElementById('help-link-stripe-apikeys'),
+        helpLinkNetlifyEnv: document.getElementById('help-link-netlify-env'),
+        helpLinkNetlifyDomains: document.getElementById('help-link-netlify-domains'),
+        helpLinkBillingConfig: document.getElementById('help-link-billing-config'),
+
+        historyList: document.getElementById('history-list'),
+        dashboardWizardLink: document.getElementById('dashboard-wizard-link')
+      };
+
+      const allFieldNodes = [
+        el.company,
+        el.slug,
+        el.clientKey,
+        el.customerDomain,
+        el.returnTo,
+        el.projectRef,
+        el.supabaseUrl,
+        el.stripePriceId,
+        el.seatsPrice,
+        el.seatsCurrency,
+        el.seatsInterval,
+        el.setupCurrency,
+        el.seatsMin,
+        el.seatsMax,
+        el.provisionFunctionUrl,
+        el.customerSiteId,
+        el.internalSiteId,
+        el.customerSiteName,
+        el.netlifyAccountSlug,
+        el.provisionToken,
+        el.liveConfirm,
+        el.secretStripeKey,
+        el.secretWebhookKey,
+        el.secretBillingAdminToken
+      ];
+
+      const fieldByName = {
+        company: el.company,
+        slug: el.slug,
+        clientKey: el.clientKey,
+        customerDomain: el.customerDomain,
+        returnTo: el.returnTo,
+        projectRef: el.projectRef,
+        supabaseUrl: el.supabaseUrl,
+        stripePriceId: el.stripePriceId,
+        seatsPrice: el.seatsPrice,
+        seatsCurrency: el.seatsCurrency,
+        seatsInterval: el.seatsInterval,
+        setupCurrency: el.setupCurrency,
+        seatsMin: el.seatsMin,
+        seatsMax: el.seatsMax,
+        provisionFunctionUrl: el.provisionFunctionUrl,
+        provisionToken: el.provisionToken,
+        liveConfirm: el.liveConfirm,
+        secretStripeKey: el.secretStripeKey,
+        secretWebhookKey: el.secretWebhookKey,
+        secretBillingAdminToken: el.secretBillingAdminToken
+      };
+
+      const stepFieldNames = {
+        1: ['company', 'slug', 'clientKey', 'customerDomain'],
+        2: ['projectRef', 'supabaseUrl', 'stripePriceId', 'seatsPrice', 'seatsCurrency', 'seatsInterval', 'setupCurrency', 'seatsMin', 'seatsMax'],
+        3: ['provisionFunctionUrl', 'provisionToken'],
+        4: []
+      };
+
+      const slugify = (value) =>
+        String(value || '')
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9-]+/g, '-')
+          .replace(/-+/g, '-')
+          .replace(/^-|-$/g, '');
+
+      const read = (value) => String(value || '').trim();
+
+      const normalizeDomain = (value) =>
+        read(value)
+          .replace(/^https?:\/\//i, '')
+          .replace(/\/$/, '');
+
+      const parseNumber = (value, fallback) => {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : fallback;
+      };
+
+      const projectKeyFromData = (projectRef, supabaseUrl) => {
+        const ref = read(projectRef).toLowerCase();
+        if (ref) return ref;
+        try {
+          const parsed = new URL(read(supabaseUrl));
+          const host = read(parsed.hostname).toLowerCase();
+          const match = host.match(/^([a-z0-9]+)\.supabase\.co$/);
+          return match && match[1] ? match[1] : '';
+        } catch (_error) {
+          return '';
+        }
+      };
+
+      const readBillingTokenMap = () => {
+        const raw = localStorage.getItem(BILLING_TOKEN_MAP_KEY);
+        if (!raw) return {};
+        try {
+          const parsed = JSON.parse(raw);
+          return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch (_error) {
+          return {};
+        }
+      };
+
+      const writeBillingTokenMap = (map) => {
+        localStorage.setItem(BILLING_TOKEN_MAP_KEY, JSON.stringify(map || {}));
+      };
+
+      const getRememberedBillingToken = (projectRef, supabaseUrl) => {
+        const key = projectKeyFromData(projectRef, supabaseUrl);
+        if (!key) return '';
+        const map = readBillingTokenMap();
+        return read(map[key]);
+      };
+
+      const rememberBillingTokenForProject = (projectRef, supabaseUrl, token) => {
+        const key = projectKeyFromData(projectRef, supabaseUrl);
+        const clean = read(token);
+        if (!key || !clean) return;
+        const map = readBillingTokenMap();
+        map[key] = clean;
+        writeBillingTokenMap(map);
+      };
+
+      const hydrateRememberedBillingToken = (options = {}) => {
+        const force = options.force === true;
+        const clearIfMissing = options.clearIfMissing === true;
+        const remembered = getRememberedBillingToken(el.projectRef.value, el.supabaseUrl.value);
+        if (!remembered) {
+          if (force && clearIfMissing) {
+            el.secretBillingAdminToken.value = '';
+          }
+          return false;
+        }
+        if (!force && read(el.secretBillingAdminToken.value)) return false;
+        el.secretBillingAdminToken.value = remembered;
+        return true;
+      };
+
+      const modeValue = () => {
+        const checked = document.querySelector('input[name="run-mode"]:checked');
+        return checked ? checked.value : 'dry_run';
+      };
+
+      const setModeValue = (value) => {
+        const target = document.querySelector(`input[name="run-mode"][value="${value}"]`);
+        if (target) target.checked = true;
+      };
+
+      const getDashboards = () => {
+        const list = [];
+        if (el.dbLead.checked) list.push('lead');
+        if (el.dbSales.checked) list.push('sales');
+        if (el.dbCall.checked) list.push('call-center');
+        return list;
+      };
+
+      const setDashboards = (list) => {
+        const set = new Set(Array.isArray(list) ? list : []);
+        el.dbLead.checked = set.has('lead');
+        el.dbSales.checked = set.has('sales');
+        el.dbCall.checked = set.has('call-center');
+      };
+
+      const setStatus = (message, tone = '') => {
+        el.status.textContent = message;
+        el.status.className = tone ? `status ${tone}` : 'status';
+      };
+
+      const fillDerivedFields = () => {
+        const rawCompany = read(el.company.value);
+        const companySlug = slugify(rawCompany);
+
+        if (!read(el.slug.value) && companySlug) el.slug.value = companySlug;
+
+        const slug = slugify(el.slug.value || companySlug);
+        if (!read(el.clientKey.value) && slug) el.clientKey.value = `${slug}-sales`;
+        if (!read(el.customerDomain.value) && slug) el.customerDomain.value = `${slug}.profitpulse.be`;
+        if (!read(el.customerSiteName.value) && slug) el.customerSiteName.value = `dashboard-${slug}`;
+
+        const ref = slugify(el.projectRef.value).replace(/-/g, '');
+        if (ref && !read(el.supabaseUrl.value)) {
+          el.supabaseUrl.value = `https://${ref}.supabase.co`;
+        }
+      };
+
+      const collect = () => {
+        // Collect should be side-effect free: derive values for output/validation without
+        // mutating inputs while the user is typing.
+        const mode = modeValue();
+
+        const company = read(el.company.value);
+        const companySlug = slugify(company);
+        const slug = slugify(read(el.slug.value) || companySlug);
+        const clientKey = slugify(read(el.clientKey.value) || (slug ? `${slug}-sales` : ''));
+        const customerDomain = normalizeDomain(el.customerDomain.value) || (slug ? `${slug}.profitpulse.be` : '');
+
+        const projectRef = read(el.projectRef.value);
+        const inferredRef = slugify(projectRef).replace(/-/g, '');
+        const supabaseUrl = read(el.supabaseUrl.value) || (inferredRef ? `https://${inferredRef}.supabase.co` : '');
+
+        const customerSiteName = slugify(el.customerSiteName.value) || (slug ? `dashboard-${slug}` : '');
+
+        return {
+          company,
+          slug,
+          clientKey,
+          customerDomain,
+          returnTo: read(el.returnTo.value) || '/sales-resultaten',
+          projectRef,
+          supabaseUrl,
+          stripePriceId: read(el.stripePriceId.value),
+          seatsPrice: parseNumber(el.seatsPrice.value, 34.99),
+          seatsCurrency: read(el.seatsCurrency.value).toUpperCase() || 'EUR',
+          seatsInterval: read(el.seatsInterval.value) || 'maand',
+          setupCurrency: read(el.setupCurrency.value).toLowerCase() || 'eur',
+          seatsMin: Math.max(1, Math.floor(parseNumber(el.seatsMin.value, 1))),
+          seatsMax: Math.max(1, Math.floor(parseNumber(el.seatsMax.value, 150))),
+          dashboards: getDashboards(),
+
+          mode,
+          provisionFunctionUrl: read(el.provisionFunctionUrl.value) || '/.netlify/functions/provision-client',
+          customerSiteId: read(el.customerSiteId.value),
+          internalSiteId: read(el.internalSiteId.value),
+          customerSiteName,
+          netlifyAccountSlug: slugify(el.netlifyAccountSlug.value),
+          retryStep: read(el.retryStep.value),
+
+          createCustomerSite: Boolean(el.actionCreateSite.checked),
+          writeSupabaseSecrets: Boolean(el.actionWriteSecrets.checked),
+
+          provisionToken: read(el.provisionToken.value),
+          liveConfirm: read(el.liveConfirm.value),
+          autoOpenLinks: Boolean(el.autoOpenLinks.checked),
+          rememberBillingToken: Boolean(el.rememberBillingToken.checked),
+
+          secretStripeKey: read(el.secretStripeKey.value),
+          secretWebhookKey: read(el.secretWebhookKey.value),
+          secretBillingAdminToken: read(el.secretBillingAdminToken.value)
+        };
+      };
+
+      const persistable = (data) => ({
+        company: data.company,
+        slug: data.slug,
+        clientKey: data.clientKey,
+        customerDomain: data.customerDomain,
+        returnTo: data.returnTo,
+        projectRef: data.projectRef,
+        supabaseUrl: data.supabaseUrl,
+        stripePriceId: data.stripePriceId,
+        seatsPrice: String(data.seatsPrice),
+        seatsCurrency: data.seatsCurrency,
+        seatsInterval: data.seatsInterval,
+        setupCurrency: data.setupCurrency,
+        seatsMin: String(data.seatsMin),
+        seatsMax: String(data.seatsMax),
+        dashboards: data.dashboards,
+        mode: data.mode,
+        provisionFunctionUrl: data.provisionFunctionUrl,
+        customerSiteId: data.customerSiteId,
+        internalSiteId: data.internalSiteId,
+        customerSiteName: data.customerSiteName,
+        netlifyAccountSlug: data.netlifyAccountSlug,
+        retryStep: data.retryStep,
+        createCustomerSite: data.createCustomerSite,
+        writeSupabaseSecrets: data.writeSupabaseSecrets,
+        autoOpenLinks: data.autoOpenLinks,
+        rememberBillingToken: data.rememberBillingToken
+      });
+
+      const applyData = (data) => {
+        if (!data || typeof data !== 'object') return;
+        el.company.value = read(data.company);
+        el.slug.value = read(data.slug);
+        el.clientKey.value = read(data.clientKey);
+        el.customerDomain.value = read(data.customerDomain);
+        el.returnTo.value = read(data.returnTo) || '/sales-resultaten';
+        el.projectRef.value = read(data.projectRef);
+        el.supabaseUrl.value = read(data.supabaseUrl);
+        el.stripePriceId.value = read(data.stripePriceId);
+        el.seatsPrice.value = read(data.seatsPrice) || '34.99';
+        el.seatsCurrency.value = read(data.seatsCurrency) || 'EUR';
+        el.seatsInterval.value = read(data.seatsInterval) || 'maand';
+        el.setupCurrency.value = read(data.setupCurrency) || 'eur';
+        el.seatsMin.value = read(data.seatsMin) || '1';
+        el.seatsMax.value = read(data.seatsMax) || '150';
+
+        setDashboards(data.dashboards || ['lead', 'sales']);
+
+        setModeValue(read(data.mode) || 'dry_run');
+        el.provisionFunctionUrl.value = read(data.provisionFunctionUrl) || '/.netlify/functions/provision-client';
+        el.customerSiteId.value = read(data.customerSiteId);
+        el.internalSiteId.value = read(data.internalSiteId);
+        el.customerSiteName.value = read(data.customerSiteName);
+        el.netlifyAccountSlug.value = read(data.netlifyAccountSlug);
+        el.retryStep.value = read(data.retryStep);
+        el.actionCreateSite.checked = Boolean(data.createCustomerSite);
+        el.actionWriteSecrets.checked = Boolean(data.writeSupabaseSecrets);
+        el.autoOpenLinks.checked = data.autoOpenLinks !== false;
+        el.rememberBillingToken.checked = data.rememberBillingToken === true;
+
+        fillDerivedFields();
+        toggleLiveSections();
+        hydrateRememberedBillingToken();
+      };
+
+      const saveState = () => {
+        const data = collect();
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(persistable(data)));
+      };
+
+      const loadState = () => {
+        const params = new URLSearchParams(window.location.search);
+        const hasQuery = Array.from(params.keys()).length > 0;
+
+        if (hasQuery) {
+          applyData({
+            company: params.get('company') || '',
+            slug: params.get('slug') || '',
+            clientKey: params.get('client_key') || '',
+            customerDomain: params.get('customer_domain') || '',
+            returnTo: params.get('return_to') || '',
+            projectRef: params.get('project_ref') || '',
+            supabaseUrl: params.get('supabase_url') || '',
+            stripePriceId: params.get('stripe_price_id') || '',
+            seatsPrice: params.get('seats_price') || '',
+            seatsCurrency: params.get('seats_currency') || '',
+            seatsInterval: params.get('seats_interval') || '',
+            setupCurrency: params.get('setup_currency') || '',
+            seatsMin: params.get('seats_min') || '',
+            seatsMax: params.get('seats_max') || '',
+            provisionFunctionUrl: params.get('provision_url') || '',
+            customerSiteId: params.get('customer_site_id') || '',
+            internalSiteId: params.get('internal_site_id') || '',
+            customerSiteName: params.get('customer_site_name') || '',
+            netlifyAccountSlug: params.get('netlify_account_slug') || '',
+            retryStep: params.get('retry_step') || '',
+            createCustomerSite: params.get('create_site') === '1',
+            writeSupabaseSecrets: params.get('write_secrets') === '1',
+            autoOpenLinks: params.get('auto_open') !== '0',
+            rememberBillingToken: params.get('remember_billing_token') === '1',
+            dashboards: [params.get('db_lead') !== '0' ? 'lead' : null, params.get('db_sales') !== '0' ? 'sales' : null, params.get('db_call') === '1' ? 'call-center' : null].filter(Boolean),
+            mode: params.get('mode') || 'dry_run'
+          });
+          return;
+        }
+
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        try {
+          applyData(JSON.parse(raw));
+        } catch (_error) {
+          // ignore invalid local state
+        }
+      };
+
+      const validate = (data, options = {}) => {
+        const forProvision = Boolean(options.forProvision);
+        const errors = [];
+        const warnings = [];
+
+        const err = (field, message) => errors.push({ field, message });
+        const warn = (field, message) => warnings.push({ field, message });
+
+        if (!data.company) err('company', 'Klantnaam is verplicht.');
+        if (!data.slug) err('slug', 'Slug is verplicht.');
+        if (data.slug && !/^[a-z0-9-]+$/.test(data.slug)) err('slug', 'Slug mag enkel a-z, 0-9 en - bevatten.');
+
+        if (!data.clientKey) err('clientKey', 'Billing client key is verplicht.');
+        if (data.clientKey && !/^[a-z0-9-]+$/.test(data.clientKey)) err('clientKey', 'Client key mag enkel a-z, 0-9 en - bevatten.');
+
+        if (!data.customerDomain) err('customerDomain', 'Klantdomein is verplicht.');
+        if (data.customerDomain && !/^([a-z0-9-]+\.)+[a-z]{2,}$/i.test(data.customerDomain)) {
+          err('customerDomain', 'Klantdomein lijkt ongeldig (voorbeeld: belivert.profitpulse.be).');
+        }
+
+        if (!data.projectRef) err('projectRef', 'Supabase project ref is verplicht.');
+        if (data.projectRef && !/^[a-z0-9]{8,}$/i.test(data.projectRef)) {
+          warn('projectRef', 'Project ref lijkt ongebruikelijk. Controleer op typfouten.');
+        }
+
+        if (!data.supabaseUrl) err('supabaseUrl', 'Supabase URL is verplicht.');
+        if (data.supabaseUrl && !/^https:\/\/.+\.supabase\.co$/i.test(data.supabaseUrl)) {
+          warn('supabaseUrl', 'Supabase URL volgt niet het standaardpatroon https://<ref>.supabase.co.');
+        }
+
+        if (!data.stripePriceId) err('stripePriceId', 'Stripe seats price ID is verplicht.');
+        if (data.stripePriceId && !/^price_/i.test(data.stripePriceId)) warn('stripePriceId', 'Stripe price ID start normaal met price_.');
+
+        if (!/^[A-Z]{3}$/.test(data.seatsCurrency)) err('seatsCurrency', 'Munt moet 3 letters zijn (bv. EUR).');
+        if (!/^[a-z]{3}$/.test(data.setupCurrency)) err('setupCurrency', 'Setup currency moet 3 kleine letters zijn (bv. eur).');
+        if (data.seatsMin < 1) err('seatsMin', 'Seats min moet minstens 1 zijn.');
+        if (data.seatsMax < data.seatsMin) err('seatsMax', 'Seats max moet >= seats min zijn.');
+
+        if (!data.provisionFunctionUrl) err('provisionFunctionUrl', 'Provision endpoint is verplicht.');
+
+        if (data.mode === 'dry_run' && (data.createCustomerSite || data.writeSupabaseSecrets)) {
+          warn('mode', 'Je staat in dry run: write actions worden niet uitgevoerd.');
+        }
+
+        if (forProvision) {
+          if (!data.provisionToken) err('provisionToken', 'Provision admin token is verplicht om te runnen.');
+
+          const wantsWrites = data.mode === 'live_write' && (data.createCustomerSite || data.writeSupabaseSecrets);
+          const retryWriteStep = ['netlify_customer_site_write', 'supabase_secrets_write'].includes(data.retryStep);
+          const needsLiveConfirm = wantsWrites || retryWriteStep;
+
+          if (needsLiveConfirm && data.mode !== 'live_write') {
+            err('mode', 'Voor write stappen moet run mode op Live write staan.');
+          }
+
+          if (needsLiveConfirm && data.liveConfirm !== 'LIVE') {
+            err('liveConfirm', 'Typ LIVE om write acties te bevestigen.');
+          }
+
+          const needsSecrets = (data.mode === 'live_write' && data.writeSupabaseSecrets) || data.retryStep === 'supabase_secrets_write';
+          if (needsSecrets) {
+            if (!data.secretStripeKey) err('secretStripeKey', 'STRIPE_SECRET_KEY ontbreekt.');
+            if (!data.secretWebhookKey) err('secretWebhookKey', 'STRIPE_WEBHOOK_SECRET ontbreekt.');
+            if (!data.secretBillingAdminToken) err('secretBillingAdminToken', 'BILLING_ADMIN_TOKEN ontbreekt.');
+          }
+        }
+
+        return { errors, warnings };
+      };
+
+      const renderValidation = (validation) => {
+        allFieldNodes.forEach((node) => node.classList.remove('invalid'));
+
+        validation.errors.forEach((entry) => {
+          const node = fieldByName[entry.field];
+          if (node) node.classList.add('invalid');
+        });
+
+        const items = [];
+        if (validation.errors.length === 0 && validation.warnings.length === 0) {
+          items.push('<div class="val-item">Geen blocking issues.</div>');
+        }
+
+        for (const entry of validation.errors) {
+          items.push(`<div class="val-item error">${entry.message}</div>`);
+        }
+        for (const entry of validation.warnings) {
+          items.push(`<div class="val-item warn">${entry.message}</div>`);
+        }
+
+        el.validationList.innerHTML = items.join('');
+      };
+
+      const computeReadiness = (data, validation) => {
+        const checks = [];
+
+        const push = (label, ok, weight = 10) => checks.push({ label, ok, weight });
+
+        push('Klantgegevens ingevuld', Boolean(data.company && data.slug && data.clientKey && data.customerDomain), 14);
+        push('Billing basis ingevuld', Boolean(data.projectRef && data.supabaseUrl && data.stripePriceId), 14);
+        push('Seats config geldig', validation.errors.every((entry) => !['seatsCurrency', 'setupCurrency', 'seatsMin', 'seatsMax'].includes(entry.field)), 10);
+        push('Provision endpoint ingevuld', Boolean(data.provisionFunctionUrl), 8);
+        push('Provision token ingevuld', Boolean(data.provisionToken), 12);
+
+        const liveWrites = data.mode === 'live_write' && (data.createCustomerSite || data.writeSupabaseSecrets);
+        if (liveWrites || ['netlify_customer_site_write', 'supabase_secrets_write'].includes(data.retryStep)) {
+          push('Live write bevestigd (LIVE)', data.liveConfirm === 'LIVE', 12);
+        }
+
+        if ((data.mode === 'live_write' && data.writeSupabaseSecrets) || data.retryStep === 'supabase_secrets_write') {
+          push(
+            'Secrets aanwezig voor Supabase write',
+            Boolean(data.secretStripeKey && data.secretWebhookKey && data.secretBillingAdminToken),
+            14
+          );
+        }
+
+        const total = checks.reduce((sum, item) => sum + item.weight, 0);
+        const score = total > 0 ? Math.round((checks.filter((item) => item.ok).reduce((sum, item) => sum + item.weight, 0) / total) * 100) : 0;
+
+        return { checks, score };
+      };
+
+      const renderReadiness = (readiness) => {
+        const score = readiness.score;
+        el.readinessScore.textContent = `${score}%`;
+        el.readinessMeter.style.width = `${score}%`;
+
+        let label = 'Niet klaar';
+        if (score >= 85) label = 'Klaar voor run';
+        else if (score >= 60) label = 'Bijna klaar';
+        else if (score >= 35) label = 'Nog werk nodig';
+        el.readinessPill.textContent = label;
+
+        el.readinessList.innerHTML = readiness.checks
+          .map((item) => `<div class="${item.ok ? 'readiness-ok' : 'readiness-miss'}">${item.ok ? 'OK' : 'TODO'} - ${item.label}</div>`)
+          .join('');
+      };
+
+      const buildProfileSnippet = (data) => {
+        const price = Number(data.seatsPrice.toFixed(2));
+        return `"${data.clientKey}": {
+  "company": "${data.company}",
+  "title": "Activeer ${data.company} Sales Dashboard",
+  "subtitle": "Aparte licentie voor het sales dashboard. Facturatie gebeurt per vertegenwoordiger.",
+  "billing_flow": "seats_setup",
+  "seats_title": "Koppel kaart voor ${data.company} Sales Dashboard",
+  "seats_subtitle": "Kies eerst het aantal vertegenwoordigers en koppel daarna je kaart via Stripe.",
+  "seats_function_url": "https://${data.projectRef}.supabase.co/functions/v1/stripe-seats-billing",
+  "seats_price_per_rep": ${price},
+  "seats_price_currency": "${data.seatsCurrency}",
+  "seats_price_interval": "${data.seatsInterval}",
+  "seats_min": ${data.seatsMin},
+  "seats_max": ${data.seatsMax},
+  "return_to": "${data.returnTo}",
+  "buy_button_id": "buy_btn_REPLACE",
+  "payment_link": "https://buy.stripe.com/REPLACE"
+}`;
+      };
+
+      const buildSecretsTemplate = (data) => `# secrets/supabase.${data.slug}.env
+# Stripe billing
+STRIPE_SECRET_KEY=sk_live_REPLACE
+STRIPE_WEBHOOK_SECRET=whsec_REPLACE
+STRIPE_SALES_PRICE_ID=${data.stripePriceId || 'price_REPLACE'}
+STRIPE_SETUP_CURRENCY=${data.setupCurrency}
+
+# Internal access
+BILLING_ADMIN_TOKEN=REPLACE_WITH_STRONG_TOKEN
+
+# Supabase context
+SUPABASE_URL=${data.supabaseUrl}`;
+
+      const buildCommands = (data) => `# 1) Encrypt secrets file
+cd /home/dries/code/dashboardtemplatev2
+mkdir -p secrets
+sops -e secrets/supabase.${data.slug}.env > secrets/supabase.${data.slug}.env.enc
+
+# 2) Sync secrets to target project
+./scripts/supabase-secrets-sync.sh secrets/supabase.${data.slug}.env.enc ${data.projectRef}
+
+# 3) Deploy Stripe seats function
+supabase functions deploy stripe-seats-billing --project-ref ${data.projectRef} --no-verify-jwt
+
+# 4) Push DB schema/migrations
+supabase link --project-ref ${data.projectRef}
+supabase db push --linked --include-all --yes`;
+
+      const buildChecklist = (data) => {
+        const dashboardsLabel = data.dashboards.length ? data.dashboards.join(', ') : 'lead, sales';
+        const projectRef = read(data.projectRef);
+        const supabaseProjectBase = projectRef ? `https://supabase.com/dashboard/project/${projectRef}` : 'https://supabase.com/dashboard';
+        const supabaseSecretsUrl = projectRef
+          ? `https://supabase.com/dashboard/project/${projectRef}/settings/functions`
+          : 'https://supabase.com/dashboard';
+        return `1) Stripe
+- Maak/controleer recurring price voor seats (Price ID: ${data.stripePriceId || 'price_...'}).
+- Waar? https://dashboard.stripe.com/prices
+- Zet webhook endpoint op https://${data.projectRef}.supabase.co/functions/v1/stripe-seats-billing.
+- Waar webhook secret? https://dashboard.stripe.com/webhooks
+- Activeer events: checkout.session.completed, customer.subscription.created/updated/deleted, invoice.payment_succeeded/failed.
+
+2) Supabase
+- Sync secrets naar project ${data.projectRef}.
+- Open project: ${supabaseProjectBase}
+- Secrets (BILLING_ADMIN_TOKEN): ${supabaseSecretsUrl}
+- Deploy edge function stripe-seats-billing.
+- Check in Function logs op 200 responses voor OPTIONS en create_setup_session.
+
+3) Frontend config
+- Voeg profiel toe in dashboard/public/billing-clients.json (snippet 1).
+- Zet klantdashboard tabs op: ${dashboardsLabel}.
+
+4) Live links
+- Klantflow: https://${data.customerDomain}/billing-seats-setup.html?client=${encodeURIComponent(data.clientKey)}
+- Klant entry: https://${data.customerDomain}/billing-belivert.html
+- Interne overview: https://app.profitpulse.be/billing-overview-admin.html
+- Stripe subscriptions: https://dashboard.stripe.com/subscriptions
+
+5) QA
+- Doe setup met testkaart op testproject.
+- Pas seats aan in Stripe Dashboard en verifieer subscription status active.
+- Herhaal op live met echte kaart.`;
+      };
+
+      const buildSummary = (data) => {
+        const functionUrl = `https://${data.projectRef}.supabase.co/functions/v1/stripe-seats-billing`;
+        const supabaseSecretsUrl = data.projectRef
+          ? `https://supabase.com/dashboard/project/${encodeURIComponent(data.projectRef)}/settings/functions`
+          : 'https://supabase.com/dashboard';
+        return `
+<div><strong>Flow key:</strong> <code>${data.clientKey}</code></div>
+<div><strong>Function URL:</strong> <code>${functionUrl}</code></div>
+<div><strong>Provision endpoint:</strong> <code>${data.provisionFunctionUrl}</code></div>
+<div><strong>Mode:</strong> <code>${data.mode}</code> | <code>create_site=${data.createCustomerSite}</code> | <code>write_secrets=${data.writeSupabaseSecrets}</code></div>
+<div><strong>Klantflow URL:</strong> <a class="inline-link" href="https://${data.customerDomain}/billing-seats-setup.html?client=${encodeURIComponent(data.clientKey)}" target="_blank" rel="noopener noreferrer">https://${data.customerDomain}/billing-seats-setup.html?client=${encodeURIComponent(data.clientKey)}</a></div>
+<div><strong>Interne overview:</strong> <a class="inline-link" href="/billing-overview-admin.html">/billing-overview-admin.html</a></div>
+<div><strong>Stripe subscriptions:</strong> <a class="inline-link" href="https://dashboard.stripe.com/subscriptions" target="_blank" rel="noopener noreferrer">https://dashboard.stripe.com/subscriptions</a></div>
+<div><strong>Supabase secrets:</strong> <a class="inline-link" href="${supabaseSecretsUrl}" target="_blank" rel="noopener noreferrer">${supabaseSecretsUrl}</a></div>
+<div><strong>Netlify env (provision token):</strong> <a class="inline-link" href="https://app.netlify.com/projects/profitpulsebilling/configuration/env" target="_blank" rel="noopener noreferrer">https://app.netlify.com/projects/profitpulsebilling/configuration/env</a></div>
+`;
+      };
+
+      const setLink = (anchor, url) => {
+        if (!url) {
+          anchor.href = '#';
+          anchor.classList.add('disabled');
+          return;
+        }
+        anchor.href = url;
+        anchor.target = '_blank';
+        anchor.rel = 'noopener noreferrer';
+        anchor.classList.remove('disabled');
+      };
+
+      const setHelpLink = (anchor, url) => {
+        if (!anchor) return;
+        if (!url) {
+          anchor.href = '#';
+          anchor.classList.add('disabled');
+          return;
+        }
+        anchor.href = url;
+        anchor.target = '_blank';
+        anchor.rel = 'noopener noreferrer';
+        anchor.classList.remove('disabled');
+      };
+
+      const updateHowToLinks = (data) => {
+        const ref = read(data.projectRef);
+        const supabaseProjectBase = ref ? `https://supabase.com/dashboard/project/${encodeURIComponent(ref)}` : '';
+        const supabaseSecretsUrl = supabaseProjectBase ? `${supabaseProjectBase}/settings/functions` : '';
+        const customerSiteName = read(data.customerSiteName);
+        const customerSiteId = read(data.customerSiteId);
+        const netlifyDomainUrl = customerSiteName
+          ? `https://app.netlify.com/sites/${encodeURIComponent(customerSiteName)}/domain-management`
+          : customerSiteId
+            ? `https://app.netlify.com/sites/${encodeURIComponent(customerSiteId)}/domain-management`
+            : 'https://app.netlify.com/projects/profitpulsebilling/domain-management';
+
+        setHelpLink(el.helpLinkNetlifyDomains, netlifyDomainUrl);
+        setHelpLink(el.helpLinkBillingConfig, `${window.location.origin}/billing-clients.json`);
+        setHelpLink(el.helpLinkSupabaseProject, supabaseProjectBase);
+        setHelpLink(el.helpLinkSupabaseSecrets, supabaseSecretsUrl);
+        setHelpLink(el.helpLinkSupabaseSecretsStep3, supabaseSecretsUrl);
+      };
+
+      const buildDashboardWizardUrl = (data) => {
+        const url = new URL('http://localhost:8787/');
+        const slug = read(data.slug);
+        const supabaseUrl = read(data.supabaseUrl);
+        const company = read(data.company);
+        const dashboards = Array.isArray(data.dashboards) ? data.dashboards : [];
+
+        url.searchParams.set('from', 'hub');
+        if (slug) url.searchParams.set('slug', slug);
+        if (supabaseUrl) url.searchParams.set('supabaseUrl', supabaseUrl);
+        if (company) url.searchParams.set('dashboardTitle', company);
+        if (dashboards.length) url.searchParams.set('dashboardTabs', dashboards.join(','));
+
+        return url.toString();
+      };
+
+      const updateDashboardWizardLink = (data) => {
+        if (!el.dashboardWizardLink) return;
+        el.dashboardWizardLink.href = buildDashboardWizardUrl(data);
+      };
+
+      const updateQuickLinks = (generated) => {
+        setLink(el.linkSetup, generated?.customer_setup_url || '');
+        setLink(el.linkEntry, generated?.customer_entry_url || '');
+        setLink(el.linkOverview, generated?.internal_overview_url || '');
+        setLink(el.linkStripeSubscriptions, generated?.stripe_subscriptions_url || '');
+      };
+
+      const openGeneratedLinks = (generated) => {
+        const urls = [generated?.customer_setup_url, generated?.internal_overview_url, generated?.stripe_subscriptions_url].filter(
+          Boolean
+        );
+        let blocked = 0;
+        for (const url of urls) {
+          const win = window.open(url, '_blank', 'noopener');
+          if (!win) blocked += 1;
+        }
+        return blocked;
+      };
+
+      const buildShareUrl = (data) => {
+        const url = new URL(window.location.href);
+        url.search = '';
+        const params = url.searchParams;
+
+        params.set('company', data.company);
+        params.set('slug', data.slug);
+        params.set('client_key', data.clientKey);
+        params.set('customer_domain', data.customerDomain);
+        params.set('return_to', data.returnTo);
+        params.set('project_ref', data.projectRef);
+        params.set('supabase_url', data.supabaseUrl);
+        params.set('stripe_price_id', data.stripePriceId);
+        params.set('seats_price', String(data.seatsPrice));
+        params.set('seats_currency', data.seatsCurrency);
+        params.set('seats_interval', data.seatsInterval);
+        params.set('setup_currency', data.setupCurrency);
+        params.set('seats_min', String(data.seatsMin));
+        params.set('seats_max', String(data.seatsMax));
+        params.set('mode', data.mode);
+        params.set('provision_url', data.provisionFunctionUrl);
+        params.set('customer_site_id', data.customerSiteId);
+        params.set('internal_site_id', data.internalSiteId);
+        params.set('customer_site_name', data.customerSiteName);
+        params.set('netlify_account_slug', data.netlifyAccountSlug);
+        params.set('retry_step', data.retryStep);
+        params.set('create_site', data.createCustomerSite ? '1' : '0');
+        params.set('write_secrets', data.writeSupabaseSecrets ? '1' : '0');
+        params.set('auto_open', data.autoOpenLinks ? '1' : '0');
+        params.set('remember_billing_token', data.rememberBillingToken ? '1' : '0');
+        params.set('db_lead', data.dashboards.includes('lead') ? '1' : '0');
+        params.set('db_sales', data.dashboards.includes('sales') ? '1' : '0');
+        params.set('db_call', data.dashboards.includes('call-center') ? '1' : '0');
+
+        return url.toString();
+      };
+
+      const saveRunHistory = (entry) => {
+        const current = loadRunHistory();
+        const updated = [entry, ...current].slice(0, 20);
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
+        renderHistory(updated);
+      };
+
+      const loadRunHistory = () => {
+        const raw = localStorage.getItem(HISTORY_KEY);
+        if (!raw) return [];
+        try {
+          const parsed = JSON.parse(raw);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch (_error) {
+          return [];
+        }
+      };
+
+      const renderHistory = (items) => {
+        if (!items.length) {
+          el.historyList.innerHTML = '<div class="history-meta">Nog geen runs.</div>';
+          return;
+        }
+
+        el.historyList.innerHTML = items
+          .map((item) => {
+            const status = item.ok ? 'OK' : 'ISSUES';
+            const color = item.ok ? '#8ff0df' : '#f8c266';
+            const time = read(item.created_at);
+            return `
+              <div class="history-item">
+                <div class="history-meta"><span style="color:${color};font-weight:700;">${status}</span> | ${time} | ${read(item.company)} | ${read(item.mode)} | ${read(item.job_id)}</div>
+                <div class="history-actions">
+                  <button type="button" data-history-action="load" data-history-id="${item.id}">Load</button>
+                  <button type="button" data-history-action="retry" data-history-id="${item.id}">Retry Same</button>
+                  <button type="button" data-history-action="remove" data-history-id="${item.id}">Verwijder</button>
+                </div>
+              </div>
+            `;
+          })
+          .join('');
+      };
+
+      const handleHistoryAction = async (event) => {
+        const button = event.target.closest('button[data-history-action]');
+        if (!button) return;
+
+        const action = button.getAttribute('data-history-action');
+        const id = button.getAttribute('data-history-id');
+        const items = loadRunHistory();
+        const match = items.find((item) => item.id === id);
+        if (!match) return;
+
+        if (action === 'load') {
+          applyData(match.form || {});
+          runGenerate({ skipStatus: true });
+          outProvisionFromObject(match.response || {});
+          setStatus(`Run ${match.job_id || ''} geladen.`);
+          return;
+        }
+
+        if (action === 'retry') {
+          applyData(match.form || {});
+          runGenerate({ skipStatus: true });
+          await runProvision();
+          return;
+        }
+
+        if (action === 'remove') {
+          const filtered = items.filter((item) => item.id !== id);
+          localStorage.setItem(HISTORY_KEY, JSON.stringify(filtered));
+          renderHistory(filtered);
+        }
+      };
+
+      const goToStep = (step) => {
+        const clamped = Math.max(1, Math.min(TOTAL_STEPS, Number(step) || 1));
+        currentStep = clamped;
+
+        el.stepPanels.forEach((panel) => {
+          const panelStep = Number(panel.getAttribute('data-step-panel'));
+          panel.classList.toggle('active', panelStep === currentStep);
+        });
+
+        el.stepPills.forEach((pill) => {
+          const pillStep = Number(pill.getAttribute('data-step'));
+          pill.classList.toggle('active', pillStep === currentStep);
+          pill.classList.toggle('done', pillStep < currentStep);
+        });
+
+        const progress = ((currentStep - 1) / (TOTAL_STEPS - 1)) * 100;
+        el.stepProgress.style.width = `${progress}%`;
+
+        el.prevStepBtn.disabled = currentStep === 1;
+        el.nextStepBtn.disabled = currentStep === TOTAL_STEPS;
+      };
+
+      const canMoveNext = () => {
+        // Ensure derived fields are materialized before navigating steps so the user sees them.
+        fillDerivedFields();
+        const data = collect();
+        const validation = validate(data, { forProvision: false });
+        const fieldsForStep = stepFieldNames[currentStep] || [];
+        const blocking = validation.errors.filter((entry) => fieldsForStep.includes(entry.field));
+        renderValidation(validation);
+        renderReadiness(computeReadiness(data, validation));
+
+        if (blocking.length > 0) {
+          setStatus('Los eerst de validatieproblemen op in deze stap.', 'error');
+          return false;
+        }
+        return true;
+      };
+
+      const toggleLiveSections = () => {
+        const mode = modeValue();
+        const show = mode === 'live_write';
+        el.liveSecretsGroup.classList.toggle('show', show);
+      };
+
+      const runGenerate = (options = {}) => {
+        // Only auto-fill derived inputs on explicit actions (blur/next/generate/provision),
+        // not on every keystroke while typing.
+        if (options.applyDerived !== false) {
+          fillDerivedFields();
+        }
+
+        const data = collect();
+        const validation = validate(data, { forProvision: false });
+
+        renderValidation(validation);
+        renderReadiness(computeReadiness(data, validation));
+        updateHowToLinks(data);
+        updateDashboardWizardLink(data);
+
+        el.outProfile.value = buildProfileSnippet(data);
+        el.outSecrets.value = buildSecretsTemplate(data);
+        el.outCommands.value = buildCommands(data);
+        el.outChecklist.value = buildChecklist(data);
+        el.summary.innerHTML = buildSummary(data);
+
+        latestGenerated = {
+          customer_setup_url: `https://${data.customerDomain}/billing-seats-setup.html?client=${encodeURIComponent(data.clientKey)}`,
+          customer_entry_url: `https://${data.customerDomain}/billing-belivert.html`,
+          internal_overview_url: 'https://app.profitpulse.be/billing-overview-admin.html',
+          stripe_subscriptions_url: 'https://dashboard.stripe.com/subscriptions'
+        };
+        updateQuickLinks(latestGenerated);
+
+        saveState();
+        if (!options.skipStatus) {
+          if (validation.errors.length > 0) setStatus('Onboarding pakket gegenereerd met blocking issues.', 'warn');
+          else setStatus('Onboarding pakket gegenereerd.', 'ok');
+        }
+
+        return { data, validation };
+      };
+
+      const outProvisionFromObject = (obj) => {
+        el.outProvision.value = JSON.stringify(obj || {}, null, 2);
+      };
+
+      const buildProvisionPayload = (data) => ({
+        company: data.company,
+        slug: data.slug,
+        clientKey: data.clientKey,
+        customerDomain: data.customerDomain,
+        returnTo: data.returnTo,
+        projectRef: data.projectRef,
+        supabaseUrl: data.supabaseUrl,
+        stripePriceId: data.stripePriceId,
+        setupCurrency: data.setupCurrency,
+        functionUrl: `https://${data.projectRef}.supabase.co/functions/v1/stripe-seats-billing`,
+
+        mode: data.mode,
+        liveConfirm: data.liveConfirm,
+        retry_step: data.retryStep || undefined,
+
+        customerSiteId: data.customerSiteId,
+        internalSiteId: data.internalSiteId,
+        customerSiteName: data.customerSiteName,
+        netlifyAccountSlug: data.netlifyAccountSlug,
+
+        actions: {
+          create_customer_site: data.createCustomerSite,
+          write_supabase_secrets: data.writeSupabaseSecrets
+        },
+
+        supabaseSecrets: {
+          STRIPE_SECRET_KEY: data.secretStripeKey,
+          STRIPE_WEBHOOK_SECRET: data.secretWebhookKey,
+          STRIPE_SALES_PRICE_ID: data.stripePriceId,
+          STRIPE_SETUP_CURRENCY: data.setupCurrency,
+          BILLING_ADMIN_TOKEN: data.secretBillingAdminToken
+        }
+      });
+
+      const runProvision = async () => {
+        const generated = runGenerate({ skipStatus: true });
+        const data = generated.data;
+
+        const validation = validate(data, { forProvision: true });
+        renderValidation(validation);
+        renderReadiness(computeReadiness(data, validation));
+
+        if (validation.errors.length > 0) {
+          const first = validation.errors[0];
+          const field = fieldByName[first.field];
+          if (field) field.focus();
+
+          const targetStep = Object.entries(stepFieldNames).find(([, fields]) => fields.includes(first.field));
+          if (targetStep) goToStep(Number(targetStep[0]));
+          setStatus('Provision gestopt door validatiefouten.', 'error');
+          return;
+        }
+
+        const endpoint = data.provisionFunctionUrl || '/.netlify/functions/provision-client';
+        const payload = buildProvisionPayload(data);
+
+        el.provisionBtn.disabled = true;
+        setStatus('Provision run gestart...');
+        outProvisionFromObject({ info: 'Provisioning...' });
+
+        try {
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-admin-token': data.provisionToken
+            },
+            body: JSON.stringify(payload)
+          });
+
+          const result = await response.json().catch(() => ({}));
+          outProvisionFromObject(result);
+
+          const generatedLinks = result?.generated || latestGenerated || {};
+          latestGenerated = generatedLinks;
+          updateQuickLinks(generatedLinks);
+
+          const ok = Boolean(response.ok && result?.ok);
+          if (ok) {
+            if (data.rememberBillingToken && data.secretBillingAdminToken) {
+              rememberBillingTokenForProject(data.projectRef, data.supabaseUrl, data.secretBillingAdminToken);
+            }
+            setStatus(`Provision geslaagd (${read(result.job_id) || 'zonder job id'}).`, 'ok');
+          } else if (response.ok) {
+            setStatus(`Provision klaar met issues (${read(result.job_id) || 'zonder job id'}).`, 'warn');
+          } else {
+            setStatus(read(result.error) || `Provision request mislukt (${response.status}).`, 'error');
+          }
+
+          if (ok && data.autoOpenLinks) {
+            const blocked = openGeneratedLinks(generatedLinks);
+            if (blocked > 0) {
+              setStatus(`Provision geslaagd, maar ${blocked} link(s) werden geblokkeerd door de browser.`, 'warn');
+            }
+          }
+
+          saveRunHistory({
+            id: `run_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            created_at: new Date().toLocaleString('nl-BE'),
+            company: data.company,
+            mode: data.mode,
+            job_id: read(result?.job_id),
+            ok,
+            form: persistable(data),
+            response: result
+          });
+
+          goToStep(4);
+        } catch (error) {
+          outProvisionFromObject({ ok: false, error: error instanceof Error ? error.message : 'Onbekende fout' });
+          setStatus(error instanceof Error ? error.message : 'Provision run mislukt.', 'error');
+        } finally {
+          el.provisionBtn.disabled = false;
+        }
+      };
+
+      const retryStep = async (stepName) => {
+        el.retryStep.value = stepName;
+        await runProvision();
+      };
+
+      const copyText = async (text) => {
+        if (!text) return false;
+        try {
+          await navigator.clipboard.writeText(text);
+          return true;
+        } catch (_error) {
+          const temp = document.createElement('textarea');
+          temp.value = text;
+          document.body.appendChild(temp);
+          temp.select();
+          const ok = document.execCommand('copy');
+          temp.remove();
+          return ok;
+        }
+      };
+
+      const applyPreset = () => {
+        const key = read(el.presetSelect.value);
+        const preset = PRESETS[key] || PRESETS.blank;
+        applyData(preset);
+        runGenerate({ skipStatus: true });
+        setStatus(`Preset toegepast: ${key}.`);
+      };
+
+      const resetAll = () => {
+        localStorage.removeItem(STORAGE_KEY);
+        applyData(PRESETS.blank);
+        el.provisionToken.value = '';
+        el.liveConfirm.value = '';
+        el.secretStripeKey.value = '';
+        el.secretWebhookKey.value = '';
+        el.secretBillingAdminToken.value = '';
+        el.outProvision.value = '';
+        latestGenerated = null;
+        updateQuickLinks(null);
+        runGenerate({ skipStatus: true });
+        goToStep(1);
+        setStatus('Formulier gereset.');
+      };
+
+      const initEvents = () => {
+        el.stepPills.forEach((pill) => {
+          pill.addEventListener('click', () => {
+            const step = Number(pill.getAttribute('data-step'));
+            if (step < currentStep || canMoveNext()) goToStep(step);
+          });
+        });
+
+        el.prevStepBtn.addEventListener('click', () => goToStep(currentStep - 1));
+        el.nextStepBtn.addEventListener('click', () => {
+          if (!canMoveNext()) return;
+          goToStep(currentStep + 1);
+        });
+
+        el.applyPresetBtn.addEventListener('click', applyPreset);
+        el.generateBtn.addEventListener('click', () => runGenerate());
+        el.provisionBtn.addEventListener('click', runProvision);
+
+        el.retryHealthBtn.addEventListener('click', () => retryStep('supabase_function_health'));
+        el.retrySiteBtn.addEventListener('click', () => retryStep('netlify_customer_site_write'));
+        el.retrySecretsBtn.addEventListener('click', () => retryStep('supabase_secrets_write'));
+
+        el.shareBtn.addEventListener('click', async () => {
+          fillDerivedFields();
+          const data = collect();
+          const url = buildShareUrl(data);
+          const ok = await copyText(url);
+          setStatus(ok ? 'Share URL gekopieerd.' : 'Share URL kopie mislukt.', ok ? 'ok' : 'error');
+        });
+
+        el.resetBtn.addEventListener('click', resetAll);
+
+        document.querySelectorAll('.copy-btn').forEach((button) => {
+          button.addEventListener('click', async () => {
+            const target = document.getElementById(button.getAttribute('data-target'));
+            const ok = await copyText(target?.value || '');
+            setStatus(ok ? 'Output gekopieerd.' : 'Kopieren mislukt.', ok ? 'ok' : 'error');
+          });
+        });
+
+        el.historyList.addEventListener('click', handleHistoryAction);
+
+        document.querySelectorAll('input[name="run-mode"]').forEach((radio) => {
+          radio.addEventListener('change', () => {
+            toggleLiveSections();
+            runGenerate({ skipStatus: true, applyDerived: false });
+          });
+        });
+
+        [...allFieldNodes, el.dbLead, el.dbSales, el.dbCall, el.actionCreateSite, el.actionWriteSecrets, el.retryStep, el.autoOpenLinks, el.rememberBillingToken].forEach((node) => {
+          node.addEventListener('input', () => {
+            runGenerate({ skipStatus: true, applyDerived: false });
+          });
+        });
+
+        [el.company, el.slug, el.projectRef, el.supabaseUrl].forEach((node) => {
+          node.addEventListener('blur', () => {
+            fillDerivedFields();
+            hydrateRememberedBillingToken();
+            runGenerate({ skipStatus: true, applyDerived: false });
+          });
+        });
+
+        [el.projectRef, el.supabaseUrl].forEach((node) => {
+          node.addEventListener('change', () => {
+            const hydrated = hydrateRememberedBillingToken({ force: true, clearIfMissing: true });
+            if (hydrated) {
+              setStatus('BILLING_ADMIN_TOKEN automatisch geladen voor dit project.');
+            } else {
+              setStatus('Geen opgeslagen BILLING_ADMIN_TOKEN voor dit project. Vul een nieuwe token in.');
+            }
+            runGenerate({ skipStatus: true, applyDerived: false });
+          });
+        });
+
+        el.secretBillingAdminToken.addEventListener('blur', () => {
+          if (el.rememberBillingToken.checked && read(el.secretBillingAdminToken.value)) {
+            rememberBillingTokenForProject(el.projectRef.value, el.supabaseUrl.value, el.secretBillingAdminToken.value);
+          }
+        });
+
+        el.rememberBillingToken.addEventListener('change', () => {
+          if (el.rememberBillingToken.checked && read(el.secretBillingAdminToken.value)) {
+            rememberBillingTokenForProject(el.projectRef.value, el.supabaseUrl.value, el.secretBillingAdminToken.value);
+            setStatus('BILLING_ADMIN_TOKEN lokaal opgeslagen voor dit project.');
+          }
+        });
+      };
+
+      const init = () => {
+        loadState();
+        if (!read(el.provisionFunctionUrl.value)) {
+          applyData(PRESETS.blank);
+        }
+        hydrateRememberedBillingToken();
+        toggleLiveSections();
+        goToStep(1);
+        runGenerate({ skipStatus: true });
+        renderHistory(loadRunHistory());
+        initEvents();
+        setStatus('Klaar om te starten.');
+      };
+
+      init();
+    </script>
+  </body>
+</html>

@@ -277,6 +277,38 @@
         document.head.appendChild(script);
       };
 
+      const buildSeatsSetupUrl = (clientSlug, query) => {
+        const url = new URL('/billing-seats-setup.html', window.location.origin);
+        if (clientSlug) {
+          url.searchParams.set('client', clientSlug);
+        }
+
+        const passthroughParams = [
+          'company',
+          'title',
+          'subtitle',
+          'return_to',
+          'function_url',
+          'card_only',
+          'selected_dashboards',
+          'prefill_seats',
+          'lock_seats',
+          'min',
+          'max',
+          'seats_price_hint',
+          'seats_price_per_rep',
+          'seats_price_currency',
+          'seats_price_interval'
+        ];
+        for (const key of passthroughParams) {
+          const value = readText(query.get(key));
+          if (value) {
+            url.searchParams.set(key, value);
+          }
+        }
+        return url.toString();
+      };
+
       const init = async () => {
         const config = await loadBillingConfig();
         const clientSlug = normalizeSlug(params.get('client') || params.get('slug') || '');
@@ -298,6 +330,12 @@
           clientSlug
         );
         const trackedPaymentLink = withClientReference(paymentLink, clientReferenceId);
+        const billingFlow = pickFirst(params.get('billing_flow'), profile?.billing_flow, config.defaults.billing_flow).toLowerCase();
+
+        if (billingFlow === 'seats_setup') {
+          window.location.replace(buildSeatsSetupUrl(clientSlug, params));
+          return;
+        }
 
         document.getElementById('title').textContent = title;
         document.getElementById('subtitle').textContent = subtitle;

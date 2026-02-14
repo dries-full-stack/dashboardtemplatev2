@@ -305,4 +305,3 @@ as $$
   group by 1
   order by total desc, reason asc;
 $$;
-

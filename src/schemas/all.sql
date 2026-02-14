@@ -349,6 +349,18 @@ create index if not exists teamleader_deal_phases_name_idx on public.teamleader_
 create index if not exists teamleader_deal_phases_location_sort_idx on public.teamleader_deal_phases (location_id, sort_order);
 create index if not exists teamleader_deal_phases_raw_data_idx on public.teamleader_deal_phases using gin (raw_data);
 
+create table if not exists public.teamleader_deal_sources (
+  id text not null,
+  location_id text not null,
+  name text,
+  raw_data jsonb,
+  synced_at timestamptz default now(),
+  primary key (id, location_id)
+);
+
+create index if not exists teamleader_deal_sources_name_idx on public.teamleader_deal_sources (name);
+create index if not exists teamleader_deal_sources_raw_data_idx on public.teamleader_deal_sources using gin (raw_data);
+
 create table if not exists public.teamleader_lost_reasons (
   id text not null,
   location_id text not null,
@@ -488,6 +500,8 @@ create table if not exists public.dashboard_config (
   dashboard_subtitle text,
   dashboard_logo_url text,
   dashboard_layout jsonb,
+  source_normalization_rules jsonb not null default '[]'::jsonb,
+  cost_per_lead_by_source jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint dashboard_config_singleton check (id = 1)
@@ -506,7 +520,9 @@ alter table public.dashboard_config
   add column if not exists dashboard_title text,
   add column if not exists dashboard_subtitle text,
   add column if not exists dashboard_logo_url text,
-  add column if not exists dashboard_layout jsonb;
+  add column if not exists dashboard_layout jsonb,
+  add column if not exists source_normalization_rules jsonb not null default '[]'::jsonb,
+  add column if not exists cost_per_lead_by_source jsonb not null default '{}'::jsonb;
 
 alter table public.dashboard_config enable row level security;
 drop policy if exists "Public read dashboard config" on public.dashboard_config;
@@ -531,6 +547,8 @@ grant update (
   billing_portal_url,
   billing_checkout_url,
   billing_checkout_embed,
+  source_normalization_rules,
+  cost_per_lead_by_source,
   updated_at
 )
   on table public.dashboard_config

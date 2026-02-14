@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sales Seats - Kaart Koppelen</title>
+    <meta name="description" content="Kies het aantal vertegenwoordigers en koppel daarna je betaalkaart via Stripe." />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');
+
+      :root {
+        --bg: #f4f8ff;
+        --ink: #13253f;
+        --muted: #516a8a;
+        --line: #d9e4f1;
+        --card: #ffffff;
+        --primary: #173968;
+        --accent: #16b4a8;
+        --shadow: 0 22px 52px rgba(16, 38, 66, 0.14);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 14% 14%, rgba(22, 180, 168, 0.2), transparent 32%),
+          radial-gradient(circle at 86% 16%, rgba(23, 57, 104, 0.17), transparent 30%),
+          linear-gradient(160deg, #f9fcff 0%, var(--bg) 100%);
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+
+      .card {
+        width: min(760px, 100%);
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        background: linear-gradient(180deg, #ffffff, #fcfeff);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      .bar {
+        height: 6px;
+        background: linear-gradient(90deg, var(--primary), var(--accent));
+      }
+
+      .content {
+        padding: 30px 28px 24px;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        border: 1px solid #bfeee9;
+        background: #def7f5;
+        color: #0f6f69;
+        border-radius: 999px;
+        padding: 8px 12px;
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        margin: 14px 0 8px;
+        font-size: clamp(24px, 5vw, 34px);
+        line-height: 1.1;
+        letter-spacing: -0.02em;
+      }
+
+      p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .pricing-note {
+        margin-top: 12px;
+        border: 1px solid #bfeee9;
+        border-radius: 12px;
+        background: #def7f5;
+        color: #0f6f69;
+        padding: 10px 12px;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      form {
+        margin-top: 20px;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 16px;
+        background: var(--card);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+
+      .field {
+        display: grid;
+        gap: 6px;
+      }
+
+      .field.full {
+        grid-column: 1 / -1;
+      }
+
+      label {
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        text-transform: uppercase;
+        color: #627c9f;
+      }
+
+      input {
+        width: 100%;
+        height: 44px;
+        border-radius: 12px;
+        border: 1px solid var(--line);
+        background: #fff;
+        font-size: 14px;
+        padding: 0 12px;
+        color: var(--ink);
+      }
+
+      input:focus-visible {
+        outline: 2px solid rgba(22, 180, 168, 0.45);
+        outline-offset: 1px;
+      }
+
+      .check {
+        margin-top: 10px;
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+      }
+
+      .check input {
+        margin-top: 4px;
+        width: 16px;
+        height: 16px;
+      }
+
+      .check label {
+        font-size: 13px;
+        text-transform: none;
+        letter-spacing: normal;
+        font-weight: 600;
+        color: var(--muted);
+      }
+
+      .actions {
+        margin-top: 16px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .btn {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        height: 44px;
+        padding: 0 16px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      button.btn {
+        cursor: pointer;
+      }
+
+      .btn.primary {
+        background: var(--primary);
+        border-color: var(--primary);
+        color: #fff;
+      }
+
+      .btn.secondary {
+        background: #fff;
+        color: var(--ink);
+      }
+
+      .status {
+        margin-top: 10px;
+        font-size: 13px;
+        color: #6b84a6;
+      }
+
+      .status.error {
+        color: #b42318;
+      }
+
+      .footer {
+        border-top: 1px solid var(--line);
+        padding: 14px 28px 18px;
+        font-size: 12px;
+        color: #6880a0;
+      }
+
+      @media (max-width: 700px) {
+        .content {
+          padding: 24px 20px 18px;
+        }
+
+        .grid {
+          grid-template-columns: 1fr;
+        }
+
+        .actions .btn {
+          width: 100%;
+        }
+
+        .footer {
+          padding: 12px 20px 16px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card" role="main">
+      <div class="bar"></div>
+      <div class="content">
+        <div class="badge">Stap 1 van 2</div>
+        <h1 id="title">Aantal vertegenwoordigers kiezen</h1>
+        <p id="subtitle">
+          Kies je aantal seats. In de volgende stap koppel je je kaart via Stripe. Het exacte bedrag
+          wordt later gefinaliseerd volgens het gekozen aantal vertegenwoordigers.
+        </p>
+        <p id="pricing-note" class="pricing-note" hidden></p>
+        <p id="selection-summary" class="status" hidden></p>
+
+        <form id="seats-form">
+          <div class="grid">
+            <div id="seats-field" class="field">
+              <label id="seats-label" for="seats">Aantal vertegenwoordigers</label>
+              <input id="seats" name="seats" type="number" min="1" step="1" value="1" required />
+              <p id="seats-help" class="status" style="margin-top:0;"></p>
+            </div>
+            <div class="field">
+              <label for="email">Facturatie e-mail</label>
+              <input id="email" name="email" type="email" placeholder="finance@bedrijf.be" required />
+            </div>
+            <div class="field full">
+              <label for="company">Bedrijfsnaam</label>
+              <input id="company" name="company" type="text" placeholder="Belivert" />
+            </div>
+          </div>
+
+          <div class="check">
+            <input id="consent" name="consent" type="checkbox" required />
+            <label for="consent">
+              Ik ga akkoord dat de kaart nu gekoppeld wordt en dat de afrekening later gebeurt op
+              basis van het finaal bevestigde aantal vertegenwoordigers.
+            </label>
+          </div>
+
+          <div class="actions">
+            <button id="submit-btn" class="btn primary" type="submit">Ga verder naar kaartkoppeling</button>
+          </div>
+          <p id="status" class="status"></p>
+        </form>
+      </div>
+      <div class="footer">
+        Technisch: Stripe Checkout in setup mode (kaart koppelen zonder directe seat-prijsafrekening).
+      </div>
+    </main>
+
+    <script>
+      const params = new URLSearchParams(window.location.search);
+
+      const normalizeSlug = (value) =>
+        String(value || '')
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9-]+/g, '-')
+          .replace(/-+/g, '-')
+          .replace(/^-|-$/g, '');
+
+      const readText = (value) => {
+        if (value === null || value === undefined) return '';
+        return String(value).trim();
+      };
+
+      const parseConfig = (raw) => {
+        const config = raw && typeof raw === 'object' ? raw : {};
+        const defaults = config.defaults && typeof config.defaults === 'object' ? config.defaults : {};
+        const profiles = config.profiles && typeof config.profiles === 'object' ? config.profiles : {};
+        return { defaults, profiles };
+      };
+
+      const setStatus = (message, isError = false) => {
+        const status = document.getElementById('status');
+        status.textContent = message || '';
+        status.className = isError ? 'status error' : 'status';
+      };
+
+      const buildReturnUrl = (slug, status) => {
+        const url = new URL('/billing-seats-return.html', window.location.origin);
+        url.searchParams.set('client', slug);
+        url.searchParams.set('status', status);
+        if (status === 'success') {
+          url.searchParams.set('session_id', '{CHECKOUT_SESSION_ID}');
+        }
+        return url.toString();
+      };
+
+      const loadBillingConfig = async () => {
+        try {
+          const response = await fetch('/billing-clients.json', { cache: 'no-store' });
+          if (!response.ok) return { defaults: {}, profiles: {} };
+          const json = await response.json();
+          return parseConfig(json);
+        } catch (_error) {
+          return { defaults: {}, profiles: {} };
+        }
+      };
+
+      const isPlaceholderFunctionUrl = (value) => /PROJECT_REF|YOUR_PROJECT_REF/i.test(readText(value));
+
+      const isAllowedFunctionUrl = (candidate) => {
+        try {
+          const parsed = new URL(candidate);
+          if (parsed.protocol === 'https:') return true;
+          if (parsed.protocol === 'http:' && (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1')) {
+            return true;
+          }
+          return false;
+        } catch (_error) {
+          return false;
+        }
+      };
+
+      const parseBoolean = (value) => {
+        const normalized = readText(value).toLowerCase();
+        return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+      };
+
+      const parseDashboardSelection = (value) => {
+        const allowed = new Set(['lead', 'sales', 'call-center']);
+        const source = Array.isArray(value) ? value : readText(value).split(',');
+        const seen = new Set();
+        const result = [];
+        for (const raw of source) {
+          const normalized = normalizeSlug(raw);
+          if (!allowed.has(normalized) || seen.has(normalized)) continue;
+          seen.add(normalized);
+          result.push(normalized);
+        }
+        return result;
+      };
+
+      const formatCurrency = (amount, currencyCode) => {
+        const normalizedCurrency = readText(currencyCode).toUpperCase() || 'EUR';
+        try {
+          const formatter = new Intl.NumberFormat('nl-BE', {
+            style: 'currency',
+            currency: normalizedCurrency,
+            minimumFractionDigits: 2
+          });
+          return formatter.format(amount);
+        } catch (_error) {
+          return `${amount.toFixed(2)} ${normalizedCurrency}`;
+        }
+      };
+
+      const buildPricingNote = (params, profile, defaults) => {
+        const explicitHint =
+          readText(params.get('seats_price_hint')) ||
+          readText(profile.seats_price_hint) ||
+          readText(defaults.seats_price_hint);
+        if (explicitHint) return explicitHint;
+
+        const rawPrice =
+          params.get('seats_price_per_rep') ||
+          profile.seats_price_per_rep ||
+          defaults.seats_price_per_rep;
+        const seatPrice = Number(rawPrice);
+        if (!Number.isFinite(seatPrice) || seatPrice <= 0) return '';
+
+        const currency =
+          readText(params.get('seats_price_currency')) ||
+          readText(profile.seats_price_currency) ||
+          readText(defaults.seats_price_currency) ||
+          'EUR';
+        const interval =
+          readText(params.get('seats_price_interval')) ||
+          readText(profile.seats_price_interval) ||
+          readText(defaults.seats_price_interval) ||
+          'maand';
+
+        return `${formatCurrency(seatPrice, currency)} per vertegenwoordiger per ${interval}. Je wordt later gefactureerd op basis van het finaal bevestigde aantal seats.`;
+      };
+
+      const init = async () => {
+        const config = await loadBillingConfig();
+        const slug = normalizeSlug(params.get('client') || params.get('slug') || 'belivert-sales');
+        const profile = config.profiles[slug] || {};
+
+        const company = readText(params.get('company')) || readText(profile.company) || 'Dashboard';
+        const title = readText(params.get('title')) || readText(profile.seats_title) || `Koppel kaart voor ${company}`;
+        const subtitle =
+          readText(params.get('subtitle')) ||
+          readText(profile.seats_subtitle) ||
+          'Kies je aantal seats en ga daarna naar Stripe om je kaart veilig te koppelen.';
+
+        const minSeats = Number(params.get('min') || profile.seats_min || config.defaults.seats_min || 1);
+        const maxSeats = Number(params.get('max') || profile.seats_max || config.defaults.seats_max || 200);
+        const cardOnly = parseBoolean(params.get('card_only') ?? profile.card_only ?? config.defaults.card_only);
+        const selectedDashboards = parseDashboardSelection(params.get('selected_dashboards'));
+        const dashboardsForPayload = selectedDashboards.length > 0 ? selectedDashboards : cardOnly ? ['lead'] : ['sales'];
+        const salesSelected = dashboardsForPayload.includes('sales');
+        const requestedSalesSeats = Number(params.get('prefill_seats'));
+        const lockSeats = parseBoolean(params.get('lock_seats') ?? profile.lock_seats ?? config.defaults.lock_seats);
+        const hasPrefilledSalesSeats = Number.isFinite(requestedSalesSeats) && requestedSalesSeats > 0;
+        const functionUrl =
+          readText(params.get('function_url')) ||
+          readText(profile.seats_function_url) ||
+          readText(config.defaults.seats_function_url);
+        const pricingNote = buildPricingNote(params, profile, config.defaults);
+
+        document.getElementById('title').textContent = title;
+        document.getElementById('subtitle').textContent = subtitle;
+        document.getElementById('company').value = company;
+        const pricingNoteEl = document.getElementById('pricing-note');
+        if (pricingNote) {
+          pricingNoteEl.textContent = pricingNote;
+          pricingNoteEl.hidden = false;
+        } else {
+          pricingNoteEl.hidden = true;
+        }
+
+        const seatsInput = document.getElementById('seats');
+        const seatsField = document.getElementById('seats-field');
+        const seatsLabel = document.getElementById('seats-label');
+        const seatsHelp = document.getElementById('seats-help');
+        const selectionSummary = document.getElementById('selection-summary');
+        const setSelectionSummary = (message) => {
+          const text = readText(message);
+          selectionSummary.textContent = text;
+          selectionSummary.hidden = !text;
+        };
+        seatsInput.min = String(Number.isFinite(minSeats) && minSeats > 0 ? Math.floor(minSeats) : 1);
+        seatsInput.max = String(Number.isFinite(maxSeats) && maxSeats > 0 ? Math.floor(maxSeats) : 200);
+        seatsHelp.textContent = '';
+
+        if (salesSelected) {
+          seatsLabel.textContent = 'Aantal verkopers (sales)';
+          if (hasPrefilledSalesSeats) {
+            seatsInput.value = String(Math.floor(requestedSalesSeats));
+          }
+        }
+
+        if (!salesSelected || cardOnly) {
+          seatsField.hidden = true;
+          seatsInput.value = '1';
+          if (dashboardsForPayload.length > 0) {
+            setSelectionSummary(`Geselecteerde dashboards: ${dashboardsForPayload.join(', ')}.`);
+          }
+        } else if (lockSeats && salesSelected && hasPrefilledSalesSeats) {
+          seatsField.hidden = true;
+          seatsInput.value = String(Math.floor(requestedSalesSeats));
+          setSelectionSummary(
+            `Geselecteerde dashboards: ${dashboardsForPayload.join(', ')}. Verkopers (sales): ${Math.floor(requestedSalesSeats)}.`
+          );
+        } else if (Number(seatsInput.min) === Number(seatsInput.max)) {
+          seatsInput.value = seatsInput.min;
+          seatsHelp.textContent = `Vast aantal seats voor deze flow: ${seatsInput.min}.`;
+        } else if (dashboardsForPayload.length > 0) {
+          seatsHelp.textContent = `Geselecteerde dashboards: ${dashboardsForPayload.join(', ')}.`;
+        }
+
+        const form = document.getElementById('seats-form');
+        const submitBtn = document.getElementById('submit-btn');
+
+        form.addEventListener('submit', async (event) => {
+          event.preventDefault();
+
+          if (!functionUrl) {
+            setStatus(
+              'Geen seats_function_url gevonden. Zet deze in billing-clients.json of geef ?function_url=... mee.',
+              true
+            );
+            return;
+          }
+          if (isPlaceholderFunctionUrl(functionUrl)) {
+            setStatus(
+              'seats_function_url bevat nog PROJECT_REF. Vervang door je echte Supabase project URL (https://<project-ref>.supabase.co/functions/v1/stripe-seats-billing).',
+              true
+            );
+            return;
+          }
+          if (!isAllowedFunctionUrl(functionUrl)) {
+            setStatus(
+              'Ongeldige seats_function_url. Gebruik https://<project-ref>.supabase.co/functions/v1/stripe-seats-billing of lokaal http://localhost:54321/functions/v1/stripe-seats-billing.',
+              true
+            );
+            return;
+          }
+
+          const seats = cardOnly ? 1 : Number(seatsInput.value || '1');
+          const email = readText(document.getElementById('email').value);
+          const companyInput = readText(document.getElementById('company').value);
+
+          if (!Number.isFinite(seats) || seats < Number(seatsInput.min || '1')) {
+            setStatus('Geef een geldig aantal vertegenwoordigers op.', true);
+            return;
+          }
+          if (seatsInput.max && seats > Number(seatsInput.max)) {
+            setStatus(`Maximum ${seatsInput.max} vertegenwoordigers toegelaten in deze flow.`, true);
+            return;
+          }
+
+          submitBtn.disabled = true;
+          setStatus('Even geduld, we maken je Stripe kaartkoppeling sessie aan...');
+
+          try {
+            const response = await fetch(functionUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'create_setup_session',
+                slug,
+                seats: Math.floor(seats),
+                requested_dashboards: dashboardsForPayload,
+                ...(salesSelected ? { sales_seats: Math.floor(seats) } : {}),
+                email,
+                company: companyInput,
+                success_url: buildReturnUrl(slug, 'success'),
+                cancel_url: buildReturnUrl(slug, 'cancel')
+              })
+            });
+
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+              throw new Error(data?.error || `Request mislukt (${response.status})`);
+            }
+
+            const redirectUrl = readText(data?.url);
+            if (!redirectUrl) {
+              throw new Error('Geen checkout URL ontvangen van backend.');
+            }
+
+            window.location.href = redirectUrl;
+          } catch (error) {
+            setStatus(error instanceof Error ? error.message : 'Onbekende fout', true);
+            submitBtn.disabled = false;
+          }
+        });
+      };
+
+      init();
+    </script>
+  </body>
+</html>

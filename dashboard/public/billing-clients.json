@@ -2,7 +2,10 @@
   "defaults": {
     "subtitle": "Kies je plan en rond je betaling af. Na betaling ga je terug naar je dashboard.",
     "return_to": "/",
-    "buy_button_id": "buy_btn_1SyIATEx02woxVJviUaL9daG",
+    "seats_min": 1,
+    "seats_max": 200,
+    "seats_function_url": "https://djikubaydznmgiqajfdz.supabase.co/functions/v1/stripe-seats-billing",
+    "buy_button_id": "buy_btn_1SyGCIEx02woxVJvOudi0z7K",
     "pk": "pk_live_51SrN51Ex02woxVJvR0mwuu4VNiU1t7Y07JxUm7wcJfOpGVgeAh8q7rsLYE44DUnwJj285uYkAjVGCdwIGwXSSUuv00kjTMFDRM",
     "payment_link": "https://buy.stripe.com/3cIfZhd45bIkctjcXteZ201"
   },
@@ -12,6 +15,63 @@
     },
     "belivert": {
       "company": "Belivert"
+    },
+    "belivert-general": {
+      "company": "Belivert",
+      "title": "Activeer Belivert Dashboards",
+      "subtitle": "Koppel je kaart en kies welke dashboards je wil activeren. Producten worden intern toegewezen.",
+      "billing_flow": "seats_setup",
+      "setup_path": "/billing-belivert.html",
+      "seats_title": "Koppel kaart voor Belivert Dashboards",
+      "seats_subtitle": "Kies dashboards in de vorige stap. Bij Sales geef je het aantal verkopers op.",
+      "seats_min": 1,
+      "seats_max": 150,
+      "return_to": "/"
+    },
+    "belivert-sales": {
+      "company": "Belivert",
+      "title": "Activeer Belivert Sales Dashboard",
+      "subtitle": "Aparte licentie voor het sales dashboard. Facturatie gebeurt per vertegenwoordiger.",
+      "billing_flow": "seats_setup",
+      "hidden": true,
+      "entry_client": "belivert-lead",
+      "seats_title": "Koppel kaart voor Belivert Sales Dashboard",
+      "seats_subtitle": "Kies eerst het aantal vertegenwoordigers en koppel daarna je kaart via Stripe.",
+      "seats_price_per_rep": 34.99,
+      "seats_price_currency": "EUR",
+      "seats_price_interval": "maand",
+      "seats_min": 1,
+      "seats_max": 150,
+      "return_to": "/sales-resultaten",
+      "buy_button_id": "buy_btn_REPLACE_WITH_BELIVERT_SALES",
+      "payment_link": "https://buy.stripe.com/REPLACE_WITH_BELIVERT_SALES_LINK"
+    },
+    "belivert-lead": {
+      "company": "Belivert",
+      "title": "Activeer Belivert Leadgeneratie Dashboard",
+      "subtitle": "Kaartkoppeling voor het leadgeneratie dashboard. Producten worden nadien intern geactiveerd.",
+      "billing_flow": "seats_setup",
+      "card_only": true,
+      "seats_title": "Koppel kaart voor Belivert Leadgeneratie Dashboard",
+      "seats_subtitle": "Je koppelt enkel je kaart. De effectieve producten en afrekening worden intern geactiveerd.",
+      "seats_min": 1,
+      "seats_max": 1,
+      "return_to": "/"
+    },
+    "belivert-sales-test": {
+      "company": "Belivert",
+      "title": "Activeer Belivert Sales Dashboard (TEST)",
+      "subtitle": "TEST flow voor seats + kaartkoppeling via Stripe testmode.",
+      "billing_flow": "seats_setup",
+      "seats_title": "Koppel kaart voor Belivert Sales Dashboard (TEST)",
+      "seats_subtitle": "Testomgeving: kies eerst seats en koppel daarna een testkaart.",
+      "seats_function_url": "https://zpcbuyfzlimuiaaryzne.supabase.co/functions/v1/stripe-seats-billing",
+      "seats_price_per_rep": 34.99,
+      "seats_price_currency": "EUR",
+      "seats_price_interval": "maand",
+      "seats_min": 1,
+      "seats_max": 150,
+      "return_to": "/sales-resultaten"
     }
   }
 }

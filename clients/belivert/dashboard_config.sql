@@ -1,16 +1,19 @@
-﻿-- Client dashboard_config for belivert
+-- Client dashboard_config for belivert
 -- Run this in Supabase SQL editor (or via CLI).
 insert into public.dashboard_config (
   id,
   location_id,
+  hook_field_id,
   dashboard_title,
   dashboard_subtitle,
   dashboard_logo_url,
-  dashboard_layout
+  dashboard_layout,
+  source_normalization_rules
 )
 values (
   1,
   'PLaZB1vgUhy4CCo3vEDi',
+  'R7CEVThNclchfzYqS5IT',
   'Belivert',
   'Lead & Marketing Dashboard',
   'https://belivert.be/wp-content/uploads/2025/12/Belivert-logo-Z-rgb.jpg',
@@ -66,14 +69,39 @@ values (
                          "kind":  "lost_reasons",
                          "title":  "Verliesredenen"
                      }
-                 ]
+                 ],
+    "behavior":  {
+                     "appointments_provider":  "teamleader_meetings",
+                     "source_breakdown":  {
+                                             "variant":  "deals",
+                                             "cost_denominator":  "deals"
+                                         },
+                     "hook_performance":  {
+                                              "source_bucket_filter":  "Facebook Ads"
+                                          }
+                 },
+    "theme":  "belivert"
 }
-$
+$$
+  ,
+  $$
+[
+  { "bucket": "Solvari", "patterns": ["solvari"] },
+  { "bucket": "Bobex", "patterns": ["bobex"] },
+  { "bucket": "Trustlocal", "patterns": ["trustlocal", "trust local"] },
+  { "bucket": "Bambelo", "patterns": ["bambelo"] },
+  { "bucket": "Facebook Ads", "patterns": ["facebook", "instagram", "meta", "fbclid", "meta - calculator", "meta ads - calculator"] },
+  { "bucket": "Google Ads", "patterns": ["google", "adwords", "gclid", "cpc", "google - woning prijsberekening"] },
+  { "bucket": "Organic", "patterns": ["organic", "seo", "direct", "referral", "(none)", "website"] }
+]
+$$::jsonb
 )
 on conflict (id) do update set
   location_id = excluded.location_id,
+  hook_field_id = excluded.hook_field_id,
   dashboard_title = excluded.dashboard_title,
   dashboard_subtitle = excluded.dashboard_subtitle,
   dashboard_logo_url = excluded.dashboard_logo_url,
   dashboard_layout = excluded.dashboard_layout,
+  source_normalization_rules = excluded.source_normalization_rules,
   updated_at = now();

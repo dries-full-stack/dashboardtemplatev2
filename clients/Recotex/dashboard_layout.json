@@ -1,0 +1,63 @@
+{
+  "dashboards": [
+    {
+      "id": "lead",
+      "label": "Leadgeneratie",
+      "enabled": true
+    },
+    {
+      "id": "sales",
+      "label": "Sales Resultaten",
+      "enabled": true
+    },
+    {
+      "id": "call-center",
+      "label": "Call Center",
+      "enabled": false
+    }
+  ],
+  "sections": [
+    {
+      "kind": "funnel_metrics",
+      "title": "Leads & afspraken",
+      "metric_labels": [
+        "Totaal Leads",
+        "Totaal Afspraken",
+        "Confirmed",
+        "Cancelled",
+        "No-Show",
+        "Lead -> Afspraak"
+      ]
+    },
+    {
+      "kind": "source_breakdown",
+      "title": "Kanalen"
+    },
+    {
+      "kind": "finance_metrics",
+      "title": "Kosten",
+      "metric_labels": [
+        "Totale Leadkosten",
+        "Kost per Lead"
+      ]
+    },
+    {
+      "kind": "hook_performance",
+      "title": "Ad Hook Performance"
+    },
+    {
+      "kind": "lost_reasons",
+      "title": "Verliesredenen"
+    }
+  ],
+  "behavior": {
+    "appointments_provider": "ghl",
+    "source_breakdown": {
+      "variant": "default",
+      "cost_denominator": "confirmed"
+    },
+    "hook_performance": {
+      "source_bucket_filter": null
+    }
+  }
+}

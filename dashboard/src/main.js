@@ -89,6 +89,7 @@ const ALL_DASHBOARD_TABS = [
 ];
 
 const DASHBOARD_LOOKUP = new Map(ALL_DASHBOARD_TABS.map((tab) => [tab.id, tab]));
+const DEFAULT_DASHBOARD_TABS = ALL_DASHBOARD_TABS.filter((tab) => tab.id !== 'call-center');
 
 const normalizePath = (value = '') => {
   if (!value) return '/';
@@ -114,25 +115,17 @@ const getRouteId = (availableTabs = ALL_DASHBOARD_TABS) => {
   return availableTabs[0].id || 'lead';
 };
 
-const BRAND_DEFAULT_TITLE = (import.meta.env.VITE_BRAND_TITLE || '').trim() || 'Your Company';
-const BRAND_DEFAULT_SUBTITLE = (import.meta.env.VITE_BRAND_SUBTITLE || '').trim() || 'Performance Dashboard';
-const BRAND_DEFAULT_PAGE_SUBTITLE =
-  (import.meta.env.VITE_BRAND_PAGE_SUBTITLE || '').trim() || 'Performance Dashboard - Leads, Afspraken & ROI';
-const BRAND_DEFAULT_LOGO = (import.meta.env.VITE_BRAND_LOGO_URL || '').trim() || '/assets/logos/placeholder-logo.svg';
-const BRAND_DEFAULT_THEME = (import.meta.env.VITE_BRAND_THEME || '').trim();
-const PREVIEW_DEFAULT_TITLE = (import.meta.env.VITE_PREVIEW_TITLE || '').trim() || 'GHL Dashboard Template';
-const PREVIEW_DEFAULT_DESCRIPTION =
-  (import.meta.env.VITE_PREVIEW_DESCRIPTION || '').trim() || 'Performance dashboard template - Leads, afspraken & ROI';
-const PREVIEW_DEFAULT_AUTHOR = (import.meta.env.VITE_PREVIEW_AUTHOR || '').trim() || BRAND_DEFAULT_TITLE;
-const PREVIEW_DEFAULT_IMAGE_URL = (import.meta.env.VITE_PREVIEW_IMAGE_URL || '').trim();
-const PREVIEW_DEFAULT_SITE_URL = (import.meta.env.VITE_SITE_URL || '').trim();
-
 const DEFAULT_BRANDING = {
-  title: BRAND_DEFAULT_TITLE,
-  headerSubtitle: BRAND_DEFAULT_SUBTITLE,
-  pageSubtitle: BRAND_DEFAULT_PAGE_SUBTITLE,
-  logoUrl: BRAND_DEFAULT_LOGO,
-  logoAlt: 'Company logo'
+  title: 'Belivert',
+  headerSubtitle: 'Lead & Marketing Dashboard',
+  pageSubtitle: 'Lead & Marketing Dashboard - Leads, Afspraken & ROI',
+  logoUrl: 'https://belivert.be/wp-content/uploads/2025/12/Belivert-logo-Z-rgb.jpg',
+  logoAlt: 'Belivert logo'
+};
+
+const DEFAULT_SIDEBAR_BRANDING = {
+  logoUrl: '/assets/logos/profit-pulse/logo.png',
+  logoAlt: 'Profit Pulse'
 };
 
 const DEFAULT_LAYOUT = [
@@ -170,37 +163,38 @@ const DEFAULT_LAYOUT = [
   }
 ];
 
+const readEnvString = (value) => {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : '';
+};
+
 const MOCK_ENABLED = import.meta.env.VITE_ENABLE_MOCK_DATA === 'true';
 const SALES_RANGE_MONTHS = 6;
 const SALES_TARGET_MONTHLY_DEALS = 25;
+const SALES_SELLER_MONTHLY_REVENUE_TARGET = 75000;
+const BELIVERT_DEFAULT_EXCLUDED_DEAL_KEYWORDS = ['service'];
 const SALES_MAIN_MARKUP = salesMainMarkup.trim();
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 const ghlLocationId = import.meta.env.VITE_GHL_LOCATION_ID;
-const parseBooleanEnv = (value, fallback = false) => {
-  if (typeof value !== 'string') return fallback;
-  const normalized = value.trim().toLowerCase();
-  if (normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'on') return true;
-  if (normalized === 'false' || normalized === '0' || normalized === 'no' || normalized === 'off') return false;
-  return fallback;
-};
-const adminModeEnabled = parseBooleanEnv(import.meta.env.VITE_ADMIN_MODE, false);
-const settingsModeEnabled = parseBooleanEnv(import.meta.env.VITE_SETTINGS_MODE, Boolean(supabaseUrl && supabaseKey));
-const settingsEnabled = settingsModeEnabled || adminModeEnabled;
-const settingsButtonLabel = adminModeEnabled ? 'Setup' : 'Instellingen';
-const teamleaderDealUrlTemplate =
-  import.meta.env.VITE_TEAMLEADER_DEAL_URL_TEMPLATE || 'https://app.teamleader.eu/deals/{id}';
-const supabase =
-  supabaseUrl && supabaseKey
-    ? createClient(supabaseUrl, supabaseKey, {
-        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
-      })
-    : null;
-const adminEndpoint = supabaseUrl ? `${supabaseUrl}/functions/v1/ghl-admin` : '';
-
-const formatIsoDate = (date) => date.toISOString().slice(0, 10);
-
+const ghlAppBaseUrl = (readEnvString(import.meta.env.VITE_GHL_APP_BASE_URL) || 'https://app.gohighlevel.com')
+  .replace(/\/+$/, '')
+  .replace(/\/v2$/, '');
+const envDashboardTitle = readEnvString(import.meta.env.VITE_DASHBOARD_TITLE);
+const envDashboardSubtitle = readEnvString(import.meta.env.VITE_DASHBOARD_SUBTITLE);
+const envDashboardLogoUrl = readEnvString(import.meta.env.VITE_DASHBOARD_LOGO_URL);
+const envDashboardTheme = readEnvString(import.meta.env.VITE_DASHBOARD_THEME);
+const envDashboardPrimaryColor = readEnvString(import.meta.env.VITE_DASHBOARD_PRIMARY_COLOR);
+const envDashboardSecondaryColor = readEnvString(import.meta.env.VITE_DASHBOARD_SECONDARY_COLOR);
+const envSidebarLogoUrl = readEnvString(import.meta.env.VITE_SIDEBAR_LOGO_URL);
+const envSidebarLogoAlt = readEnvString(import.meta.env.VITE_SIDEBAR_LOGO_ALT);
+const envMetaTitle = readEnvString(import.meta.env.VITE_META_TITLE || import.meta.env.VITE_DASHBOARD_META_TITLE);
+const envMetaDescription = readEnvString(
+  import.meta.env.VITE_META_DESCRIPTION || import.meta.env.VITE_DASHBOARD_META_DESCRIPTION
+);
+const envMetaImage = readEnvString(import.meta.env.VITE_META_IMAGE || import.meta.env.VITE_DASHBOARD_META_IMAGE);
 const dashboardTimeZone = (() => {
   const raw = import.meta.env.VITE_DASHBOARD_TIMEZONE;
   const candidate = typeof raw === 'string' ? raw.trim() : '';
@@ -215,10 +209,25 @@ const dashboardTimeZone = (() => {
     return 'UTC';
   }
 })();
+const adminModeEnabled = import.meta.env.VITE_ADMIN_MODE === 'true';
+const settingsModeValue = readEnvString(import.meta.env.VITE_SETTINGS_MODE).toLowerCase();
+const settingsModeEnabled = settingsModeValue ? settingsModeValue === 'true' : true;
+const settingsEnabled = settingsModeEnabled || adminModeEnabled;
+const settingsButtonLabel = adminModeEnabled ? 'Setup' : 'Instellingen';
+const teamleaderDealUrlTemplate =
+  import.meta.env.VITE_TEAMLEADER_DEAL_URL_TEMPLATE || 'https://app.teamleader.eu/deals/{id}';
+const supabase =
+  supabaseUrl && supabaseKey
+    ? createClient(supabaseUrl, supabaseKey, {
+        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+      })
+    : null;
+const adminEndpoint = supabaseUrl ? `${supabaseUrl}/functions/v1/ghl-admin` : '';
+const syncEndpoint = supabaseUrl ? `${supabaseUrl}/functions/v1/ghl-sync` : '';
 
+const formatIsoDate = (date) => date.toISOString().slice(0, 10);
 const formatYmd = (year, month, day) =>
   `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-
 const parseYmd = (value) => {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value ?? '').trim());
   if (!match) return null;
@@ -228,9 +237,7 @@ const parseYmd = (value) => {
   if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
   return { year, month, day };
 };
-
 const isUtcTimeZone = (value) => !value || String(value).trim().toUpperCase() === 'UTC';
-
 const getDateTimePartsInTimeZone = (date, timeZone) => {
   const dtf = new Intl.DateTimeFormat('en-US', {
     timeZone,
@@ -256,13 +263,11 @@ const getDateTimePartsInTimeZone = (date, timeZone) => {
     second: Number(values.second)
   };
 };
-
 const getTimeZoneOffsetMinutes = (date, timeZone) => {
   const parts = getDateTimePartsInTimeZone(date, timeZone);
   const asUtcMs = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
   return (asUtcMs - date.getTime()) / 60000;
 };
-
 const getTodayYmd = (timeZone) => {
   const now = new Date();
   if (isUtcTimeZone(timeZone)) {
@@ -271,7 +276,6 @@ const getTodayYmd = (timeZone) => {
   const parts = getDateTimePartsInTimeZone(now, timeZone);
   return formatYmd(parts.year, parts.month, parts.day);
 };
-
 const addDaysYmd = (dateValue, days) => {
   const parsed = parseYmd(dateValue);
   if (!parsed) return String(dateValue ?? '');
@@ -279,7 +283,6 @@ const addDaysYmd = (dateValue, days) => {
   dt.setUTCDate(dt.getUTCDate() + days);
   return formatIsoDate(dt);
 };
-
 const addMonthsYmd = (dateValue, months) => {
   const parsed = parseYmd(dateValue);
   if (!parsed) return String(dateValue ?? '');
@@ -287,7 +290,6 @@ const addMonthsYmd = (dateValue, months) => {
   dt.setUTCMonth(dt.getUTCMonth() + months);
   return formatIsoDate(dt);
 };
-
 const zonedMidnightToUtcIso = (dateValue, timeZone) => {
   if (isUtcTimeZone(timeZone)) {
     return new Date(`${dateValue}T00:00:00Z`).toISOString();
@@ -304,7 +306,6 @@ const zonedMidnightToUtcIso = (dateValue, timeZone) => {
   const utc2 = utcGuess - offset2 * 60000;
   return new Date(utc2).toISOString();
 };
-
 const pickFirstUrl = (...candidates) =>
   candidates.find((value) => typeof value === 'string' && value.startsWith('http')) || '';
 
@@ -334,6 +335,24 @@ const buildTeamleaderDealUrl = (dealId, rawData) => {
   return `${teamleaderDealUrlTemplate.replace(/\/$/, '')}/${encodedId}`;
 };
 
+const buildGhlContactUrl = (locationId, contactId) => {
+  const loc = toTrimmedText(locationId);
+  const id = toTrimmedText(contactId);
+  if (!loc || !id) return '';
+  const base = (ghlAppBaseUrl || 'https://app.gohighlevel.com').replace(/\/+$/, '');
+  return `${base}/v2/location/${encodeURIComponent(loc)}/contacts/detail/${encodeURIComponent(id)}`;
+};
+
+const buildGhlContactSearchUrl = (locationId, query) => {
+  const loc = toTrimmedText(locationId);
+  if (!loc) return '';
+  const base = (ghlAppBaseUrl || 'https://app.gohighlevel.com').replace(/\/+$/, '');
+  const q = toTrimmedText(query);
+  return q
+    ? `${base}/v2/location/${encodeURIComponent(loc)}/contacts/?query=${encodeURIComponent(q)}`
+    : `${base}/v2/location/${encodeURIComponent(loc)}/contacts/`;
+};
+
 const getDefaultRange = () => {
   // Default range ends at yesterday to avoid "today" being a partial day (and numbers drifting during the day).
   // Keep the start anchored to "1 month ago" (same behavior as before, but without including today).
@@ -346,6 +365,16 @@ const getDefaultRange = () => {
 const DEFAULT_RANGE = getDefaultRange();
 
 const SOURCE_ORDER = ['META', 'Google Ads', 'Makelaar vergelijker', 'Immoweb'];
+const BELIVERT_SOURCE_ORDER = [
+  'Solvari',
+  'Bobex',
+  'Trustlocal',
+  'Bambelo',
+  'Facebook Ads',
+  'Google Ads',
+  'Organic',
+  'Overig'
+];
 const HOOK_ORDER = ['Bereken mijn woningwaarde', 'Gratis schatting', '5 verkooptips', 'Lokale makelaar vs grote groep?'];
 
 const LOST_REASON_RATIOS = [
@@ -368,7 +397,215 @@ const DRILLDOWN_LABELS = {
   deals: 'Deals',
   hook_leads: 'Leads',
   hook_appointments: 'Afspraken',
-  lost_reason_leads: 'Verloren leads'
+  lost_reason_leads: 'Verloren leads',
+  finance_spend: 'Leadkosten'
+};
+
+const METRIC_INFO_BY_LABEL = {
+  'totaal leads':
+    'Het aantal unieke klanten dat in deze periode als lead is binnengekomen. Als dezelfde klant meerdere offertes kreeg, telt die klant maar 1 keer mee.',
+  'totaal afspraken':
+    'Hoeveel afspraken effectief gepland/gehouden zijn in deze periode.',
+  confirmed:
+    'Afspraken die bevestigd zijn. Dit zijn de afspraken met de hoogste kans om door te gaan.',
+  cancelled:
+    'Afspraken die geannuleerd zijn. Een stijging hier wijst vaak op timing- of verwachtingsproblemen.',
+  'no-show':
+    'Afspraken waar de klant niet is opgedaagd. Dit is direct verlies op je planning en opvolging.',
+  'lead -> afspraak':
+    'Van alle binnengekomen leads: welk percentage wordt een afspraak. Hoe hoger, hoe beter je intake en opvolging werken.',
+  'totale leadkosten':
+    'Totaal advertentiebudget dat in deze periode is uitgegeven om leads binnen te halen.',
+  'kost per lead':
+    'Gemiddelde kost om 1 lead binnen te halen. Formule: totale leadkosten gedeeld door aantal leads.',
+  'offertes gemaakt':
+    'Aantal unieke offertetrajecten in de periode. Meerdere offerteversies voor dezelfde klant worden samengenomen.',
+  'gem. tijd tot offerte':
+    'Gemiddelde snelheid waarmee een lead tot offerte wordt gebracht (in dagen). Lager is meestal beter.',
+  'goedgekeurde offertes':
+    'Aantal offertetrajecten die effectief gewonnen zijn. Dit zijn je gerealiseerde deals.',
+  'deal ratio':
+    'Welk deel van je offertes effectief wordt gewonnen. Formule: gewonnen offertes / gemaakte offertes.',
+  'gem. sales cycle':
+    'Gemiddelde tijd van eerste trajectstart tot deal-winst. Geeft de snelheid van je salesproces weer.',
+  'hangende offertes':
+    'Offertes die nog openstaan. Dit is je actieve pipeline en toekomstige potentie.',
+  'afgekeurde offertes':
+    'Offertetrajecten die niet doorgingen. Belangrijk om verliesredenen op te volgen en bij te sturen.',
+  'kost per klant':
+    'Gemiddelde marketingkost om 1 gewonnen klant binnen te halen. Formule: totale leadkosten / gewonnen deals.'
+};
+
+const normalizeMetricInfoKey = (value) =>
+  String(value || '')
+    .toLowerCase()
+    .replace(/\u2192/g, '->')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const getMetricInfoText = (label) => {
+  const normalized = normalizeMetricInfoKey(label);
+  if (!normalized) return '';
+  return METRIC_INFO_BY_LABEL[normalized] || '';
+};
+
+const METRIC_INFO_TOOLTIP_ID = 'metric-info-tooltip';
+const METRIC_INFO_TOOLTIP_OFFSET = 10;
+let metricInfoTooltipEl = null;
+let metricInfoTooltipTarget = null;
+let metricInfoTooltipGlobalsBound = false;
+
+const positionMetricInfoTooltip = () => {
+  if (!metricInfoTooltipEl || !metricInfoTooltipTarget) return;
+  if (!document.body.contains(metricInfoTooltipTarget)) {
+    metricInfoTooltipTarget = null;
+    metricInfoTooltipEl.classList.remove('open');
+    metricInfoTooltipEl.setAttribute('aria-hidden', 'true');
+    return;
+  }
+
+  const targetRect = metricInfoTooltipTarget.getBoundingClientRect();
+  const tooltipRect = metricInfoTooltipEl.getBoundingClientRect();
+  const viewportPadding = 8;
+
+  let top = targetRect.top - tooltipRect.height - METRIC_INFO_TOOLTIP_OFFSET;
+  if (top < viewportPadding) {
+    top = targetRect.bottom + METRIC_INFO_TOOLTIP_OFFSET;
+  }
+
+  let left = targetRect.left + targetRect.width / 2 - tooltipRect.width / 2;
+  const maxLeft = window.innerWidth - tooltipRect.width - viewportPadding;
+  left = Math.max(viewportPadding, Math.min(left, Math.max(viewportPadding, maxLeft)));
+
+  const maxTop = window.innerHeight - tooltipRect.height - viewportPadding;
+  top = Math.max(viewportPadding, Math.min(top, Math.max(viewportPadding, maxTop)));
+
+  metricInfoTooltipEl.style.top = `${Math.round(top)}px`;
+  metricInfoTooltipEl.style.left = `${Math.round(left)}px`;
+};
+
+const ensureMetricInfoTooltip = () => {
+  if (!metricInfoTooltipEl || !document.body.contains(metricInfoTooltipEl)) {
+    const tooltip = document.createElement('div');
+    tooltip.id = METRIC_INFO_TOOLTIP_ID;
+    tooltip.className = 'metric-info-tooltip';
+    tooltip.setAttribute('role', 'tooltip');
+    tooltip.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(tooltip);
+    metricInfoTooltipEl = tooltip;
+  }
+
+  if (!metricInfoTooltipGlobalsBound) {
+    const syncTooltipPosition = () => {
+      if (!metricInfoTooltipTarget) return;
+      positionMetricInfoTooltip();
+    };
+
+    window.addEventListener('resize', syncTooltipPosition);
+    window.addEventListener('scroll', syncTooltipPosition, true);
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        hideMetricInfoTooltip();
+      }
+    });
+    document.addEventListener('pointerdown', (event) => {
+      if (!metricInfoTooltipTarget || !metricInfoTooltipEl) return;
+      const eventTarget = event.target;
+      if (!(eventTarget instanceof Node)) {
+        hideMetricInfoTooltip();
+        return;
+      }
+      if (metricInfoTooltipEl.contains(eventTarget)) return;
+      if (metricInfoTooltipTarget.contains(eventTarget)) return;
+      hideMetricInfoTooltip();
+    });
+
+    metricInfoTooltipGlobalsBound = true;
+  }
+
+  return metricInfoTooltipEl;
+};
+
+const showMetricInfoTooltip = (target) => {
+  if (!target) return;
+  const infoText = target.getAttribute('data-metric-info-text') || '';
+  if (!infoText) return;
+
+  const tooltip = ensureMetricInfoTooltip();
+  metricInfoTooltipTarget = target;
+  tooltip.textContent = infoText;
+  tooltip.setAttribute('aria-hidden', 'false');
+  tooltip.classList.add('open');
+  target.setAttribute('aria-describedby', METRIC_INFO_TOOLTIP_ID);
+  positionMetricInfoTooltip();
+};
+
+const hideMetricInfoTooltip = () => {
+  if (metricInfoTooltipTarget) {
+    metricInfoTooltipTarget.removeAttribute('aria-describedby');
+  }
+  metricInfoTooltipTarget = null;
+  if (!metricInfoTooltipEl) return;
+  metricInfoTooltipEl.classList.remove('open');
+  metricInfoTooltipEl.setAttribute('aria-hidden', 'true');
+};
+
+const applyMetricInfoTooltips = () => {
+  hideMetricInfoTooltip();
+
+  document.querySelectorAll('.metric-label').forEach((labelNode) => {
+    const label = labelNode.textContent || '';
+    const infoText = getMetricInfoText(label);
+    if (!infoText) return;
+
+    const container = labelNode.parentElement;
+    if (!container) return;
+    const infoIcon = container.querySelector('.lucide-info');
+    if (!infoIcon) return;
+
+    infoIcon.classList.add('metric-info-icon');
+    infoIcon.setAttribute('tabindex', '0');
+    infoIcon.setAttribute('role', 'button');
+    infoIcon.setAttribute('aria-haspopup', 'true');
+    infoIcon.setAttribute('data-metric-info-text', infoText);
+    infoIcon.setAttribute('aria-label', infoText);
+    infoIcon.setAttribute('title', infoText);
+
+    if (infoIcon.dataset.metricInfoBound === 'true') return;
+    infoIcon.dataset.metricInfoBound = 'true';
+
+    infoIcon.addEventListener('mouseenter', () => showMetricInfoTooltip(infoIcon));
+    infoIcon.addEventListener('mouseleave', () => {
+      if (metricInfoTooltipTarget === infoIcon) hideMetricInfoTooltip();
+    });
+    infoIcon.addEventListener('focus', () => showMetricInfoTooltip(infoIcon));
+    infoIcon.addEventListener('blur', () => {
+      if (metricInfoTooltipTarget === infoIcon) hideMetricInfoTooltip();
+    });
+    infoIcon.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (metricInfoTooltipTarget === infoIcon) {
+        hideMetricInfoTooltip();
+      } else {
+        showMetricInfoTooltip(infoIcon);
+      }
+    });
+    infoIcon.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        hideMetricInfoTooltip();
+        return;
+      }
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        if (metricInfoTooltipTarget === infoIcon) {
+          hideMetricInfoTooltip();
+        } else {
+          showMetricInfoTooltip(infoIcon);
+        }
+      }
+    });
+  });
 };
 
 const DEFAULT_BOUNDS = { min: '2018-01-01', max: '2035-12-31' };
@@ -553,6 +790,36 @@ let pickerState = { open: false, selecting: 'start', viewMonth: DEFAULT_RANGE.st
 
 const mockBadge = MOCK_ENABLED ? '<span class="mock-badge">Mock data</span>' : '';
 const DEBUG_ENABLED = false;
+const METRICS_DEBUG_MODE_STORAGE_KEY = 'dashboard_metrics_debug_mode';
+
+const readCachedMetricsDebugMode = () => {
+  try {
+    const raw = localStorage.getItem(METRICS_DEBUG_MODE_STORAGE_KEY);
+    return raw === '1' || raw === 'true';
+  } catch (_error) {
+    return false;
+  }
+};
+
+const writeCachedMetricsDebugMode = (enabled) => {
+  try {
+    if (enabled) {
+      localStorage.setItem(METRICS_DEBUG_MODE_STORAGE_KEY, '1');
+    } else {
+      localStorage.removeItem(METRICS_DEBUG_MODE_STORAGE_KEY);
+    }
+  } catch (_error) {
+    // Ignore storage errors (privacy mode, blocked storage, etc.).
+  }
+};
+
+let metricsDebugModeEnabled = readCachedMetricsDebugMode();
+let metricsComputationVersion = 0;
+const isMetricsDebugModeEnabled = () => metricsDebugModeEnabled;
+const bumpMetricsComputationVersion = () => {
+  metricsComputationVersion += 1;
+  return metricsComputationVersion;
+};
 
 const liveState = {
   opportunities: {
@@ -620,6 +887,85 @@ const salesState = {
   inFlight: false
 };
 
+const leadPipelineFilterState = {
+  status: 'idle',
+  options: [],
+  errorMessage: '',
+  inFlight: false,
+  locationId: '',
+  // `null` means: follow dashboard_config default. Empty string means: explicit "Alle pipelines".
+  overrideId: null
+};
+
+const resetLeadPipelineDependentLiveState = () => {
+  closeDrilldown();
+  liveState.opportunities = {
+    status: 'idle',
+    count: null,
+    rangeKey: '',
+    errorMessage: '',
+    inFlight: false
+  };
+  liveState.sourceBreakdown = {
+    status: 'idle',
+    rows: null,
+    rangeKey: '',
+    errorMessage: '',
+    inFlight: false
+  };
+  liveState.hookPerformance = {
+    status: 'idle',
+    rows: null,
+    rangeKey: '',
+    errorMessage: '',
+    inFlight: false
+  };
+  liveState.appointments = {
+    status: 'idle',
+    counts: null,
+    rangeKey: '',
+    errorMessage: '',
+    inFlight: false
+  };
+  liveState.lostReasons = {
+    status: 'idle',
+    rows: null,
+    rangeKey: '',
+    errorMessage: '',
+    inFlight: false
+  };
+};
+
+const resetRuleDrivenMetricsState = () => {
+  liveState.sourceBreakdown = {
+    status: 'idle',
+    rows: null,
+    rangeKey: '',
+    errorMessage: '',
+    inFlight: false
+  };
+  liveState.hookPerformance = {
+    status: 'idle',
+    rows: null,
+    rangeKey: '',
+    errorMessage: '',
+    inFlight: false
+  };
+  liveState.spendBySource = {
+    status: 'idle',
+    totals: null,
+    rangeKey: '',
+    errorMessage: '',
+    inFlight: false
+  };
+  salesState.status = 'idle';
+  salesState.data = null;
+  salesState.rangeKey = '';
+  salesState.errorMessage = '';
+  salesState.inFlight = false;
+  closeDrilldown();
+};
+
 let renderQueued = false;
 const scheduleRender = () => {
   if (renderQueued) return;
@@ -629,6 +975,10 @@ const scheduleRender = () => {
     renderApp();
   });
 };
+
+// Avoid KPI cards re-animating on every background re-render (looks like "flicker").
+// We only animate when the dashboard content is visible for a *new* route + date range.
+let lastVisibleKpiAnimationKey = '';
 
 const configState = {
   status: ghlLocationId ? 'ready' : 'idle',
@@ -640,6 +990,9 @@ const configState = {
   salesMonthlyDealsTarget: null,
   salesMonthlyDealsTargets: null,
   salesQuotesFromPhaseId: null,
+  salesExcludedDealKeywords: null,
+  sourceNormalizationRules: null,
+  costPerLeadBySource: null,
   billingPortalUrl: null,
   billingCheckoutUrl: null,
   billingCheckoutEmbed: false,
@@ -657,7 +1010,8 @@ const adminState = {
   auth: {
     email: '',
     status: 'idle',
-    message: ''
+    message: '',
+    requested: false
   },
   loading: false,
   form: {
@@ -685,8 +1039,41 @@ const adminState = {
     year: new Date().getFullYear(),
     monthlyDealsTarget: '',
     monthlyDealsTargets: {},
+    lostReasonFieldId: '',
     quotesFromPhaseId: '',
+    leadOpportunityPipelineId: '',
+    excludedDealKeywordsText: '',
+    matthiasDealKeywords: [],
+    matthiasDealKeywordsLoading: false,
+    leadOpportunityPipelineOptions: [],
     quotesPhaseOptions: [],
+    hasChanges: false
+  },
+  lostReasons: {
+    status: 'idle',
+    message: '',
+    loading: false,
+    saving: false,
+    entries: [],
+    labelOptions: [],
+    hasChanges: false
+  },
+  sources: {
+    status: 'idle',
+    message: '',
+    loading: false,
+    saving: false,
+    rules: [],
+    samples: [],
+    samplesLoading: false,
+    hasChanges: false
+  },
+  leadCost: {
+    status: 'idle',
+    message: '',
+    loading: false,
+    saving: false,
+    rows: [],
     hasChanges: false
   },
   billing: {
@@ -700,6 +1087,8 @@ const adminState = {
     hasChanges: false
   }
 };
+
+const isAdminAccessEnabled = () => adminModeEnabled || adminState.auth.requested;
 
 const resetMappingState = () => {
   adminState.mapping = {
@@ -725,8 +1114,50 @@ const resetKpiState = () => {
     year: new Date().getFullYear(),
     monthlyDealsTarget: '',
     monthlyDealsTargets: {},
+    lostReasonFieldId: '',
     quotesFromPhaseId: '',
+    leadOpportunityPipelineId: '',
+    excludedDealKeywordsText: '',
+    matthiasDealKeywords: [],
+    matthiasDealKeywordsLoading: false,
+    leadOpportunityPipelineOptions: [],
     quotesPhaseOptions: [],
+    hasChanges: false
+  };
+};
+
+const resetLostReasonsState = () => {
+  adminState.lostReasons = {
+    status: 'idle',
+    message: '',
+    loading: false,
+    saving: false,
+    entries: [],
+    labelOptions: [],
+    hasChanges: false
+  };
+};
+
+const resetSourceNormalizationState = () => {
+  adminState.sources = {
+    status: 'idle',
+    message: '',
+    loading: false,
+    saving: false,
+    rules: [],
+    samples: [],
+    samplesLoading: false,
+    hasChanges: false
+  };
+};
+
+const resetLeadCostState = () => {
+  adminState.leadCost = {
+    status: 'idle',
+    message: '',
+    loading: false,
+    saving: false,
+    rows: [],
     hasChanges: false
   };
 };
@@ -752,7 +1183,8 @@ const drilldownState = {
   source: null,
   rows: [],
   errorMessage: '',
-  range: null
+  range: null,
+  financeView: 'daily'
 };
 
 let authSession = null;
@@ -771,15 +1203,21 @@ const initAuth = async () => {
       adminState.status = 'idle';
       adminState.auth.status = 'idle';
       adminState.auth.message = '';
+      adminState.auth.requested = false;
       resetMappingState();
       resetKpiState();
+      resetLostReasonsState();
+      resetSourceNormalizationState();
+      resetLeadCostState();
       resetBillingState();
     } else if (adminState.open) {
-      if (adminModeEnabled) {
+      if (isAdminAccessEnabled()) {
         loadAdminIntegration();
         loadSpendMapping();
       }
       loadKpiSettings();
+      loadSourceNormalizationSettings();
+      loadLeadCostSettings();
     }
     renderApp();
   });
@@ -852,6 +1290,14 @@ const loadLocationConfig = async () => {
     typeof data?.sales_quotes_from_phase_id === 'string' && data.sales_quotes_from_phase_id.trim()
       ? data.sales_quotes_from_phase_id.trim()
       : null;
+  configState.salesExcludedDealKeywords = sanitizeSalesExcludedDealKeywords(data?.sales_excluded_deal_keywords);
+  configState.sourceNormalizationRules = data?.source_normalization_rules ?? null;
+  configState.costPerLeadBySource =
+    data?.cost_per_lead_by_source &&
+    typeof data.cost_per_lead_by_source === 'object' &&
+    !Array.isArray(data.cost_per_lead_by_source)
+      ? data.cost_per_lead_by_source
+      : null;
   configState.billingPortalUrl = normalizeBillingUrl(data?.billing_portal_url);
   configState.billingCheckoutUrl = normalizeBillingUrl(data?.billing_checkout_url);
   configState.billingCheckoutEmbed = data?.billing_checkout_embed === true;
@@ -890,7 +1336,7 @@ const loadLocationConfig = async () => {
 };
 
 const loadAdminIntegration = async () => {
-  if (!supabase || !adminEndpoint) return;
+  if (!supabase || !adminEndpoint || !isAdminAccessEnabled()) return;
   const token = await getAuthToken();
   if (!token) {
     adminState.status = 'error';
@@ -936,7 +1382,7 @@ const loadAdminIntegration = async () => {
 };
 
 const loadSpendMapping = async () => {
-  if (!supabase || !adminModeEnabled) return;
+  if (!supabase || !isAdminAccessEnabled()) return;
   const activeLocationId = configState.locationId || ghlLocationId;
   if (!activeLocationId) {
     adminState.mapping.status = 'error';
@@ -1158,7 +1604,7 @@ const setMappingValue = (key, value) => {
 };
 
 const saveSpendMapping = async () => {
-  if (!supabase || !adminModeEnabled) return;
+  if (!supabase || !isAdminAccessEnabled()) return;
   if (adminState.mapping.saving) return;
   const activeLocationId = configState.locationId || ghlLocationId;
   if (!activeLocationId) {
@@ -1250,6 +1696,169 @@ const saveSpendMapping = async () => {
   }
 };
 
+const loadLeadOpportunityPipelineOptions = async (locationId) => {
+  if (!supabase) return [];
+  const activeLocationId = toTrimmedText(locationId);
+  if (!activeLocationId) return [];
+
+  const extractPipelineNameFromRawData = (rawData) => {
+    if (!rawData || typeof rawData !== 'object' || Array.isArray(rawData)) return '';
+    const pipelineNode =
+      rawData.pipeline && typeof rawData.pipeline === 'object' && !Array.isArray(rawData.pipeline)
+        ? rawData.pipeline
+        : null;
+
+    return (
+      toTrimmedText(rawData.pipelineName) ||
+      toTrimmedText(rawData.pipeline_name) ||
+      toTrimmedText(rawData.pipelineTitle) ||
+      toTrimmedText(rawData.pipeline_title) ||
+      toTrimmedText(rawData.pipelineLabel) ||
+      toTrimmedText(pipelineNode?.name) ||
+      toTrimmedText(pipelineNode?.title) ||
+      toTrimmedText(pipelineNode?.label) ||
+      ''
+    );
+  };
+
+  const mergeOption = (byId, idValue, nameValue, countDelta = 0) => {
+    const id = normalizePipelineId(idValue);
+    if (!id) return;
+    const name = toTrimmedText(nameValue);
+    const prev = byId.get(id) || { id, name: id, count: 0 };
+    if (name) prev.name = name;
+    if (Number.isFinite(countDelta) && countDelta > 0) {
+      prev.count += countDelta;
+    }
+    byId.set(id, prev);
+  };
+
+  const byId = new Map();
+
+  try {
+    const { data: lookupRows, error: lookupError } = await withTimeout(
+      supabase
+        .from('opportunity_pipeline_lookup')
+        .select('pipeline_id,pipeline_name')
+        .eq('location_id', activeLocationId)
+        .order('pipeline_name', { ascending: true }),
+      12000,
+      'Supabase query timeout (lead pipeline lookup tabel).'
+    );
+    if (lookupError) throw lookupError;
+
+    (lookupRows || []).forEach((row) => {
+      mergeOption(byId, row?.pipeline_id, row?.pipeline_name, 0);
+    });
+  } catch (lookupError) {
+    const message = lookupError instanceof Error ? lookupError.message : String(lookupError ?? '');
+    if (!message.includes('opportunity_pipeline_lookup') || !message.includes('does not exist')) {
+      console.warn('Unable to load lead pipeline lookup table', lookupError);
+    }
+  }
+
+  const { data, error } = await withTimeout(
+    supabase
+      .from('opportunities_view')
+      .select('pipeline_id,pipeline_name,updated_at')
+      .eq('location_id', activeLocationId)
+      .not('pipeline_id', 'is', null)
+      .order('updated_at', { ascending: false })
+      .limit(4000),
+    12000,
+    'Supabase query timeout (lead pipeline lijst).'
+  );
+  if (error) throw error;
+
+  (data || []).forEach((row) => {
+    mergeOption(byId, row?.pipeline_id, row?.pipeline_name, 1);
+  });
+
+  const unresolvedIds = new Set(
+    Array.from(byId.values())
+      .filter((option) => !toTrimmedText(option?.name) || option?.name === option?.id)
+      .map((option) => option.id)
+  );
+
+  if (byId.size === 0 || unresolvedIds.size > 0) {
+    try {
+      const { data: rawRows, error: rawError } = await withTimeout(
+        supabase
+          .from('opportunities')
+          .select('pipeline_id,raw_data,updated_at')
+          .eq('location_id', activeLocationId)
+          .not('pipeline_id', 'is', null)
+          .order('updated_at', { ascending: false })
+          .limit(4000),
+        12000,
+        'Supabase query timeout (lead pipeline naam lookup).'
+      );
+      if (rawError) throw rawError;
+
+      (rawRows || []).forEach((row) => {
+        const id = normalizePipelineId(row?.pipeline_id);
+        if (!id) return;
+        if (unresolvedIds.size > 0 && !unresolvedIds.has(id) && byId.has(id)) return;
+        const name = extractPipelineNameFromRawData(row?.raw_data);
+        const shouldCount = byId.has(id) ? 0 : 1;
+        mergeOption(byId, id, name, shouldCount);
+      });
+    } catch (pipelineNameError) {
+      console.warn('Unable to enrich lead pipeline names from opportunities raw_data', pipelineNameError);
+    }
+  }
+
+  const options = Array.from(byId.values());
+  options.sort((a, b) => {
+    const countDiff = Number(b.count ?? 0) - Number(a.count ?? 0);
+    if (countDiff) return countDiff;
+    return String(a.name ?? a.id ?? '').localeCompare(String(b.name ?? b.id ?? ''));
+  });
+  return options;
+};
+
+const ensureLeadPipelineFilterOptions = async () => {
+  if (!supabase) return;
+
+  const activeLocationId = toTrimmedText(configState.locationId || ghlLocationId);
+  if (!activeLocationId) return;
+
+  if (leadPipelineFilterState.locationId !== activeLocationId) {
+    leadPipelineFilterState.locationId = activeLocationId;
+    leadPipelineFilterState.status = 'idle';
+    leadPipelineFilterState.options = [];
+    leadPipelineFilterState.errorMessage = '';
+    leadPipelineFilterState.inFlight = false;
+    leadPipelineFilterState.overrideId = null;
+  }
+
+  if (leadPipelineFilterState.inFlight) return;
+  if (leadPipelineFilterState.status === 'ready') return;
+
+  leadPipelineFilterState.inFlight = true;
+  leadPipelineFilterState.status = 'loading';
+  leadPipelineFilterState.errorMessage = '';
+  scheduleRender();
+
+  try {
+    const options = await loadLeadOpportunityPipelineOptions(activeLocationId);
+    if (leadPipelineFilterState.locationId !== activeLocationId) return;
+    leadPipelineFilterState.options = Array.isArray(options) ? options : [];
+    leadPipelineFilterState.status = 'ready';
+    leadPipelineFilterState.errorMessage = '';
+  } catch (error) {
+    if (leadPipelineFilterState.locationId !== activeLocationId) return;
+    leadPipelineFilterState.options = [];
+    leadPipelineFilterState.status = 'error';
+    leadPipelineFilterState.errorMessage = error instanceof Error ? error.message : 'Onbekende fout';
+  } finally {
+    if (leadPipelineFilterState.locationId === activeLocationId) {
+      leadPipelineFilterState.inFlight = false;
+    }
+    scheduleRender();
+  }
+};
+
 const loadKpiSettings = async () => {
   if (!supabase || !settingsEnabled) return;
   if (adminState.kpi.loading || adminState.billing.loading) return;
@@ -1263,6 +1872,7 @@ const loadKpiSettings = async () => {
   renderApp();
 
   try {
+    let autoSeededDealKeywords = false;
     const { data, error } = await supabase.from('dashboard_config').select('*').eq('id', 1).maybeSingle();
     if (error) throw error;
 
@@ -1311,6 +1921,29 @@ const loadKpiSettings = async () => {
           : '';
     adminState.kpi.quotesFromPhaseId = normalizedQuotesFromPhase || '';
 
+    const leadOpportunityPipelineId = resolveLeadOpportunityPipelineIdFromLayout(
+      data?.dashboard_layout ?? configState.dashboardLayout
+    );
+    adminState.kpi.leadOpportunityPipelineId = leadOpportunityPipelineId || '';
+    adminState.kpi.leadOpportunityPipelineOptions = [];
+
+    const rawLostReasonFieldId = data?.lost_reason_field_id;
+    const fallbackLostReasonFieldId = configState.lostReasonFieldId;
+    const normalizedLostReasonFieldId =
+      typeof rawLostReasonFieldId === 'string'
+        ? rawLostReasonFieldId.trim()
+        : typeof fallbackLostReasonFieldId === 'string'
+          ? fallbackLostReasonFieldId.trim()
+          : '';
+    adminState.kpi.lostReasonFieldId = normalizedLostReasonFieldId || '';
+
+    const savedExcludedDealKeywords = sanitizeSalesExcludedDealKeywords(
+      data?.sales_excluded_deal_keywords ?? configState.salesExcludedDealKeywords ?? []
+    );
+    adminState.kpi.excludedDealKeywordsText = formatSalesExcludedDealKeywordsText(savedExcludedDealKeywords);
+    adminState.kpi.matthiasDealKeywords = [];
+    adminState.kpi.matthiasDealKeywordsLoading = false;
+
     const rawPortalUrl = normalizeBillingUrl(data?.billing_portal_url);
     const fallbackPortalUrl = normalizeBillingUrl(configState.billingPortalUrl);
     const rawCheckoutUrl = normalizeBillingUrl(data?.billing_checkout_url);
@@ -1348,14 +1981,54 @@ const loadKpiSettings = async () => {
       } else {
         adminState.kpi.quotesPhaseOptions = phaseRows || [];
       }
+
+      try {
+        const pipelineOptions = await loadLeadOpportunityPipelineOptions(locationId);
+        const hasSavedOption = pipelineOptions.some((option) => option?.id === leadOpportunityPipelineId);
+        if (leadOpportunityPipelineId && !hasSavedOption) {
+          adminState.kpi.leadOpportunityPipelineOptions = [
+            {
+              id: leadOpportunityPipelineId,
+              name: leadOpportunityPipelineId,
+              count: 0
+            },
+            ...pipelineOptions
+          ];
+        } else {
+          adminState.kpi.leadOpportunityPipelineOptions = pipelineOptions;
+        }
+      } catch (pipelineError) {
+        adminState.kpi.leadOpportunityPipelineOptions = leadOpportunityPipelineId
+          ? [{ id: leadOpportunityPipelineId, name: leadOpportunityPipelineId, count: 0 }]
+          : [];
+        console.warn('Unable to load lead pipeline options for KPI settings', pipelineError);
+      }
+    }
+
+    if (resolveBrandTheme() === 'belivert' && locationId) {
+      adminState.kpi.matthiasDealKeywordsLoading = true;
+      renderApp();
+      const matthiasDealKeywords = await fetchMatthiasRosseelDealKeywords(locationId);
+      adminState.kpi.matthiasDealKeywordsLoading = false;
+      adminState.kpi.matthiasDealKeywords = matthiasDealKeywords;
+      if (!savedExcludedDealKeywords.length && matthiasDealKeywords.length) {
+        adminState.kpi.excludedDealKeywordsText = formatSalesExcludedDealKeywordsText(matthiasDealKeywords);
+        adminState.kpi.message = `Voor Belivert zijn ${formatNumber(
+          matthiasDealKeywords.length
+        )} deals die niet meetellen voorgesteld. Klik op Opslaan om te bewaren.`;
+        adminState.kpi.hasChanges = true;
+        autoSeededDealKeywords = true;
+      }
     }
 
     if (!Number.isFinite(Number(adminState.kpi.year))) {
       adminState.kpi.year = new Date().getFullYear();
     }
     adminState.kpi.status = 'ready';
-    adminState.kpi.message = '';
-    adminState.kpi.hasChanges = false;
+    if (!autoSeededDealKeywords) {
+      adminState.kpi.message = '';
+      adminState.kpi.hasChanges = false;
+    }
     adminState.billing.status = 'ready';
     adminState.billing.message = '';
     adminState.billing.hasChanges = false;
@@ -1396,8 +2069,26 @@ const loadKpiSettings = async () => {
     if (typeof adminState.kpi.quotesFromPhaseId !== 'string') {
       adminState.kpi.quotesFromPhaseId = configState.salesQuotesFromPhaseId || '';
     }
+    if (typeof adminState.kpi.leadOpportunityPipelineId !== 'string') {
+      adminState.kpi.leadOpportunityPipelineId = resolveLeadOpportunityPipelineIdFromLayout(configState.dashboardLayout);
+    }
+    if (typeof adminState.kpi.lostReasonFieldId !== 'string') {
+      adminState.kpi.lostReasonFieldId = configState.lostReasonFieldId || '';
+    }
+    if (typeof adminState.kpi.excludedDealKeywordsText !== 'string') {
+      adminState.kpi.excludedDealKeywordsText = formatSalesExcludedDealKeywordsText(
+        configState.salesExcludedDealKeywords || []
+      );
+    }
+    if (!Array.isArray(adminState.kpi.matthiasDealKeywords)) {
+      adminState.kpi.matthiasDealKeywords = [];
+    }
+    adminState.kpi.matthiasDealKeywordsLoading = false;
     if (!Array.isArray(adminState.kpi.quotesPhaseOptions)) {
       adminState.kpi.quotesPhaseOptions = [];
+    }
+    if (!Array.isArray(adminState.kpi.leadOpportunityPipelineOptions)) {
+      adminState.kpi.leadOpportunityPipelineOptions = [];
     }
     adminState.billing.portalUrl = configState.billingPortalUrl || '';
     adminState.billing.checkoutUrl = configState.billingCheckoutUrl || '';
@@ -1414,8 +2105,9 @@ const saveKpiSettings = async () => {
   if (!supabase || !settingsEnabled) return;
   if (adminState.kpi.saving) return;
 
-  const kpiOnlyMode = settingsModeEnabled && !adminModeEnabled;
-  if (adminModeEnabled) {
+  const adminAccessEnabled = isAdminAccessEnabled();
+  const kpiOnlyMode = settingsModeEnabled && !adminAccessEnabled;
+  if (adminAccessEnabled) {
     const token = await getAuthToken();
     if (!token) {
       adminState.kpi.status = 'error';
@@ -1465,8 +2157,19 @@ const saveKpiSettings = async () => {
   const quotesFromPhaseIdRaw = String(adminState.kpi.quotesFromPhaseId ?? '').trim();
   const quotesFromPhaseId = quotesFromPhaseIdRaw || null;
 
+  const leadOpportunityPipelineIdRaw = normalizePipelineId(adminState.kpi.leadOpportunityPipelineId);
+  const currentLeadOpportunityPipelineId = resolveLeadOpportunityPipelineIdFromLayout(configState.dashboardLayout);
+  const nextDashboardLayout = upsertLeadOpportunityPipelineFilterInLayout(
+    configState.dashboardLayout,
+    leadOpportunityPipelineIdRaw
+  );
+
+  const lostReasonFieldIdRaw = String(adminState.kpi.lostReasonFieldId ?? '').trim();
+  const lostReasonFieldId = lostReasonFieldIdRaw || null;
+  const excludedDealKeywords = sanitizeSalesExcludedDealKeywords(adminState.kpi.excludedDealKeywordsText);
+
   const locationId = (configState.locationId || ghlLocationId || adminState.form.locationId || '').trim();
-  if (adminModeEnabled && !locationId) {
+  if (adminAccessEnabled && !locationId) {
     adminState.kpi.status = 'error';
     adminState.kpi.message = 'Location ID ontbreekt. Sla eerst de integratie op.';
     renderApp();
@@ -1480,52 +2183,125 @@ const saveKpiSettings = async () => {
 
   try {
     const now = new Date().toISOString();
-    if (kpiOnlyMode) {
-      const { data, error } = await supabase
-        .from('dashboard_config')
-        .update({
-          sales_monthly_deals_target: target,
-          sales_monthly_deals_targets: monthOverrides,
-          sales_quotes_from_phase_id: quotesFromPhaseId,
-          updated_at: now
-        })
-        .eq('id', 1)
-        .select('id')
-        .maybeSingle();
-      if (error) throw error;
-      if (!data?.id) {
-        throw new Error('dashboard_config ontbreekt. Contacteer je dashboardbeheerder.');
+    const persistKpiPayload = async (payload) => {
+      if (kpiOnlyMode) {
+        const { data, error } = await supabase
+          .from('dashboard_config')
+          .update(payload)
+          .eq('id', 1)
+          .select('id')
+          .maybeSingle();
+        if (error) throw error;
+        if (!data?.id) {
+          throw new Error('dashboard_config ontbreekt. Contacteer je dashboardbeheerder.');
+        }
+        return;
       }
-    } else {
+
       const { error } = await supabase
         .from('dashboard_config')
         .upsert(
           {
             id: 1,
             location_id: locationId,
-            sales_monthly_deals_target: target,
-            sales_monthly_deals_targets: monthOverrides,
-            sales_quotes_from_phase_id: quotesFromPhaseId,
-            updated_at: now
+            ...payload
           },
           { onConflict: 'id' }
         );
       if (error) throw error;
+    };
+
+    const basePayload = {
+      sales_monthly_deals_target: target,
+      sales_monthly_deals_targets: monthOverrides,
+      sales_quotes_from_phase_id: quotesFromPhaseId,
+      dashboard_layout: nextDashboardLayout,
+      lost_reason_field_id: lostReasonFieldId,
+      updated_at: now
+    };
+
+    let excludedKeywordsPersisted = true;
+    try {
+      await persistKpiPayload({
+        ...basePayload,
+        sales_excluded_deal_keywords: excludedDealKeywords
+      });
+    } catch (error) {
+      if (isMissingColumnError(error, 'sales_excluded_deal_keywords')) {
+        excludedKeywordsPersisted = false;
+        await persistKpiPayload(basePayload);
+      } else {
+        throw error;
+      }
     }
 
     adminState.kpi.saving = false;
     adminState.kpi.status = 'success';
-    adminState.kpi.message = 'KPI opgeslagen.';
-    adminState.kpi.hasChanges = false;
+    adminState.kpi.message = excludedKeywordsPersisted
+      ? 'KPI opgeslagen.'
+      : 'KPI opgeslagen, maar uitsluitwoorden niet bewaard. Run eerst de laatste Supabase migratie.';
+    adminState.kpi.hasChanges = !excludedKeywordsPersisted;
     adminState.kpi.monthlyDealsTarget = String(target);
     adminState.kpi.monthlyDealsTargets = Object.fromEntries(
       Object.entries(monthOverrides).map(([key, value]) => [key, String(value)])
     );
     adminState.kpi.quotesFromPhaseId = quotesFromPhaseIdRaw;
+    adminState.kpi.leadOpportunityPipelineId = leadOpportunityPipelineIdRaw;
+    adminState.kpi.lostReasonFieldId = lostReasonFieldIdRaw;
+    if (excludedKeywordsPersisted) {
+      adminState.kpi.excludedDealKeywordsText = formatSalesExcludedDealKeywordsText(excludedDealKeywords);
+    }
 
     configState.salesMonthlyDealsTarget = target;
     configState.salesMonthlyDealsTargets = monthOverrides;
     configState.salesQuotesFromPhaseId = quotesFromPhaseId;
+    configState.dashboardLayout = nextDashboardLayout;
+    configState.lostReasonFieldId = lostReasonFieldId;
+    if (excludedKeywordsPersisted) {
+      configState.salesExcludedDealKeywords = excludedDealKeywords;
+    }
+
+    if (currentLeadOpportunityPipelineId !== leadOpportunityPipelineIdRaw) {
+      leadPipelineFilterState.overrideId = null;
+      closeDrilldown();
+      liveState.opportunities = {
+        status: 'idle',
+        count: null,
+        rangeKey: '',
+        errorMessage: '',
+        inFlight: false
+      };
+      liveState.sourceBreakdown = {
+        status: 'idle',
+        rows: null,
+        rangeKey: '',
+        errorMessage: '',
+        inFlight: false
+      };
+      liveState.hookPerformance = {
+        status: 'idle',
+        rows: null,
+        rangeKey: '',
+        errorMessage: '',
+        inFlight: false
+      };
+      liveState.lostReasons = {
+        status: 'idle',
+        rows: null,
+        rangeKey: '',
+        errorMessage: '',
+        inFlight: false
+      };
+    }
+
+    liveState.lostReasons = {
+      status: 'idle',
+      rows: null,
+      rangeKey: '',
+      errorMessage: '',
+      inFlight: false
+    };
+    ensureLostReasons(dateRange);
 
     // Refresh Sales metrics if the Sales dashboard is open.
     const routeId = getRouteId(resolveDashboardTabs());
@@ -1546,12 +2322,601 @@ const saveKpiSettings = async () => {
   }
 };
 
+const loadLostReasonMappings = async (range = dateRange) => {
+  if (!supabase || !settingsEnabled) return;
+  if (adminState.lostReasons.loading) return;
+
+  const locationId = (configState.locationId || ghlLocationId || adminState.form.locationId || '').trim();
+  if (!locationId) {
+    adminState.lostReasons.status = 'error';
+    adminState.lostReasons.message = 'Location ID ontbreekt. Sla eerst de integratie op.';
+    renderApp();
+    return;
+  }
+
+  adminState.lostReasons.loading = true;
+  adminState.lostReasons.status = 'loading';
+  adminState.lostReasons.message = '';
+  renderApp();
+
+  try {
+    const startIso = toUtcStart(range.start);
+    const endIso = toUtcEndExclusive(range.end);
+
+    const { data: candidateRows, error: candidateError } = await withTimeout(
+      supabase.rpc('get_lost_reason_id_candidates', {
+        p_location_id: locationId,
+        p_start: startIso,
+        p_end: endIso
+      }),
+      12000,
+      'Supabase query timeout (lost reason candidates).'
+    );
+    if (candidateError) throw candidateError;
+
+    let overrideRows = [];
+    const { data: overrides, error: overridesError } = await supabase
+      .from('lost_reason_overrides')
+      .select('reason_id,reason_name')
+      .eq('location_id', locationId);
+
+    if (overridesError) {
+      const message = overridesError.message ?? String(overridesError);
+      if (!message.includes('does not exist')) throw overridesError;
+    } else {
+      overrideRows = overrides || [];
+    }
+
+    // Suggest labels based on known GHL lost reason names (lookup table), plus existing overrides.
+    // If the lookup table is empty, mappings stay manual.
+    let labelOptions = [];
+    try {
+      const { data: lookupRows, error: lookupError } = await supabase
+        .from('lost_reason_lookup')
+        .select('reason_name')
+        .eq('location_id', locationId);
+      if (lookupError) throw lookupError;
+      labelOptions = [
+        ...labelOptions,
+        ...(lookupRows || []).map((row) => toTrimmedText(row?.reason_name)).filter(Boolean)
+      ];
+    } catch (error) {
+      console.warn('Unable to load GHL lost reason lookup for label suggestions', error);
+    }
+
+    labelOptions = [...labelOptions, ...overrideRows.map((row) => toTrimmedText(row?.reason_name)).filter(Boolean)];
+
+    const occurrencesById = new Map();
+    (candidateRows || []).forEach((row) => {
+      const id = toTrimmedText(row?.reason_id);
+      const occurrences = Number(row?.occurrences ?? 0);
+      if (!id) return;
+      occurrencesById.set(id, Number.isFinite(occurrences) ? occurrences : 0);
+    });
+
+    const nameById = new Map();
+    overrideRows.forEach((row) => {
+      const id = toTrimmedText(row?.reason_id);
+      const name = toTrimmedText(row?.reason_name);
+      if (!id) return;
+      if (name) nameById.set(id, name);
+    });
+
+    const ids = new Set([...occurrencesById.keys(), ...nameById.keys()]);
+    const entries = Array.from(ids).map((id) => ({
+      id,
+      occurrences: occurrencesById.get(id) || 0,
+      name: nameById.get(id) || ''
+    }));
+
+    entries.sort((a, b) => {
+      const diff = (b.occurrences ?? 0) - (a.occurrences ?? 0);
+      if (diff) return diff;
+      return String(a.id ?? '').localeCompare(String(b.id ?? ''));
+    });
+
+    // Keep options stable and deduplicated.
+    labelOptions = Array.from(new Set(labelOptions)).sort((a, b) => a.localeCompare(b, 'nl', { sensitivity: 'base' }));
+
+    adminState.lostReasons.entries = entries;
+    adminState.lostReasons.labelOptions = labelOptions;
+    adminState.lostReasons.status = 'ready';
+    adminState.lostReasons.message = '';
+    adminState.lostReasons.hasChanges = false;
+  } catch (error) {
+    adminState.lostReasons.status = 'error';
+    adminState.lostReasons.message = error instanceof Error ? error.message : 'Onbekende fout';
+  } finally {
+    adminState.lostReasons.loading = false;
+    renderApp();
+  }
+};
+
+const syncLostReasonLookupFromGhl = async () => {
+  if (!syncEndpoint) return;
+  if (adminState.lostReasons.loading) return;
+
+  adminState.lostReasons.loading = true;
+  adminState.lostReasons.status = 'loading';
+  adminState.lostReasons.message = '';
+  renderApp();
+
+  let message = '';
+  try {
+    const response = await fetch(`${syncEndpoint}?entities=lost_reasons`);
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      throw new Error(result?.error || result?.message || `GHL sync mislukt (${response.status}).`);
+    }
+    if (!result?.ok) {
+      throw new Error(result?.error || 'GHL sync mislukt.');
+    }
+
+    const count = Number(result?.results?.lost_reasons ?? 0);
+    if (Number.isFinite(count) && count > 0) {
+      message = `${count} lost reason labels opgehaald.`;
+    } else {
+      message =
+        'Geen lost reason labels gevonden. Dit komt meestal doordat je GHL token geen pipeline scopes heeft (opportunities/pipelines.*).';
+    }
+  } catch (error) {
+    adminState.lostReasons.loading = false;
+    adminState.lostReasons.status = 'error';
+    adminState.lostReasons.message = error instanceof Error ? error.message : 'Onbekende fout';
+    renderApp();
+    return;
+  }
+
+  adminState.lostReasons.loading = false;
+  await loadLostReasonMappings(dateRange);
+  adminState.lostReasons.message = message;
+  renderApp();
+};
+
+const saveLostReasonMappings = async () => {
+  if (!supabase || !settingsEnabled) return;
+  if (adminState.lostReasons.saving) return;
+
+  const locationId = (configState.locationId || ghlLocationId || adminState.form.locationId || '').trim();
+  if (!locationId) {
+    adminState.lostReasons.status = 'error';
+    adminState.lostReasons.message = 'Location ID ontbreekt. Sla eerst de integratie op.';
+    renderApp();
+    return;
+  }
+
+  const entries = Array.isArray(adminState.lostReasons.entries) ? adminState.lostReasons.entries : [];
+  const now = new Date().toISOString();
+  const upserts = entries
+    .map((entry) => ({
+      id: toTrimmedText(entry?.id),
+      name: toTrimmedText(entry?.name)
+    }))
+    .filter((entry) => entry.id && entry.name)
+    .map((entry) => ({
+      location_id: locationId,
+      reason_id: entry.id,
+      reason_name: entry.name,
+      updated_at: now
+    }));
+
+  if (!upserts.length) {
+    adminState.lostReasons.status = 'success';
+    adminState.lostReasons.message = 'Geen mappings om op te slaan.';
+    adminState.lostReasons.hasChanges = false;
+    renderApp();
+    return;
+  }
+
+  adminState.lostReasons.saving = true;
+  adminState.lostReasons.status = 'saving';
+  adminState.lostReasons.message = '';
+  renderApp();
+
+  try {
+    const { error } = await withTimeout(
+      supabase.from('lost_reason_overrides').upsert(upserts, { onConflict: 'location_id,reason_id' }),
+      12000,
+      'Supabase query timeout (lost reason overrides).'
+    );
+    if (error) throw error;
+
+    adminState.lostReasons.status = 'success';
+    adminState.lostReasons.message = 'Mappings opgeslagen.';
+    adminState.lostReasons.hasChanges = false;
+
+    await loadLostReasonMappings(dateRange);
+    ensureLostReasons(dateRange);
+  } catch (error) {
+    adminState.lostReasons.status = 'error';
+    adminState.lostReasons.message = error instanceof Error ? error.message : 'Onbekende fout';
+  } finally {
+    adminState.lostReasons.saving = false;
+    renderApp();
+  }
+};
+
+const cloneNormalizationRules = (rules) =>
+  (Array.isArray(rules) ? rules : []).map((rule) => ({
+    bucket: normalizeSourceLabel(rule?.bucket),
+    patterns: Array.isArray(rule?.patterns) ? [...rule.patterns] : []
+  }));
+
+const loadSourceNormalizationSettings = async () => {
+  if (!settingsEnabled) return;
+  if (adminState.sources.loading) return;
+
+  adminState.sources.loading = true;
+  adminState.sources.status = 'loading';
+  adminState.sources.message = '';
+  renderApp();
+
+  try {
+    const rules = sanitizeSourceNormalizationRules(configState.sourceNormalizationRules) || [];
+
+    adminState.sources.rules = cloneNormalizationRules(rules);
+    adminState.sources.hasChanges = false;
+    adminState.sources.status = 'ready';
+    adminState.sources.message = '';
+
+    // Load samples in the background (no await) so users immediately see what's landing in "Overig".
+    loadSourceNormalizationSamples();
+  } catch (error) {
+    adminState.sources.status = 'error';
+    adminState.sources.message = error instanceof Error ? error.message : 'Onbekende fout';
+  } finally {
+    adminState.sources.loading = false;
+    renderApp();
+  }
+};
+
+const loadSourceNormalizationSamples = async () => {
+  if (!supabase || !settingsEnabled) return;
+  if (adminState.sources.samplesLoading) return;
+  const activeLocationId = configState.locationId || ghlLocationId;
+  if (!activeLocationId) {
+    adminState.sources.status = 'error';
+    adminState.sources.message = 'Location ID ontbreekt. Sla eerst de integratie op.';
+    renderApp();
+    return;
+  }
+
+  adminState.sources.samplesLoading = true;
+  renderApp();
+
+  try {
+    const sampleRange = buildRecentRange(120);
+    const startIso = toUtcStart(sampleRange.start);
+    const endIso = toUtcEndExclusive(sampleRange.end);
+    let samplesQuery = supabase
+      .from('opportunities_view')
+      .select('source_guess,created_at')
+      .eq('location_id', activeLocationId)
+      .gte('created_at', startIso)
+      .lt('created_at', endIso)
+      .order('created_at', { ascending: false })
+      .limit(5000);
+    samplesQuery = applyOpportunityPipelineFilter(samplesQuery);
+
+    const { data, error } = await withTimeout(
+      samplesQuery,
+      12000,
+      'Supabase query timeout (source samples).'
+    );
+    if (error) throw error;
+
+    const counts = new Map();
+    (data ?? []).forEach((row) => {
+      const raw = normalizeSourceValue(row?.source_guess) || 'Onbekend';
+      counts.set(raw, (counts.get(raw) || 0) + 1);
+    });
+
+    const rows = Array.from(counts.entries())
+      .map(([raw, count]) => ({
+        raw,
+        count,
+        bucket: mapSourceToBucketLabel(raw)
+      }))
+      .sort((a, b) => (b.count ?? 0) - (a.count ?? 0));
+
+    adminState.sources.samples = rows.slice(0, 50);
+  } catch (error) {
+    adminState.sources.status = 'error';
+    adminState.sources.message = error instanceof Error ? error.message : 'Onbekende fout';
+  } finally {
+    adminState.sources.samplesLoading = false;
+    renderApp();
+  }
+};
+
+const saveSourceNormalizationSettings = async () => {
+  if (!supabase || !settingsEnabled) return;
+  if (adminState.sources.saving) return;
+
+  const adminAccessEnabled = isAdminAccessEnabled();
+  const kpiOnlyMode = settingsModeEnabled && !adminAccessEnabled;
+  if (adminAccessEnabled) {
+    const token = await getAuthToken();
+    if (!token) {
+      adminState.sources.status = 'error';
+      adminState.sources.message = 'Log in om source normalisatie op te slaan.';
+      renderApp();
+      return;
+    }
+  }
+
+  const rules = sanitizeSourceNormalizationRules(adminState.sources.rules);
+  if (!rules || rules.length === 0) {
+    adminState.sources.status = 'error';
+    adminState.sources.message = 'Voeg minstens 1 normalisatie-regel toe (of vul keywords in).';
+    renderApp();
+    return;
+  }
+
+  const locationId = (configState.locationId || ghlLocationId || adminState.form.locationId || '').trim();
+  if (adminAccessEnabled && !locationId) {
+    adminState.sources.status = 'error';
+    adminState.sources.message = 'Location ID ontbreekt. Sla eerst de integratie op.';
+    renderApp();
+    return;
+  }
+
+  adminState.sources.saving = true;
+  adminState.sources.status = 'saving';
+  adminState.sources.message = '';
+  renderApp();
+
+  try {
+    const now = new Date().toISOString();
+
+    if (kpiOnlyMode) {
+      const { data, error } = await supabase
+        .from('dashboard_config')
+        .update({
+          source_normalization_rules: rules,
+          updated_at: now
+        })
+        .eq('id', 1)
+        .select('id')
+        .maybeSingle();
+      if (error) throw error;
+      if (!data?.id) {
+        throw new Error('dashboard_config ontbreekt. Contacteer je dashboardbeheerder.');
+      }
+    } else {
+      const { error } = await supabase
+        .from('dashboard_config')
+        .upsert(
+          {
+            id: 1,
+            location_id: locationId,
+            source_normalization_rules: rules,
+            updated_at: now
+          },
+          { onConflict: 'id' }
+        );
+      if (error) throw error;
+    }
+
+    adminState.sources.saving = false;
+    adminState.sources.status = 'success';
+    adminState.sources.message = 'Source normalisatie opgeslagen.';
+    adminState.sources.hasChanges = false;
+
+    configState.sourceNormalizationRules = rules;
+
+    liveState.sourceBreakdown = {
+      status: 'idle',
+      rows: null,
+      rangeKey: '',
+      errorMessage: '',
+      inFlight: false
+    };
+    liveState.hookPerformance = {
+      status: 'idle',
+      rows: null,
+      rangeKey: '',
+      errorMessage: '',
+      inFlight: false
+    };
+    liveState.spendBySource = {
+      status: 'idle',
+      totals: null,
+      rangeKey: '',
+      errorMessage: '',
+      inFlight: false
+    };
+
+    ensureSourceBreakdown(dateRange);
+    ensureHookPerformance(dateRange);
+    ensureSpendBySource(dateRange);
+
+    loadSourceNormalizationSamples();
+  } catch (error) {
+    adminState.sources.status = 'error';
+    adminState.sources.message = error instanceof Error ? error.message : 'Onbekende fout';
+  } finally {
+    adminState.sources.saving = false;
+    renderApp();
+  }
+};
+
+const cloneLeadCostRows = (rows) =>
+  (Array.isArray(rows) ? rows : []).map((row) => ({
+    source: normalizeSourceLabel(row?.source),
+    cpl: String(row?.cpl ?? '')
+  }));
+
+const loadLeadCostSettings = async () => {
+  if (!settingsEnabled) return;
+  if (adminState.leadCost.loading) return;
+
+  adminState.leadCost.loading = true;
+  adminState.leadCost.status = 'loading';
+  adminState.leadCost.message = '';
+  renderApp();
+
+  try {
+    const saved = sanitizeCostPerLeadBySource(configState.costPerLeadBySource) || {};
+
+    let sourcesFromLive = [];
+    if (liveState.sourceBreakdown.status === 'ready' && Array.isArray(liveState.sourceBreakdown.rows)) {
+      sourcesFromLive = (liveState.sourceBreakdown.rows || [])
+        .map((row) => ({
+          source: normalizeSourceLabel(row?.source),
+          leads: Number(row?.leads ?? 0)
+        }))
+        .filter((entry) => entry.source)
+        .sort((a, b) => (b.leads ?? 0) - (a.leads ?? 0) || a.source.localeCompare(b.source))
+        .map((entry) => entry.source);
+    }
+
+    const sourcesFromConfig = Object.keys(saved).sort((a, b) => a.localeCompare(b));
+    const combined = [];
+    const add = (value) => {
+      const source = normalizeSourceLabel(value);
+      if (!source) return;
+      if (combined.includes(source)) return;
+      combined.push(source);
+    };
+
+    sourcesFromLive.forEach(add);
+    sourcesFromConfig.forEach(add);
+    if (!combined.length) {
+      getSourceBreakdownOrder().forEach(add);
+    }
+    if (!combined.length) combined.push('');
+
+    adminState.leadCost.rows = combined.map((source) => ({
+      source,
+      cpl: Object.prototype.hasOwnProperty.call(saved, source) ? String(saved[source]) : ''
+    }));
+    adminState.leadCost.rows = cloneLeadCostRows(adminState.leadCost.rows);
+    adminState.leadCost.hasChanges = false;
+    adminState.leadCost.status = 'ready';
+    adminState.leadCost.message = '';
+  } catch (error) {
+    adminState.leadCost.status = 'error';
+    adminState.leadCost.message = error instanceof Error ? error.message : 'Onbekende fout';
+    if (!Array.isArray(adminState.leadCost.rows)) adminState.leadCost.rows = [{ source: '', cpl: '' }];
+  } finally {
+    adminState.leadCost.loading = false;
+    renderApp();
+  }
+};
+
+const saveLeadCostSettings = async () => {
+  if (!supabase || !settingsEnabled) return;
+  if (adminState.leadCost.saving) return;
+
+  const adminAccessEnabled = isAdminAccessEnabled();
+  const kpiOnlyMode = settingsModeEnabled && !adminAccessEnabled;
+  if (adminAccessEnabled) {
+    const token = await getAuthToken();
+    if (!token) {
+      adminState.leadCost.status = 'error';
+      adminState.leadCost.message = 'Log in om leadkosten op te slaan.';
+      renderApp();
+      return;
+    }
+  }
+
+  const cleaned = {};
+  const rows = Array.isArray(adminState.leadCost.rows) ? adminState.leadCost.rows : [];
+  for (const row of rows) {
+    const source = normalizeSourceLabel(row?.source);
+    if (!source) continue;
+    const rawCpl = String(row?.cpl ?? '').trim();
+    if (!rawCpl) continue;
+    const value = Number(rawCpl.replace(',', '.'));
+    if (!Number.isFinite(value) || value < 0) {
+      adminState.leadCost.status = 'error';
+      adminState.leadCost.message = `Ongeldige kost per lead voor ${source}. Gebruik een getal (>= 0) of laat leeg.`;
+      renderApp();
+      return;
+    }
+    cleaned[source] = value;
+  }
+
+  const locationId = (configState.locationId || ghlLocationId || adminState.form.locationId || '').trim();
+  if (adminAccessEnabled && !locationId) {
+    adminState.leadCost.status = 'error';
+    adminState.leadCost.message = 'Location ID ontbreekt. Sla eerst de integratie op.';
+    renderApp();
+    return;
+  }
+
+  adminState.leadCost.saving = true;
+  adminState.leadCost.status = 'saving';
+  adminState.leadCost.message = '';
+  renderApp();
+
+  try {
+    const now = new Date().toISOString();
+    if (kpiOnlyMode) {
+      const { data, error } = await supabase
+        .from('dashboard_config')
+        .update({
+          cost_per_lead_by_source: cleaned,
+          updated_at: now
+        })
+        .eq('id', 1)
+        .select('id')
+        .maybeSingle();
+      if (error) throw error;
+      if (!data?.id) {
+        throw new Error('dashboard_config ontbreekt. Contacteer je dashboardbeheerder.');
+      }
+    } else {
+      const { error } = await supabase
+        .from('dashboard_config')
+        .upsert(
+          {
+            id: 1,
+            location_id: locationId,
+            cost_per_lead_by_source: cleaned,
+            updated_at: now
+          },
+          { onConflict: 'id' }
+        );
+      if (error) throw error;
+    }
+
+    adminState.leadCost.status = 'success';
+    adminState.leadCost.message = 'Leadkosten opgeslagen.';
+    adminState.leadCost.hasChanges = false;
+
+    configState.costPerLeadBySource = cleaned;
+    if (!Array.isArray(adminState.leadCost.rows) || adminState.leadCost.rows.length === 0) {
+      adminState.leadCost.rows = [{ source: '', cpl: '' }];
+    }
+
+    // Finance KPIs depend on these settings.
+    liveState.finance = {
+      status: 'idle',
+      totals: null,
+      rangeKey: '',
+      errorMessage: '',
+      inFlight: false
+    };
+    ensureFinanceSummary(dateRange);
+  } catch (error) {
+    adminState.leadCost.status = 'error';
+    adminState.leadCost.message = error instanceof Error ? error.message : 'Onbekende fout';
+  } finally {
+    adminState.leadCost.saving = false;
+    renderApp();
+  }
+};
+
 const saveBillingSettings = async () => {
   if (!supabase || !settingsEnabled) return;
   if (adminState.billing.saving) return;
 
-  const kpiOnlyMode = settingsModeEnabled && !adminModeEnabled;
-  if (adminModeEnabled) {
+  const adminAccessEnabled = isAdminAccessEnabled();
+  const kpiOnlyMode = settingsModeEnabled && !adminAccessEnabled;
+  if (adminAccessEnabled) {
     const token = await getAuthToken();
     if (!token) {
       adminState.billing.status = 'error';
@@ -1582,7 +2947,7 @@ const saveBillingSettings = async () => {
   }
 
   const locationId = (configState.locationId || ghlLocationId || adminState.form.locationId || '').trim();
-  if (adminModeEnabled && !locationId) {
+  if (adminAccessEnabled && !locationId) {
     adminState.billing.status = 'error';
     adminState.billing.message = 'Location ID ontbreekt. Sla eerst de integratie op.';
     renderApp();
@@ -1695,10 +3060,34 @@ const getSalesRange = (range) => {
   start.setHours(0, 0, 0, 0);
   return { start, end };
 };
+const getCurrentMonthRange = (baseDate = new Date()) => {
+  const year = baseDate.getUTCFullYear();
+  const month = baseDate.getUTCMonth();
+  const start = new Date(Date.UTC(year, month, 1));
+  const end = new Date(Date.UTC(year, month + 1, 0));
+  return {
+    start: formatIsoDate(start),
+    end: formatIsoDate(end)
+  };
+};
 const parseDate = (value) => {
   if (!value) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
+};
+const parseStatusChangeAt = (raw, fallback) => {
+  if (raw && typeof raw === 'object') {
+    return (
+      parseDate(raw.lastStatusChangeAt) ||
+      parseDate(raw.last_status_change_at) ||
+      parseDate(raw.statusChangeAt) ||
+      parseDate(raw.status_change_at) ||
+      parseDate(raw.lastStatusChangedAt) ||
+      parseDate(raw.last_status_changed_at) ||
+      parseDate(fallback)
+    );
+  }
+  return parseDate(fallback);
 };
 const diffDays = (later, earlier) => {
   if (!later || !earlier) return null;
@@ -1751,15 +3140,234 @@ const classifyMetaAdset = (value) => {
   // Default to NL when no FR signal is found (NL adsets often omit "NL").
   return 'nl';
 };
+
+const getLayoutRoot = () => {
+  const layout = configState.dashboardLayout;
+  if (!layout || typeof layout !== 'object' || Array.isArray(layout)) return null;
+  return layout;
+};
+
+const getLayoutBehavior = () => {
+  const layout = getLayoutRoot();
+  if (!layout) return null;
+  const behavior = layout.behavior || layout.options || layout.config;
+  if (!behavior || typeof behavior !== 'object' || Array.isArray(behavior)) return null;
+  return behavior;
+};
+
+const normalizeBehaviorKey = (value) =>
+  String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '_');
+
+const resolveSourceBreakdownVariant = () => {
+  const behavior = getLayoutBehavior();
+  const sourceCfg =
+    behavior?.source_breakdown && typeof behavior.source_breakdown === 'object' && !Array.isArray(behavior.source_breakdown)
+      ? behavior.source_breakdown
+      : null;
+
+  const raw =
+    behavior?.source_breakdown_variant ??
+    behavior?.sourceBreakdownVariant ??
+    sourceCfg?.variant ??
+    sourceCfg?.mode ??
+    '';
+
+  const key = normalizeBehaviorKey(raw);
+  if (key === 'deals' || key === 'deal') return 'deals';
+  if (key === 'default' || key === 'standard') return 'default';
+
+  // Legacy fallback: Belivert used a deals-focused breakdown layout.
+  if (resolveBrandTheme() === 'belivert') return 'deals';
+
+  return 'default';
+};
+
+const resolveSourceBreakdownCostDenominator = () => {
+  const behavior = getLayoutBehavior();
+  const sourceCfg =
+    behavior?.source_breakdown && typeof behavior.source_breakdown === 'object' && !Array.isArray(behavior.source_breakdown)
+      ? behavior.source_breakdown
+      : null;
+
+  const raw =
+    behavior?.source_breakdown_cost_denominator ??
+    behavior?.sourceBreakdownCostDenominator ??
+    sourceCfg?.cost_denominator ??
+    sourceCfg?.costDenominator ??
+    sourceCfg?.denominator ??
+    '';
+
+  const key = normalizeBehaviorKey(raw);
+  if (key === 'deals' || key === 'deal') return 'deals';
+  if (key === 'appointments' || key === 'appointment' || key === 'total') return 'appointments';
+  if (key === 'confirmed' || key === 'confirmed_appointments' || key === 'confirmedappointments') return 'confirmed';
+
+  return resolveSourceBreakdownVariant() === 'deals' ? 'deals' : 'confirmed';
+};
+
+const resolveHookPerformanceSourceBucketFilter = () => {
+  if (isMetricsDebugModeEnabled()) return null;
+
+  const behavior = getLayoutBehavior();
+  const hookCfg =
+    behavior?.hook_performance && typeof behavior.hook_performance === 'object' && !Array.isArray(behavior.hook_performance)
+      ? behavior.hook_performance
+      : behavior?.hookPerformance && typeof behavior.hookPerformance === 'object' && !Array.isArray(behavior.hookPerformance)
+        ? behavior.hookPerformance
+        : null;
+
+  const raw =
+    behavior?.hook_source_bucket_filter ??
+    behavior?.hookSourceBucketFilter ??
+    hookCfg?.source_bucket_filter ??
+    hookCfg?.sourceBucketFilter ??
+    hookCfg?.bucket ??
+    hookCfg?.filter_bucket ??
+    '';
+  const filter = normalizeSourceLabel(raw);
+  if (filter) return filter;
+
+  // Legacy fallback: Belivert focused hook performance on Meta only.
+  if (resolveBrandTheme() === 'belivert') return 'Facebook Ads';
+
+  return null;
+};
+
+const resolveAppointmentProvider = () => {
+  const behavior = getLayoutBehavior();
+  const raw =
+    behavior?.appointments_provider ??
+    behavior?.appointmentsProvider ??
+    behavior?.appointment_provider ??
+    behavior?.appointmentProvider ??
+    behavior?.appointments ??
+    behavior?.appointmentSource ??
+    '';
+  const key = normalizeBehaviorKey(raw);
+
+  if (key.includes('teamleader')) return 'teamleader_meetings';
+  if (key.includes('ghl') || key.includes('highlevel')) return 'ghl';
+
+  // Legacy fallback: Belivert used Teamleader meetings as appointments.
+  if (resolveBrandTheme() === 'belivert') return 'teamleader_meetings';
+
+  return 'ghl';
+};
+
+const normalizePipelineId = (value) => toTrimmedText(value) || '';
+
+const resolveLeadOpportunityPipelineIdFromBehavior = (behavior) => {
+  if (!behavior || typeof behavior !== 'object' || Array.isArray(behavior)) return '';
+
+  const leadCfg =
+    behavior?.lead_dashboard && typeof behavior.lead_dashboard === 'object' && !Array.isArray(behavior.lead_dashboard)
+      ? behavior.lead_dashboard
+      : behavior?.leadDashboard && typeof behavior.leadDashboard === 'object' && !Array.isArray(behavior.leadDashboard)
+        ? behavior.leadDashboard
+        : null;
+
+  const raw =
+    behavior?.lead_opportunity_pipeline_id ??
+    behavior?.leadOpportunityPipelineId ??
+    behavior?.lead_pipeline_id ??
+    behavior?.leadPipelineId ??
+    behavior?.opportunity_pipeline_id ??
+    behavior?.opportunityPipelineId ??
+    leadCfg?.opportunity_pipeline_id ??
+    leadCfg?.opportunityPipelineId ??
+    (Array.isArray(behavior?.lead_opportunity_pipeline_ids) ? behavior.lead_opportunity_pipeline_ids[0] : null) ??
+    (Array.isArray(behavior?.leadOpportunityPipelineIds) ? behavior.leadOpportunityPipelineIds[0] : null) ??
+    '';
+
+  return normalizePipelineId(raw);
+};
+
+const resolveLeadOpportunityPipelineIdFromLayout = (layoutOverride = configState.dashboardLayout) => {
+  if (Array.isArray(layoutOverride)) return '';
+  if (!layoutOverride || typeof layoutOverride !== 'object') return '';
+  const behavior = layoutOverride.behavior || layoutOverride.options || layoutOverride.config;
+  return resolveLeadOpportunityPipelineIdFromBehavior(behavior);
+};
+
+const resolveLeadOpportunityPipelineId = () => {
+  if (leadPipelineFilterState.overrideId !== null) {
+    return normalizePipelineId(leadPipelineFilterState.overrideId);
+  }
+  return resolveLeadOpportunityPipelineIdFromLayout();
+};
+
+const applyOpportunityPipelineFilter = (query) => {
+  const pipelineId = resolveLeadOpportunityPipelineId();
+  if (!pipelineId) return query;
+  return query.eq('pipeline_id', pipelineId);
+};
+
+const upsertLeadOpportunityPipelineFilterInLayout = (layoutValue, pipelineIdValue) => {
+  const pipelineId = normalizePipelineId(pipelineIdValue);
+  const hasFilter = Boolean(pipelineId);
+
+  if (Array.isArray(layoutValue)) {
+    if (!hasFilter) return layoutValue;
+    return {
+      sections: layoutValue,
+      behavior: { lead_opportunity_pipeline_id: pipelineId }
+    };
+  }
+
+  if (!layoutValue || typeof layoutValue !== 'object') {
+    if (!hasFilter) return layoutValue ?? null;
+    return {
+      behavior: { lead_opportunity_pipeline_id: pipelineId }
+    };
+  }
+
+  const nextLayout = { ...layoutValue };
+  const behavior =
+    nextLayout.behavior && typeof nextLayout.behavior === 'object' && !Array.isArray(nextLayout.behavior)
+      ? { ...nextLayout.behavior }
+      : {};
+
+  if (hasFilter) {
+    behavior.lead_opportunity_pipeline_id = pipelineId;
+  } else {
+    delete behavior.lead_opportunity_pipeline_id;
+    delete behavior.leadOpportunityPipelineId;
+    delete behavior.lead_pipeline_id;
+    delete behavior.leadPipelineId;
+    delete behavior.opportunity_pipeline_id;
+    delete behavior.opportunityPipelineId;
+    delete behavior.lead_opportunity_pipeline_ids;
+    delete behavior.leadOpportunityPipelineIds;
+  }
+
+  if (Object.keys(behavior).length === 0) {
+    delete nextLayout.behavior;
+  } else {
+    nextLayout.behavior = behavior;
+  }
+
+  return nextLayout;
+};
+
 const applySourceSpendToSourceRows = (rows, spendBySource) => {
   if (!Array.isArray(rows)) return rows;
 
+  const denominatorKind = resolveSourceBreakdownCostDenominator();
+
   return rows.map((row) => {
     const spend = Number(spendBySource?.[row.source] ?? 0);
-    const confirmed = Number(row.rawConfirmedAppointments ?? row.rawAppointments ?? 0);
-    if (spend <= 0 || confirmed <= 0) return { ...row, cost: '--' };
-    const costPerAppointment = spend / confirmed;
-    return { ...row, cost: formatOptionalCurrency(costPerAppointment, 2) };
+    const denominator =
+      denominatorKind === 'deals'
+        ? Number(row.rawDeals ?? 0)
+        : denominatorKind === 'appointments'
+          ? Number(row.rawAppointments ?? 0)
+          : Number(row.rawConfirmedAppointments ?? row.rawAppointments ?? 0);
+
+    if (spend <= 0 || denominator <= 0) return { ...row, cost: '--' };
+    return { ...row, cost: formatOptionalCurrency(spend / denominator, 2) };
   });
 };
 const MAPPING_PLATFORMS = {
@@ -1768,6 +3376,245 @@ const MAPPING_PLATFORMS = {
 };
 const normalizeMappingPlatform = (value) => String(value ?? '').trim().toLowerCase();
 const normalizeSourceLabel = (value) => String(value ?? '').trim();
+
+const sanitizeSourceNormalizationRules = (value) => {
+  if (!Array.isArray(value)) return null;
+
+  const cleaned = value
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return null;
+      const bucket = normalizeSourceLabel(entry.bucket);
+      if (!bucket) return null;
+
+      let patterns = entry.patterns;
+      if (typeof patterns === 'string') {
+        patterns = patterns
+          .split(',')
+          .map((token) => token.trim())
+          .filter(Boolean);
+      }
+
+      if (!Array.isArray(patterns)) patterns = [];
+
+      const normalizedPatterns = patterns
+        .map((pattern) => normalizeSourceLabel(pattern).toLowerCase())
+        .filter(Boolean);
+
+      if (!normalizedPatterns.length) return null;
+      return { bucket, patterns: normalizedPatterns };
+    })
+    .filter(Boolean);
+
+  return cleaned.length ? cleaned : null;
+};
+
+const sanitizeCostPerLeadBySource = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const cleaned = {};
+  Object.entries(value).forEach(([key, raw]) => {
+    const source = normalizeSourceLabel(key);
+    if (!source) return;
+    const num = typeof raw === 'number' ? raw : Number(String(raw ?? '').replace(',', '.'));
+    if (!Number.isFinite(num) || num < 0) return;
+    cleaned[source] = num;
+  });
+  return cleaned;
+};
+
+const normalizeSalesExcludedDealKeyword = (value) =>
+  String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const sanitizeSalesExcludedDealKeywords = (value) => {
+  let rawItems = [];
+  if (Array.isArray(value)) {
+    rawItems = value;
+  } else if (typeof value === 'string') {
+    rawItems = value
+      .split('\n')
+      .flatMap((line) => String(line).split(','));
+  } else {
+    return [];
+  }
+
+  const seen = new Set();
+  const cleaned = [];
+  rawItems.forEach((entry) => {
+    const keyword = normalizeSalesExcludedDealKeyword(entry);
+    if (!keyword) return;
+    const key = keyword.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    cleaned.push(keyword);
+  });
+
+  return cleaned.slice(0, 500);
+};
+
+const formatSalesExcludedDealKeywordsText = (value) =>
+  sanitizeSalesExcludedDealKeywords(value).join('\n');
+
+const mergeSalesExcludedDealKeywords = (...values) =>
+  sanitizeSalesExcludedDealKeywords(values.flatMap((value) => sanitizeSalesExcludedDealKeywords(value)));
+
+const isMissingColumnError = (error, columnName) => {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return message.includes(columnName) && message.includes('does not exist');
+};
+
+const fetchMatthiasRosseelDealKeywords = async (locationId) => {
+  if (!supabase) return [];
+  if (!locationId || resolveBrandTheme() !== 'belivert') return [];
+
+  const { data: userRows, error: userError } = await supabase
+    .from('teamleader_users')
+    .select('id,first_name,last_name,email')
+    .eq('location_id', locationId);
+  if (userError) {
+    console.warn('Unable to load Teamleader users for Matthias Rosseel defaults', userError);
+    return [];
+  }
+
+  const matchingUserIds = (userRows || [])
+    .filter((row) => {
+      const first = String(row?.first_name ?? '').trim().toLowerCase();
+      const last = String(row?.last_name ?? '').trim().toLowerCase();
+      const email = String(row?.email ?? '').trim().toLowerCase();
+      if (first === 'matthias' && last === 'rosseel') return true;
+      if (email === 'matthias@belivert.be') return true;
+      return false;
+    })
+    .map((row) => String(row.id || '').trim())
+    .filter(Boolean);
+
+  if (!matchingUserIds.length) return [...BELIVERT_DEFAULT_EXCLUDED_DEAL_KEYWORDS];
+
+  let deals = [];
+  try {
+    deals = await fetchAllRows(() =>
+      supabase
+        .from('teamleader_deals')
+        .select('title')
+        .eq('location_id', locationId)
+        .in('responsible_user_id', matchingUserIds)
+        .order('created_at', { ascending: false })
+    );
+  } catch (error) {
+    console.warn('Unable to load Matthias Rosseel deal titles for defaults', error);
+  }
+
+  const titles = (deals || []).map((row) => normalizeSalesExcludedDealKeyword(row?.title)).filter(Boolean);
+  return mergeSalesExcludedDealKeywords(BELIVERT_DEFAULT_EXCLUDED_DEAL_KEYWORDS, titles);
+};
+
+let sourceNormalizationRulesRef = null;
+let sourceNormalizationRulesCache = [];
+const getSourceNormalizationRules = () => {
+  const raw = configState.sourceNormalizationRules;
+  if (raw !== sourceNormalizationRulesRef) {
+    sourceNormalizationRulesRef = raw;
+    sourceNormalizationRulesCache = sanitizeSourceNormalizationRules(raw) || [];
+  }
+  return sourceNormalizationRulesCache;
+};
+
+const DEFAULT_UNKNOWN_SOURCE_TOKENS = new Set([
+  'onbekend',
+  'unknown',
+  'n/a',
+  'na',
+  'none',
+  '(none)',
+  'not set',
+  'undefined',
+  'null'
+]);
+
+const resolveSourceBucketingConfig = () => {
+  const debugMode = isMetricsDebugModeEnabled();
+  const behavior = getLayoutBehavior();
+  const cfg =
+    behavior?.source_bucketing && typeof behavior.source_bucketing === 'object' && !Array.isArray(behavior.source_bucketing)
+      ? behavior.source_bucketing
+      : behavior?.sourceBucketing && typeof behavior.sourceBucketing === 'object' && !Array.isArray(behavior.sourceBucketing)
+        ? behavior.sourceBucketing
+        : null;
+
+  const rules = getSourceNormalizationRules();
+  const enabled = !debugMode && rules.length > 0 && cfg?.enabled !== false;
+
+  const unmatchedKey = normalizeBehaviorKey(cfg?.unmatched ?? cfg?.unmatched_mode ?? cfg?.unmatchedMode ?? '');
+  const unmatchedMode = unmatchedKey === 'keep' || unmatchedKey === 'passthrough' ? 'keep' : 'fallback';
+
+  const fallbackBucket = normalizeSourceLabel(cfg?.fallback_bucket ?? cfg?.fallbackBucket ?? cfg?.fallback ?? '') || 'Overig';
+
+  const hasOrganicBucket = rules.some((rule) => normalizeSourceLabel(rule?.bucket).toLowerCase() === 'organic');
+  const emptyBucket =
+    normalizeSourceLabel(cfg?.empty_bucket ?? cfg?.emptyBucket ?? cfg?.empty ?? '') ||
+    (hasOrganicBucket ? 'Organic' : fallbackBucket || 'Onbekend');
+
+  const unknownTokensRaw = cfg?.unknown_tokens ?? cfg?.unknownTokens;
+  const unknownTokens = new Set(
+    Array.isArray(unknownTokensRaw)
+      ? unknownTokensRaw.map((token) => normalizeSourceLabel(token).toLowerCase()).filter(Boolean)
+      : Array.from(DEFAULT_UNKNOWN_SOURCE_TOKENS)
+  );
+
+  const orderRaw = cfg?.order ?? cfg?.bucket_order ?? cfg?.bucketOrder;
+  const order = Array.isArray(orderRaw) ? orderRaw.map((value) => normalizeSourceLabel(value)).filter(Boolean) : [];
+
+  return { enabled, rules, unmatchedMode, fallbackBucket, emptyBucket, unknownTokens, order };
+};
+
+const isSourceBucketingEnabled = () => resolveSourceBucketingConfig().enabled;
+
+const mapSourceToBucketLabel = (value) => {
+  const cfg = resolveSourceBucketingConfig();
+  const normalized = normalizeSourceLabel(normalizeSourceValue(value));
+  if (!cfg.enabled) return normalized;
+
+  if (!normalized) return cfg.emptyBucket || 'Onbekend';
+
+  const lowered = normalized.toLowerCase();
+  if (cfg.unknownTokens.has(lowered)) return cfg.fallbackBucket;
+
+  for (const rule of cfg.rules) {
+    const bucket = normalizeSourceLabel(rule?.bucket);
+    if (!bucket) continue;
+    const patterns = Array.isArray(rule?.patterns) ? rule.patterns : [];
+    for (const pattern of patterns) {
+      if (pattern && lowered.includes(pattern)) return bucket;
+    }
+  }
+
+  return cfg.unmatchedMode === 'keep' ? normalized : cfg.fallbackBucket;
+};
+
+const getSourceBreakdownOrder = () => {
+  const cfg = resolveSourceBucketingConfig();
+  if (!cfg.enabled) return SOURCE_ORDER;
+
+  const order = [];
+  const add = (value) => {
+    const label = normalizeSourceLabel(value);
+    if (!label) return;
+    if (order.includes(label)) return;
+    order.push(label);
+  };
+
+  if (cfg.order.length) {
+    cfg.order.forEach(add);
+  } else {
+    cfg.rules.forEach((rule) => add(rule?.bucket));
+  }
+
+  // Ensure empty + fallback buckets are present for a stable breakdown table.
+  add(cfg.emptyBucket);
+  if (cfg.unmatchedMode !== 'keep') add(cfg.fallbackBucket);
+
+  return order;
+};
 const buildMappingKey = (platform, campaignId, adsetId) => {
   const normalized = normalizeMappingPlatform(platform);
   if (normalized === MAPPING_PLATFORMS.google) {
@@ -1788,6 +3635,7 @@ const buildSourceOptions = (rows) => {
   (rows ?? []).forEach((row) => {
     if (row?.source) options.add(row.source);
   });
+  getSourceBreakdownOrder().forEach((source) => options.add(source));
   options.add(META_SOURCE_BY_LANG.nl);
   options.add(META_SOURCE_BY_LANG.fr);
   options.add(GOOGLE_SOURCE_LABEL);
@@ -1849,6 +3697,181 @@ const applyStatusFilter = (query, patterns) => {
   return query.or(filter);
 };
 
+const useTeamleaderAppointments = () => resolveAppointmentProvider() === 'teamleader_meetings';
+
+const fetchTeamleaderMeetingsBatch = async (activeLocationId, startIso, endIso, from = null, to = null) => {
+  let query = supabase
+    .from('teamleader_meetings')
+    .select('id,scheduled_at,customer_type,customer_id,title,description')
+    .eq('location_id', activeLocationId)
+    .gte('scheduled_at', startIso)
+    .lt('scheduled_at', endIso)
+    .order('scheduled_at', { ascending: false });
+  if (Number.isFinite(from) && Number.isFinite(to)) {
+    query = query.range(from, to);
+  }
+  const { data, error } = await withTimeout(
+    query,
+    12000,
+    'Supabase query timeout (teamleader meetings).'
+  );
+  if (error) throw error;
+  return Array.isArray(data) ? data : [];
+};
+
+const hydrateTeamleaderMeetingCustomers = async (activeLocationId, meetings) => {
+  if (!Array.isArray(meetings) || meetings.length === 0) return [];
+
+  const contactIds = new Set();
+  const companyIds = new Set();
+  meetings.forEach((row) => {
+    const id = toTrimmedText(row?.customer_id);
+    const type = toTrimmedText(row?.customer_type);
+    if (!id || !type) return;
+    if (type === 'contact') contactIds.add(id);
+    if (type === 'company') companyIds.add(id);
+  });
+
+  const contactsById = new Map();
+  const companiesById = new Map();
+  const chunkSize = 100;
+
+  const contactIdList = Array.from(contactIds);
+  for (let i = 0; i < contactIdList.length; i += chunkSize) {
+    const chunk = contactIdList.slice(i, i + chunkSize);
+    const { data, error } = await withTimeout(
+      supabase
+        .from('teamleader_contacts')
+        .select('id,first_name,last_name,email')
+        .eq('location_id', activeLocationId)
+        .in('id', chunk),
+      12000,
+      'Supabase query timeout (teamleader contacts).'
+    );
+    if (error) throw error;
+    (data || []).forEach((row) => {
+      const id = toTrimmedText(row?.id);
+      if (id) contactsById.set(id, row);
+    });
+  }
+
+  const companyIdList = Array.from(companyIds);
+  for (let i = 0; i < companyIdList.length; i += chunkSize) {
+    const chunk = companyIdList.slice(i, i + chunkSize);
+    const { data, error } = await withTimeout(
+      supabase
+        .from('teamleader_companies')
+        .select('id,name,email')
+        .eq('location_id', activeLocationId)
+        .in('id', chunk),
+      12000,
+      'Supabase query timeout (teamleader companies).'
+    );
+    if (error) throw error;
+    (data || []).forEach((row) => {
+      const id = toTrimmedText(row?.id);
+      if (id) companiesById.set(id, row);
+    });
+  }
+
+  return meetings.map((row) => {
+    const type = toTrimmedText(row?.customer_type);
+    const customerId = toTrimmedText(row?.customer_id);
+    let contactEmail = null;
+    let contactName = null;
+
+    if (type === 'contact' && customerId) {
+      const contact = contactsById.get(customerId);
+      contactEmail = toTrimmedText(contact?.email);
+      contactName = formatFullName(contact?.first_name, contact?.last_name, contactEmail || 'Onbekend');
+    } else if (type === 'company' && customerId) {
+      const company = companiesById.get(customerId);
+      contactEmail = toTrimmedText(company?.email);
+      contactName = toTrimmedText(company?.name) || contactEmail || 'Onbekend';
+    }
+
+    return {
+      ...row,
+      contact_email: contactEmail,
+      contact_name: contactName
+    };
+  });
+};
+
+const buildTeamleaderAppointmentRows = async (activeLocationId, startIso, endIso) => {
+  const meetings = [];
+  const pageSize = 1000;
+  let from = 0;
+  while (true) {
+    const batch = await fetchTeamleaderMeetingsBatch(activeLocationId, startIso, endIso, from, from + pageSize - 1);
+    if (!batch.length) break;
+    meetings.push(...batch);
+    if (batch.length < pageSize) break;
+    from += pageSize;
+  }
+
+  const hydrated = await hydrateTeamleaderMeetingCustomers(activeLocationId, meetings);
+  return hydrated.map((row) => ({
+    id: row?.id ?? '',
+    start_time: row?.scheduled_at ?? null,
+    contact_id: null,
+    contact_name: row?.contact_name ?? null,
+    contact_email: row?.contact_email ?? null,
+    source: null,
+    appointment_status: 'confirmed',
+    appointment_status_raw: null
+  }));
+};
+
+const fetchOpportunitiesByEmails = async (activeLocationId, emails, select, message) => {
+  const rows = [];
+  const unique = Array.from(new Set((emails || []).map((email) => normalizeEmailValue(email)).filter(Boolean)));
+  if (unique.length === 0) return rows;
+  const chunks = chunkValues(unique, 100);
+  for (const chunk of chunks) {
+    let query = supabase
+      .from('opportunities_view')
+      .select(select)
+      .eq('location_id', activeLocationId)
+      .in('contact_email', chunk);
+    query = applyOpportunityPipelineFilter(query);
+    query = query.order('created_at', { ascending: false });
+
+    const { data, error } = await withTimeout(
+      query,
+      12000,
+      message || 'Supabase query timeout (opportunities by email).'
+    );
+    if (error) throw error;
+    (data || []).forEach((row) => rows.push(row));
+  }
+  return rows;
+};
+
+const fetchContactsByEmailLookup = async (activeLocationId, emails) => {
+  const byEmail = new Map();
+  const unique = Array.from(new Set((emails || []).map((email) => normalizeEmailValue(email)).filter(Boolean)));
+  if (unique.length === 0) return { byEmail };
+  const chunks = chunkValues(unique, 100);
+  for (const chunk of chunks) {
+    const { data, error } = await withTimeout(
+      supabase
+        .from('contacts_view')
+        .select('id,email,contact_name,first_name,last_name,custom_fields,source_guess')
+        .eq('location_id', activeLocationId)
+        .in('email', chunk),
+      12000,
+      'Supabase query timeout (contacts by email).'
+    );
+    if (error) throw error;
+    (data || []).forEach((row) => {
+      const emailNorm = normalizeEmailValue(row?.email);
+      if (emailNorm && !byEmail.has(emailNorm)) byEmail.set(emailNorm, row);
+    });
+  }
+  return { byEmail };
+};
+
 const fetchOpportunityCount = async (range) => {
   if (!supabase) return null;
 
@@ -1866,6 +3889,7 @@ const fetchOpportunityCount = async (range) => {
     .lt('created_at', endIso);
 
   query = query.eq('location_id', activeLocationId);
+  query = applyOpportunityPipelineFilter(query);
 
   const { count, error } = await withTimeout(
     query,
@@ -1880,6 +3904,51 @@ const fetchOpportunityCount = async (range) => {
   return count ?? 0;
 };
 
+const fetchPipelineFilteredOpportunityContactLookup = async (activeLocationId, contactIds = [], emails = []) => {
+  const byContactId = new Set();
+  const byEmail = new Set();
+  if (!supabase) return { byContactId, byEmail };
+
+  const uniqueContactIds = Array.from(
+    new Set((contactIds || []).map((value) => toTrimmedText(value)).filter(Boolean))
+  );
+  const uniqueEmails = Array.from(new Set((emails || []).map((value) => toTrimmedText(value)).filter(Boolean)));
+
+  const ingestRows = (rows) => {
+    (rows || []).forEach((row) => {
+      const contactId = toTrimmedText(row?.contact_id);
+      if (contactId) byContactId.add(contactId);
+      const email = normalizeEmailValue(row?.contact_email);
+      if (email) byEmail.add(email);
+    });
+  };
+
+  const queryByChunk = async (field, values) => {
+    if (!values.length) return;
+    const chunks = chunkValues(values, 100);
+    for (const chunk of chunks) {
+      let query = supabase
+        .from('opportunities_view')
+        .select('contact_id,contact_email')
+        .eq('location_id', activeLocationId)
+        .in(field, chunk);
+      query = applyOpportunityPipelineFilter(query);
+
+      const { data, error } = await withTimeout(
+        query,
+        12000,
+        'Supabase query timeout (pipeline appointment lookup).'
+      );
+      if (error) throw error;
+      ingestRows(data);
+    }
+  };
+
+  await queryByChunk('contact_id', uniqueContactIds);
+  await queryByChunk('contact_email', uniqueEmails);
+  return { byContactId, byEmail };
+};
+
 const fetchAppointmentCounts = async (range) => {
   if (!supabase) return null;
 
@@ -1888,6 +3957,110 @@ const fetchAppointmentCounts = async (range) => {
   const activeLocationId = configState.locationId || ghlLocationId;
   if (!activeLocationId) {
     throw new Error('Location ID ontbreekt. Voeg deze toe via de setup (dashboard_config).');
+  }
+
+  const selectedPipelineId = resolveLeadOpportunityPipelineId();
+
+  if (selectedPipelineId) {
+    if (useTeamleaderAppointments()) {
+      const appointments = await buildTeamleaderAppointmentRows(activeLocationId, startIso, endIso);
+      const appointmentEmails = appointments
+        .map((row) => toTrimmedText(row?.contact_email))
+        .filter(Boolean);
+
+      const pipelineContacts = await fetchPipelineFilteredOpportunityContactLookup(
+        activeLocationId,
+        [],
+        appointmentEmails
+      );
+
+      let total = 0;
+      appointments.forEach((row) => {
+        const email = normalizeEmailValue(row?.contact_email);
+        if (email && pipelineContacts.byEmail.has(email)) {
+          total += 1;
+        }
+      });
+
+      return {
+        total,
+        cancelled: 0,
+        confirmed: total,
+        noShow: 0
+      };
+    }
+
+    const appointments = await fetchAllRows(() =>
+      supabase
+        .from('appointments_view')
+        .select('contact_id,contact_email,appointment_status,appointment_status_raw,start_time')
+        .eq('location_id', activeLocationId)
+        .gte('start_time', startIso)
+        .lt('start_time', endIso)
+        .order('start_time', { ascending: false })
+    );
+
+    const appointmentContactIds = appointments
+      .map((row) => toTrimmedText(row?.contact_id))
+      .filter(Boolean);
+    const appointmentEmails = appointments
+      .map((row) => toTrimmedText(row?.contact_email))
+      .filter(Boolean);
+
+    const pipelineContacts = await fetchPipelineFilteredOpportunityContactLookup(
+      activeLocationId,
+      appointmentContactIds,
+      appointmentEmails
+    );
+
+    let total = 0;
+    let cancelled = 0;
+    let confirmed = 0;
+    let noShow = 0;
+
+    appointments.forEach((row) => {
+      const contactId = toTrimmedText(row?.contact_id);
+      const email = normalizeEmailValue(row?.contact_email);
+      const belongsToPipeline =
+        (contactId && pipelineContacts.byContactId.has(contactId)) || (email && pipelineContacts.byEmail.has(email));
+      if (!belongsToPipeline) return;
+
+      total += 1;
+      const combined =
+        `${toTrimmedText(row?.appointment_status) ?? ''} ${toTrimmedText(row?.appointment_status_raw) ?? ''}`.toLowerCase();
+      if (APPOINTMENT_STATUS_FILTERS.cancelled.some((pattern) => combined.includes(pattern))) {
+        cancelled += 1;
+      }
+      if (APPOINTMENT_STATUS_FILTERS.noShow.some((pattern) => combined.includes(pattern))) {
+        noShow += 1;
+      }
+      if (isAppointmentConfirmedStatus(row?.appointment_status, row?.appointment_status_raw)) {
+        confirmed += 1;
+      }
+    });
+
+    return { total, cancelled, confirmed, noShow };
+  }
+
+  if (useTeamleaderAppointments()) {
+    const { count, error } = await withTimeout(
+      supabase
+        .from('teamleader_meetings')
+        .select('id', { count: 'exact', head: true })
+        .eq('location_id', activeLocationId)
+        .gte('scheduled_at', startIso)
+        .lt('scheduled_at', endIso),
+      12000,
+      'Supabase query timeout (teamleader meetings total).'
+    );
+    if (error) throw error;
+    const total = count ?? 0;
+    return {
+      total,
+      cancelled: 0,
+      confirmed: total,
+      noShow: 0
+    };
   }
 
   const buildQuery = (patterns) => {
@@ -1923,15 +4096,15 @@ const fetchLatestSyncTimestamp = async () => {
 
   const query = supabase
     .from('sync_state')
-    .select('updated_at')
+    .select('last_synced_at,updated_at')
     .eq('location_id', activeLocationId)
-    .order('updated_at', { ascending: false })
+    .order('last_synced_at', { ascending: false, nullsFirst: false })
     .limit(1)
     .maybeSingle();
 
   const { data, error } = await withTimeout(query, 12000, 'Supabase query timeout (sync).');
   if (error) throw error;
-  return data?.updated_at ?? null;
+  return data?.last_synced_at ?? data?.updated_at ?? null;
 };
 
 const toTrimmedText = (value) => {
@@ -2033,6 +4206,73 @@ const extractCustomFieldValue = (customFields, fieldId) => {
   );
 };
 
+// Mirrors public.extract_url_param() and public.normalize_hook_value() in SQL.
+const extractUrlParamValue = (url, key) => {
+  const text = toTrimmedText(url);
+  const token = toTrimmedText(key);
+  if (!text || !token) return null;
+  const pattern = new RegExp(`(?:\\?|&)${token}=([^&]+)`);
+  const match = text.match(pattern);
+  const raw = match && match[1] ? match[1] : null;
+  if (!raw) return null;
+  try {
+    return decodeURIComponent(raw);
+  } catch (_error) {
+    return raw;
+  }
+};
+
+const normalizeHookValue = (value, source) => {
+  const raw = toTrimmedText(value);
+  const fallbackSource = toTrimmedText(source) || 'Onbekend';
+  if (!raw || raw.toLowerCase() === 'onbekend') return fallbackSource;
+
+  const lowered = raw.toLowerCase();
+  const looksLikeUrl =
+    lowered.startsWith('http') ||
+    lowered.includes('gclid=') ||
+    lowered.includes('gad_campaignid=') ||
+    lowered.includes('fbclid=');
+
+  if (!looksLikeUrl) return raw;
+
+  return (
+    extractUrlParamValue(raw, 'utm_campaign') ||
+    (() => {
+      const campaignId = extractUrlParamValue(raw, 'gad_campaignid');
+      return campaignId ? `Google Campagne ${campaignId}` : null;
+    })() ||
+    (extractUrlParamValue(raw, 'gclid') ? 'Google - woning prijsberekening' : null) ||
+    (extractUrlParamValue(raw, 'fbclid') ? 'Meta - Calculator' : null) ||
+    raw
+  );
+};
+
+const resolveHookFields = ({
+  customFields,
+  contactCustomFields,
+  hookFieldId,
+  campaignFieldId,
+  source
+}) => {
+  const hookRaw =
+    extractCustomFieldValue(customFields, hookFieldId) ||
+    extractCustomFieldValue(contactCustomFields, hookFieldId) ||
+    extractCustomFieldValue(customFields, campaignFieldId) ||
+    extractCustomFieldValue(contactCustomFields, campaignFieldId) ||
+    'Onbekend';
+
+  const campaignRaw =
+    extractCustomFieldValue(customFields, campaignFieldId) ||
+    extractCustomFieldValue(contactCustomFields, campaignFieldId) ||
+    'Onbekend';
+
+  return {
+    hook: normalizeHookValue(hookRaw, source),
+    campaign: normalizeHookValue(campaignRaw, source)
+  };
+};
+
 const firstText = (...candidates) => {
   for (const candidate of candidates) {
     const text = toTrimmedText(candidate);
@@ -2077,15 +4317,26 @@ const extractLostReasonRaw = (opportunityRaw, lostReasonFieldId, contactRaw) => 
 const fetchSourceBreakdownComputed = async (range, activeLocationId) => {
   const startIso = toUtcStart(range.start);
   const endIso = toUtcEndExclusive(range.end);
+  const bucketingConfig = resolveSourceBucketingConfig();
+  const defaultSource = bucketingConfig.enabled ? bucketingConfig.emptyBucket || 'Onbekend' : 'Onbekend';
+  const normalizeSourceOptional = (value) => {
+    const normalized = normalizeSourceValue(value);
+    if (!normalized) return null;
+    return mapSourceToBucketLabel(normalized);
+  };
 
-  const opportunities = await fetchAllRows(() =>
-    supabase
+  const useTeamleader = useTeamleaderAppointments();
+
+  const opportunities = await fetchAllRows(() => {
+    let query = supabase
       .from('opportunities_view')
       .select('id,contact_id,contact_email,source_guess,status,created_at')
       .eq('location_id', activeLocationId)
       .gte('created_at', startIso)
-      .lt('created_at', endIso)
-  );
+      .lt('created_at', endIso);
+    query = applyOpportunityPipelineFilter(query);
+    return query;
+  });
 
   const leadContactIds = new Set();
   const leadEmails = new Set();
@@ -2093,7 +4344,7 @@ const fetchSourceBreakdownComputed = async (range, activeLocationId) => {
   const dealsBySource = new Map();
 
   opportunities.forEach((row) => {
-    const source = normalizeSourceValue(row?.source_guess) || 'Onbekend';
+    const source = normalizeSourceOptional(row?.source_guess) || defaultSource;
     const prevLeads = leadsBySource.get(source) || 0;
     leadsBySource.set(source, prevLeads + 1);
 
@@ -2109,35 +4360,51 @@ const fetchSourceBreakdownComputed = async (range, activeLocationId) => {
     if (emailNorm) leadEmails.add(emailNorm);
   });
 
-  const appointments = await fetchAllRows(() =>
-    supabase
-      .from('appointments_view')
-      .select('id,contact_id,contact_email,source,appointment_status,appointment_status_raw,start_time')
-      .eq('location_id', activeLocationId)
-      .gte('start_time', startIso)
-      .lt('start_time', endIso)
-  );
+  const appointments = useTeamleader
+    ? await buildTeamleaderAppointmentRows(activeLocationId, startIso, endIso)
+    : await fetchAllRows(() =>
+        supabase
+          .from('appointments_view')
+          .select('id,contact_id,contact_email,source,appointment_status,appointment_status_raw,start_time')
+          .eq('location_id', activeLocationId)
+          .gte('start_time', startIso)
+          .lt('start_time', endIso)
+      );
 
   const appointmentContactIds = Array.from(
     new Set(appointments.map((row) => toTrimmedText(row?.contact_id)).filter(Boolean))
   );
+  const appointmentEmails = Array.from(
+    new Set(appointments.map((row) => normalizeEmailValue(row?.contact_email)).filter(Boolean))
+  );
 
   let opportunitiesForAppointments = [];
-  if (appointmentContactIds.length) {
-    opportunitiesForAppointments = await fetchAllRows(() =>
-      supabase
+  if (useTeamleader) {
+    if (appointmentEmails.length) {
+      opportunitiesForAppointments = await fetchOpportunitiesByEmails(
+        activeLocationId,
+        appointmentEmails,
+        'contact_id,contact_email,source_guess,created_at',
+        'Supabase query timeout (appointment source lookup).'
+      );
+    }
+  } else if (appointmentContactIds.length) {
+    opportunitiesForAppointments = await fetchAllRows(() => {
+      let query = supabase
         .from('opportunities_view')
         .select('contact_id,contact_email,source_guess,created_at')
         .eq('location_id', activeLocationId)
-        .in('contact_id', appointmentContactIds)
-        .order('created_at', { ascending: false })
-    );
+        .in('contact_id', appointmentContactIds);
+      query = applyOpportunityPipelineFilter(query);
+      query = query.order('created_at', { ascending: false });
+      return query;
+    });
   }
 
   const sourceByContactId = new Map();
   const sourceByEmail = new Map();
   opportunitiesForAppointments.forEach((row) => {
-    const source = normalizeSourceValue(row?.source_guess);
+    const source = normalizeSourceOptional(row?.source_guess);
     if (!source) return;
 
     const contactId = toTrimmedText(row?.contact_id);
@@ -2150,17 +4417,26 @@ const fetchSourceBreakdownComputed = async (range, activeLocationId) => {
       sourceByEmail.set(emailNorm, source);
     }
   });
+  if (useTeamleader && appointmentEmails.length) {
+    const { byEmail: contactsByEmail } = await fetchContactsByEmailLookup(activeLocationId, appointmentEmails);
+    contactsByEmail.forEach((row, email) => {
+      const source = normalizeSourceOptional(row?.source_guess);
+      if (source && !sourceByEmail.has(email)) {
+        sourceByEmail.set(email, source);
+      }
+    });
+  }
 
   const apptAgg = new Map();
   appointments.forEach((row) => {
     const contactId = toTrimmedText(row?.contact_id);
     const emailNorm = normalizeEmailValue(row?.contact_email);
 
-    let source =
-      normalizeSourceValue(row?.source) ||
+    const source =
+      normalizeSourceOptional(row?.source) ||
       (contactId ? sourceByContactId.get(contactId) : null) ||
       (emailNorm ? sourceByEmail.get(emailNorm) : null) ||
-      'Onbekend';
+      defaultSource;
 
     const existing = apptAgg.get(source) || { appointments: 0, confirmed: 0, withoutLead: 0 };
     existing.appointments += 1;
@@ -2192,6 +4468,27 @@ const fetchSourceBreakdownComputed = async (range, activeLocationId) => {
     };
   });
 
+  if (bucketingConfig.enabled) {
+    const rowsBySource = new Map(rows.map((row) => [row.source, row]));
+    const preferredOrder = getSourceBreakdownOrder();
+    const extras = Array.from(rowsBySource.keys()).filter((source) => !preferredOrder.includes(source));
+    extras.sort((a, b) => {
+      const leadDiff = (rowsBySource.get(b)?.leads ?? 0) - (rowsBySource.get(a)?.leads ?? 0);
+      if (leadDiff) return leadDiff;
+      return String(a ?? '').localeCompare(String(b ?? ''));
+    });
+    const orderedSources = [...preferredOrder, ...extras];
+
+    return orderedSources.map((source) => ({
+      source,
+      leads: rowsBySource.get(source)?.leads || 0,
+      appointments: rowsBySource.get(source)?.appointments || 0,
+      appointments_confirmed: rowsBySource.get(source)?.appointments_confirmed || 0,
+      appointments_without_lead_in_range: rowsBySource.get(source)?.appointments_without_lead_in_range || 0,
+      deals: rowsBySource.get(source)?.deals || 0
+    }));
+  }
+
   rows.sort((a, b) => {
     const leadDiff = (b.leads ?? 0) - (a.leads ?? 0);
     if (leadDiff) return leadDiff;
@@ -2203,10 +4500,247 @@ const fetchSourceBreakdownComputed = async (range, activeLocationId) => {
   return rows;
 };
 
+const fetchContactsCustomFieldsLookup = async (activeLocationId, contactIds) => {
+  const byId = new Map();
+  const byEmail = new Map();
+  const ids = Array.from(new Set((contactIds || []).map((id) => toTrimmedText(id)).filter(Boolean)));
+  if (!ids.length) return { byId, byEmail };
+
+  const chunkSize = 100;
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize);
+    const { data, error } = await withTimeout(
+      supabase
+        .from('contacts_view')
+        .select('id,email,source_guess,custom_fields')
+        .eq('location_id', activeLocationId)
+        .in('id', chunk),
+      12000,
+      'Supabase query timeout (contacts custom fields).'
+    );
+    if (error) throw error;
+    (data || []).forEach((row) => {
+      const id = toTrimmedText(row?.id);
+      if (!id) return;
+      byId.set(id, row);
+      const emailNorm = normalizeEmailValue(row?.email);
+      if (emailNorm && !byEmail.has(emailNorm)) byEmail.set(emailNorm, row);
+    });
+  }
+
+  return { byId, byEmail };
+};
+
+const fetchHookPerformanceComputed = async (range, activeLocationId) => {
+  const hookFieldId = toTrimmedText(configState.hookFieldId);
+  const campaignFieldId = toTrimmedText(configState.campaignFieldId);
+  if (!hookFieldId && !campaignFieldId) return [];
+
+  const filterBucket = resolveHookPerformanceSourceBucketFilter();
+  const defaultSource = getDefaultDrilldownSource();
+  const useTeamleader = useTeamleaderAppointments();
+  const startIso = toUtcStart(range.start);
+  const endIso = toUtcEndExclusive(range.end);
+
+  const opportunities = await fetchAllRows(() => {
+    let query = supabase
+      .from('opportunities_view')
+      .select('id,contact_id,contact_email,source_guess,custom_fields,created_at')
+      .eq('location_id', activeLocationId)
+      .gte('created_at', startIso)
+      .lt('created_at', endIso);
+    query = applyOpportunityPipelineFilter(query);
+    return query;
+  });
+
+  const appointments = useTeamleader
+    ? await buildTeamleaderAppointmentRows(activeLocationId, startIso, endIso)
+    : await fetchAllRows(() =>
+        supabase
+          .from('appointments_view')
+          .select('id,contact_id,contact_email,source,appointment_status,appointment_status_raw,custom_fields,start_time')
+          .eq('location_id', activeLocationId)
+          .gte('start_time', startIso)
+          .lt('start_time', endIso)
+      );
+
+  const appointmentContactIds = Array.from(
+    new Set(appointments.map((row) => toTrimmedText(row?.contact_id)).filter(Boolean))
+  );
+  const appointmentEmails = Array.from(
+    new Set(appointments.map((row) => normalizeEmailValue(row?.contact_email)).filter(Boolean))
+  );
+  let contactsByEmailLookup = null;
+  if (useTeamleader && appointmentEmails.length) {
+    const { byEmail } = await fetchContactsByEmailLookup(activeLocationId, appointmentEmails);
+    contactsByEmailLookup = byEmail;
+  }
+
+  let opportunitiesForAppointments = [];
+  if (useTeamleader) {
+    if (appointmentEmails.length) {
+      opportunitiesForAppointments = await fetchOpportunitiesByEmails(
+        activeLocationId,
+        appointmentEmails,
+        'contact_id,contact_email,source_guess,custom_fields,created_at',
+        'Supabase query timeout (appointment source lookup).'
+      );
+    }
+  } else if (appointmentContactIds.length) {
+    opportunitiesForAppointments = await fetchAllRows(
+      () => {
+        let query = supabase
+          .from('opportunities_view')
+          .select('contact_id,contact_email,source_guess,created_at')
+          .eq('location_id', activeLocationId)
+          .in('contact_id', appointmentContactIds);
+        query = applyOpportunityPipelineFilter(query);
+        query = query.order('created_at', { ascending: false });
+        return query;
+      },
+      500
+    );
+  }
+
+  const rawSourceByContactId = new Map();
+  const rawSourceByEmail = new Map();
+  const opportunityByEmail = new Map();
+  opportunitiesForAppointments.forEach((row) => {
+    const rawSource = normalizeSourceValue(row?.source_guess);
+    if (!rawSource) return;
+
+    const contactId = toTrimmedText(row?.contact_id);
+    if (contactId && !rawSourceByContactId.has(contactId)) {
+      rawSourceByContactId.set(contactId, rawSource);
+    }
+
+    const emailNorm = normalizeEmailValue(row?.contact_email);
+    if (emailNorm && !rawSourceByEmail.has(emailNorm)) {
+      rawSourceByEmail.set(emailNorm, rawSource);
+    }
+    if (emailNorm && !opportunityByEmail.has(emailNorm)) {
+      opportunityByEmail.set(emailNorm, row);
+    }
+  });
+
+  const toBucketSource = (rawSource) => {
+    const bucket = mapSourceToBucketLabel(rawSource);
+    return bucket || defaultSource;
+  };
+
+  const metaOpportunities = [];
+  const metaAppointments = [];
+  const contactIds = new Set();
+
+  opportunities.forEach((row) => {
+    const rawSource = normalizeSourceValue(row?.source_guess);
+    const bucketSource = toBucketSource(rawSource);
+    if (filterBucket && bucketSource !== filterBucket) return;
+
+    metaOpportunities.push({ row, rawSource, bucketSource });
+
+    const contactId = toTrimmedText(row?.contact_id);
+    if (contactId) contactIds.add(contactId);
+  });
+
+  appointments.forEach((row) => {
+    if (!isAppointmentConfirmedStatus(row?.appointment_status, row?.appointment_status_raw)) return;
+
+    const contactId = toTrimmedText(row?.contact_id);
+    const emailNorm = normalizeEmailValue(row?.contact_email);
+    const contactFromEmail = emailNorm && contactsByEmailLookup ? contactsByEmailLookup.get(emailNorm) : null;
+    const contactIdFromEmail = contactFromEmail ? toTrimmedText(contactFromEmail.id) : null;
+    const opportunity = emailNorm ? opportunityByEmail.get(emailNorm) : null;
+    const effectiveContactId = contactId || toTrimmedText(opportunity?.contact_id) || contactIdFromEmail;
+    const rawSource =
+      normalizeSourceValue(row?.source) ||
+      (effectiveContactId ? rawSourceByContactId.get(effectiveContactId) : null) ||
+      (emailNorm ? rawSourceByEmail.get(emailNorm) : null) ||
+      normalizeSourceValue(opportunity?.source_guess) ||
+      normalizeSourceValue(contactFromEmail?.source_guess);
+    const bucketSource = toBucketSource(rawSource);
+    if (filterBucket && bucketSource !== filterBucket) return;
+
+    metaAppointments.push({ row, rawSource, bucketSource, opportunity });
+
+    if (effectiveContactId) contactIds.add(effectiveContactId);
+  });
+
+  const { byId: contactsById, byEmail: contactsByEmailBase } = await fetchContactsCustomFieldsLookup(
+    activeLocationId,
+    Array.from(contactIds)
+  );
+  let contactsByEmail = contactsByEmailBase;
+  if (useTeamleader && appointmentEmails.length) {
+    const contactsByEmailDirect =
+      contactsByEmailLookup || (await fetchContactsByEmailLookup(activeLocationId, appointmentEmails)).byEmail;
+    const merged = new Map(contactsByEmailBase);
+    contactsByEmailDirect.forEach((value, key) => {
+      if (!merged.has(key)) merged.set(key, value);
+    });
+    contactsByEmail = merged;
+  }
+
+  const aggregated = new Map();
+  const ensureEntry = (hook, campaign, source) => {
+    const key = `${hook}|||${campaign}|||${source}`;
+    const current = aggregated.get(key) || { hook, campaign, source, leads: 0, appointments: 0 };
+    aggregated.set(key, current);
+    return current;
+  };
+
+  metaOpportunities.forEach(({ row, rawSource, bucketSource }) => {
+    const contactId = toTrimmedText(row?.contact_id);
+    const emailNorm = normalizeEmailValue(row?.contact_email);
+    const contact =
+      (contactId ? contactsById.get(contactId) : null) || (emailNorm ? contactsByEmail.get(emailNorm) : null);
+    const fallbackSource = rawSource || bucketSource || defaultSource;
+    const { hook, campaign } = resolveHookFields({
+      customFields: row?.custom_fields,
+      contactCustomFields: contact?.custom_fields,
+      hookFieldId,
+      campaignFieldId,
+      source: fallbackSource
+    });
+    const entry = ensureEntry(hook, campaign, bucketSource);
+    entry.leads += 1;
+  });
+
+  metaAppointments.forEach(({ row, rawSource, bucketSource, opportunity }) => {
+    const contactId = toTrimmedText(row?.contact_id) || toTrimmedText(opportunity?.contact_id);
+    const emailNorm = normalizeEmailValue(row?.contact_email);
+    const contact =
+      (contactId ? contactsById.get(contactId) : null) || (emailNorm ? contactsByEmail.get(emailNorm) : null);
+    const fallbackSource = rawSource || bucketSource || defaultSource;
+    const { hook, campaign } = resolveHookFields({
+      customFields: row?.custom_fields || opportunity?.custom_fields,
+      contactCustomFields: contact?.custom_fields,
+      hookFieldId,
+      campaignFieldId,
+      source: fallbackSource
+    });
+    const entry = ensureEntry(hook, campaign, bucketSource);
+    entry.appointments += 1;
+  });
+
+  const rows = Array.from(aggregated.values());
+  rows.sort((a, b) => {
+    const leadDiff = (b.leads ?? 0) - (a.leads ?? 0);
+    if (leadDiff) return leadDiff;
+    const apptDiff = (b.appointments ?? 0) - (a.appointments ?? 0);
+    if (apptDiff) return apptDiff;
+    return String(a.hook ?? '').localeCompare(String(b.hook ?? ''));
+  });
+
+  return rows;
+};
+
 const fetchLostReasonsComputed = async (range, activeLocationId) => {
   const startIso = toUtcStart(range.start);
   const endIso = toUtcEndExclusive(range.end);
   const lostReasonFieldId = toTrimmedText(configState.lostReasonFieldId);
+  const rangeStart = parseDate(startIso);
+  const rangeEnd = parseDate(endIso);
 
   const lookupRows = await supabase
     .from('lost_reason_lookup')
@@ -2223,14 +4757,30 @@ const fetchLostReasonsComputed = async (range, activeLocationId) => {
       .filter(([id, name]) => id && name)
   );
 
+  const { data: overrideRows, error: overrideError } = await supabase
+    .from('lost_reason_overrides')
+    .select('reason_id,reason_name')
+    .eq('location_id', activeLocationId);
+  if (overrideError) {
+    const message = overrideError.message ?? String(overrideError);
+    if (!message.includes('does not exist')) throw overrideError;
+  } else {
+    (overrideRows || [])
+      .map((row) => [toTrimmedText(row?.reason_id), toTrimmedText(row?.reason_name)])
+      .filter(([id, name]) => id && name)
+      .forEach(([id, name]) => lookupById.set(id, name));
+  }
+
   const opportunities = await fetchAllRows(
-    () =>
-      supabase
+    () => {
+      let query = supabase
         .from('opportunities')
-        .select('id,status,contact_id,raw_data,created_at')
+        .select('id,status,contact_id,raw_data,updated_at')
         .eq('location_id', activeLocationId)
-        .gte('created_at', startIso)
-        .lt('created_at', endIso),
+        .gte('updated_at', startIso);
+      query = applyOpportunityPipelineFilter(query);
+      return query;
+    },
     500
   );
 
@@ -2260,9 +4810,14 @@ const fetchLostReasonsComputed = async (range, activeLocationId) => {
   const counts = new Map();
 
   opportunities.forEach((row) => {
-    if (isWonOrClosedStatus(row?.status)) return;
+    const status = normalizeStatus(row?.status);
+    if (!isLostStatus(status)) return;
     const raw = row?.raw_data || null;
     const contactRaw = contactsById ? contactsById.get(toTrimmedText(row?.contact_id) || '') : null;
+    const statusChangedAt = parseStatusChangeAt(raw, row?.updated_at);
+    if (!statusChangedAt || (rangeStart && statusChangedAt < rangeStart) || (rangeEnd && statusChangedAt >= rangeEnd)) {
+      return;
+    }
     const reasonRaw = extractLostReasonRaw(raw, lostReasonFieldId, contactRaw);
     if (!reasonRaw) return;
 
@@ -2300,21 +4855,8 @@ const fetchHookPerformance = async (range) => {
     throw new Error('Location ID ontbreekt. Voeg deze toe via de setup (dashboard_config).');
   }
 
-  const startIso = toUtcStart(range.start);
-  const endIso = toUtcEndExclusive(range.end);
-
-  const { data, error } = await withTimeout(
-    supabase.rpc('get_hook_performance', {
-      p_location_id: activeLocationId,
-      p_start: startIso,
-      p_end: endIso
-    }),
-    12000,
-    'Supabase query timeout (hook performance).'
-  );
-
-  if (error) throw error;
-  return data ?? [];
+  // Compute in the client using indexed table queries: the RPC can hit low statement_timeout limits.
+  return fetchHookPerformanceComputed(range, activeLocationId);
 };
 
 const fetchLostReasons = async (range) => {
@@ -2359,9 +4901,34 @@ const fetchSpendBySource = async (range) => {
   if (!activeLocationId) {
     throw new Error('Location ID ontbreekt. Voeg deze toe via de setup (dashboard_config).');
   }
+  const debugMode = isMetricsDebugModeEnabled();
+  const bucketingEnabled = isSourceBucketingEnabled();
 
   const startDate = range.start;
   const endDate = toDateEndExclusive(range.end);
+
+  if (debugMode) {
+    const { data: rawRows, error: rawError } = await withTimeout(
+      supabase
+        .from('marketing_spend_daily')
+        .select('source,spend')
+        .eq('location_id', activeLocationId)
+        .gte('date', startDate)
+        .lt('date', endDate),
+      12000,
+      'Supabase query timeout (marketing spend debug mode).'
+    );
+    if (rawError) throw rawError;
+
+    const rawTotals = {};
+    (rawRows ?? []).forEach((row) => {
+      const source = normalizeSourceLabel(row?.source) || 'Onbekend';
+      const spend = Number(row?.spend ?? 0);
+      if (!Number.isFinite(spend)) return;
+      rawTotals[source] = (rawTotals[source] ?? 0) + spend;
+    });
+    return rawTotals;
+  }
 
   const totals = {};
 
@@ -2404,7 +4971,7 @@ const fetchSpendBySource = async (range) => {
   });
 
   const addSpend = (label, amount) => {
-    const key = normalizeSourceLabel(label);
+    const key = mapSourceToBucketLabel(label);
     if (!key) return;
     totals[key] = (totals[key] ?? 0) + amount;
   };
@@ -2473,10 +5040,1269 @@ const fetchSpendBySource = async (range) => {
     });
   }
 
+  if (bucketingEnabled) {
+    const metaBucketLabel = normalizeSourceLabel(mapSourceToBucketLabel(META_SOURCE_BY_LANG.nl));
+    const googleBucketLabel = normalizeSourceLabel(mapSourceToBucketLabel(GOOGLE_SOURCE_LABEL));
+
+    const { data: externalRows, error: externalError } = await withTimeout(
+      supabase
+        .from('marketing_spend_daily')
+        .select('source, spend')
+        .eq('location_id', activeLocationId)
+        .gte('date', startDate)
+        .lt('date', endDate),
+      12000,
+      'Supabase query timeout (marketing spend external).'
+    );
+    if (externalError) throw externalError;
+
+    (externalRows ?? []).forEach((row) => {
+      const bucket = normalizeSourceLabel(mapSourceToBucketLabel(row?.source));
+      if (bucket && (bucket === metaBucketLabel || bucket === googleBucketLabel)) return;
+      addSpend(row?.source, Number(row?.spend ?? 0));
+    });
+
+    getSourceBreakdownOrder().forEach((source) => {
+      if (!Object.prototype.hasOwnProperty.call(totals, source)) totals[source] = 0;
+    });
+  }
+
   return totals;
 };
 
-const fetchDrilldownRecords = async ({ kind, source, range }) => {
+const resolveSpendSourceLabel = (value) => {
+  const raw = normalizeSourceLabel(value);
+  if (!raw) return getDefaultDrilldownSource();
+  return mapSourceToBucketLabel(raw);
+};
+
+const formatMetaEntityLabel = (label, id, fallbackPrefix) => {
+  const name = toTrimmedText(label);
+  if (name) return name;
+  const trimmedId = toTrimmedText(id);
+  if (!trimmedId) return 'Onbekend';
+  const shortId = trimmedId.length > 8 ? `${trimmedId.slice(0, 6)}...` : trimmedId;
+  return `${fallbackPrefix} ${shortId}`;
+};
+
+const fetchFinanceCampaignDrilldownRecords = async ({ activeLocationId, startIso, endIso, source }) => {
+  if (!supabase) return null;
+  const startDate = startIso.slice(0, 10);
+  const endDate = endIso.slice(0, 10);
+
+  const { data, error } = await withTimeout(
+    supabase
+      .from('marketing_spend_campaign_daily')
+      .select('date, source, spend, leads, campaign_id, campaign_name')
+      .eq('location_id', activeLocationId)
+      .gte('date', startDate)
+      .lt('date', endDate),
+    12000,
+    'Supabase query timeout (marketing spend campaign drilldown).'
+  );
+  if (error) throw error;
+
+  const grouped = new Map();
+  const useFallback = !data || data.length === 0;
+
+  if (!useFallback) {
+    (data ?? []).forEach((row) => {
+      const label = resolveSpendSourceLabel(row?.source);
+      if (source && label !== source) return;
+      const campaignId = toTrimmedText(row?.campaign_id);
+      const key = `${label}|${campaignId || 'campaign'}`;
+      const spend = Number(row?.spend ?? 0);
+      const leads = Number(row?.leads ?? 0);
+      const current = grouped.get(key) || {
+        source: label,
+        campaign_id: campaignId,
+        campaign_name: row?.campaign_name ?? null,
+        spend: 0,
+        leads: 0
+      };
+      current.spend += spend;
+      current.leads += leads;
+      grouped.set(key, current);
+    });
+  } else {
+    const { data: fallbackRows, error: fallbackError } = await withTimeout(
+      supabase
+        .from('marketing_spend_adset_daily')
+        .select('date, source, spend, leads, campaign_id, campaign_name')
+        .eq('location_id', activeLocationId)
+        .gte('date', startDate)
+        .lt('date', endDate),
+      12000,
+      'Supabase query timeout (marketing spend campaign fallback).'
+    );
+    if (fallbackError) throw fallbackError;
+
+    (fallbackRows ?? []).forEach((row) => {
+      const label = resolveSpendSourceLabel(row?.source);
+      if (source && label !== source) return;
+      const campaignId = toTrimmedText(row?.campaign_id);
+      const key = `${label}|${campaignId || 'campaign'}`;
+      const spend = Number(row?.spend ?? 0);
+      const leads = Number(row?.leads ?? 0);
+      const current = grouped.get(key) || {
+        source: label,
+        campaign_id: campaignId,
+        campaign_name: row?.campaign_name ?? null,
+        spend: 0,
+        leads: 0
+      };
+      current.spend += spend;
+      current.leads += leads;
+      grouped.set(key, current);
+    });
+  }
+
+  return Array.from(grouped.values()).sort((a, b) => {
+    const spendDiff = Number(b.spend ?? 0) - Number(a.spend ?? 0);
+    if (spendDiff !== 0) return spendDiff;
+    return Number(b.leads ?? 0) - Number(a.leads ?? 0);
+  });
+};
+
+const fetchFinanceAdsetDrilldownRecords = async ({ activeLocationId, startIso, endIso, source }) => {
+  if (!supabase) return null;
+  const startDate = startIso.slice(0, 10);
+  const endDate = endIso.slice(0, 10);
+
+  const { data, error } = await withTimeout(
+    supabase
+      .from('marketing_spend_adset_daily')
+      .select('date, source, spend, leads, campaign_id, campaign_name, adset_id, adset_name')
+      .eq('location_id', activeLocationId)
+      .gte('date', startDate)
+      .lt('date', endDate),
+    12000,
+    'Supabase query timeout (marketing spend adset drilldown).'
+  );
+  if (error) throw error;
+
+  const grouped = new Map();
+  (data ?? []).forEach((row) => {
+    const label = resolveSpendSourceLabel(row?.source);
+    if (source && label !== source) return;
+    const adsetId = toTrimmedText(row?.adset_id);
+    const campaignId = toTrimmedText(row?.campaign_id);
+    const key = `${label}|${campaignId || 'campaign'}|${adsetId || 'adset'}`;
+    const spend = Number(row?.spend ?? 0);
+    const leads = Number(row?.leads ?? 0);
+    const current = grouped.get(key) || {
+      source: label,
+      campaign_id: campaignId,
+      campaign_name: row?.campaign_name ?? null,
+      adset_id: adsetId,
+      adset_name: row?.adset_name ?? null,
+      spend: 0,
+      leads: 0
+    };
+    current.spend += spend;
+    current.leads += leads;
+    grouped.set(key, current);
+  });
+
+  return Array.from(grouped.values()).sort((a, b) => {
+    const spendDiff = Number(b.spend ?? 0) - Number(a.spend ?? 0);
+    if (spendDiff !== 0) return spendDiff;
+    return Number(b.leads ?? 0) - Number(a.leads ?? 0);
+  });
+};
+
+const fetchFinanceAdDrilldownRecords = async ({ activeLocationId, startIso, endIso, source }) => {
+  if (!supabase) return null;
+  const startDate = startIso.slice(0, 10);
+  const endDate = endIso.slice(0, 10);
+
+  const { data, error } = await withTimeout(
+    supabase
+      .from('marketing_spend_ad_daily')
+      .select('date, source, spend, leads, campaign_id, campaign_name, adset_id, adset_name, ad_id, ad_name')
+      .eq('location_id', activeLocationId)
+      .gte('date', startDate)
+      .lt('date', endDate),
+    12000,
+    'Supabase query timeout (marketing spend ad drilldown).'
+  );
+  if (error) throw error;
+
+  const grouped = new Map();
+  (data ?? []).forEach((row) => {
+    const label = resolveSpendSourceLabel(row?.source);
+    if (source && label !== source) return;
+    const adId = toTrimmedText(row?.ad_id);
+    const adsetId = toTrimmedText(row?.adset_id);
+    const campaignId = toTrimmedText(row?.campaign_id);
+    const key = `${label}|${campaignId || 'campaign'}|${adsetId || 'adset'}|${adId || 'ad'}`;
+    const spend = Number(row?.spend ?? 0);
+    const leads = Number(row?.leads ?? 0);
+    const current = grouped.get(key) || {
+      source: label,
+      campaign_id: campaignId,
+      campaign_name: row?.campaign_name ?? null,
+      adset_id: adsetId,
+      adset_name: row?.adset_name ?? null,
+      ad_id: adId,
+      ad_name: row?.ad_name ?? null,
+      spend: 0,
+      leads: 0
+    };
+    current.spend += spend;
+    current.leads += leads;
+    grouped.set(key, current);
+  });
+
+  return Array.from(grouped.values()).sort((a, b) => {
+    const spendDiff = Number(b.spend ?? 0) - Number(a.spend ?? 0);
+    if (spendDiff !== 0) return spendDiff;
+    return Number(b.leads ?? 0) - Number(a.leads ?? 0);
+  });
+};
+
+const fetchFinanceDrilldownRecords = async ({ activeLocationId, startIso, endIso, source, view = 'daily' }) => {
+  if (view === 'adset') {
+    return fetchFinanceAdsetDrilldownRecords({ activeLocationId, startIso, endIso, source });
+  }
+  if (view === 'campaign') {
+    return fetchFinanceCampaignDrilldownRecords({ activeLocationId, startIso, endIso, source });
+  }
+  if (view === 'ad') {
+    return fetchFinanceAdDrilldownRecords({ activeLocationId, startIso, endIso, source });
+  }
+  if (!supabase) return null;
+  const startDate = startIso.slice(0, 10);
+  const endDate = endIso.slice(0, 10);
+
+  const { data, error } = await withTimeout(
+    supabase
+      .from('marketing_spend_daily')
+      .select('date, source, spend, leads')
+      .eq('location_id', activeLocationId)
+      .gte('date', startDate)
+      .lt('date', endDate),
+    12000,
+    'Supabase query timeout (marketing spend drilldown).'
+  );
+  if (error) throw error;
+
+  const grouped = new Map();
+  (data ?? []).forEach((row) => {
+    const label = resolveSpendSourceLabel(row?.source);
+    if (source && label !== source) return;
+    const date = row?.date ?? '';
+    if (!date) return;
+    const key = `${date}|${label}`;
+    const spend = Number(row?.spend ?? 0);
+    const leads = Number(row?.leads ?? 0);
+    const current = grouped.get(key) || { date, source: label, spend: 0, leads: 0 };
+    current.spend += spend;
+    current.leads += leads;
+    grouped.set(key, current);
+  });
+
+  return Array.from(grouped.values()).sort((a, b) => (a.date < b.date ? 1 : -1));
+};
+
+const DRILLDOWN_LIMIT_MAX = 2000;
+const DEFAULT_DRILLDOWN_LIMIT = 1500;
+const DRILLDOWN_FETCH_TIMEOUT_MS = 30000;
+const clampLimit = (value, fallback = 200) => {
+  const raw = Number(value ?? fallback);
+  if (!Number.isFinite(raw)) return Math.min(Math.max(fallback, 1), DRILLDOWN_LIMIT_MAX);
+  return Math.min(Math.max(Math.floor(raw), 1), DRILLDOWN_LIMIT_MAX);
+};
+
+const buildPaginationBatchSignature = (batch) => {
+  if (!Array.isArray(batch) || batch.length === 0) return '';
+
+  const pickToken = (row) => {
+    if (!row || typeof row !== 'object') return '';
+    return (
+      toTrimmedText(row.id) ||
+      toTrimmedText(row.record_id) ||
+      toTrimmedText(row.created_at) ||
+      toTrimmedText(row.updated_at) ||
+      toTrimmedText(row.start_time) ||
+      toTrimmedText(row.scheduled_at) ||
+      toTrimmedText(row.date) ||
+      toTrimmedText(row.contact_id) ||
+      toTrimmedText(row.contact_email) ||
+      ''
+    );
+  };
+
+  const first = batch[0];
+  const last = batch[batch.length - 1];
+  return `${batch.length}|${pickToken(first)}|${pickToken(last)}`;
+};
+
+const getDefaultDrilldownSource = () => {
+  const cfg = resolveSourceBucketingConfig();
+  if (cfg.enabled) return cfg.emptyBucket || 'Onbekend';
+  return 'Onbekend';
+};
+
+const normalizeDrilldownSource = (value) => {
+  const normalized = normalizeSourceValue(value);
+  if (!normalized) return null;
+  return mapSourceToBucketLabel(normalized);
+};
+
+const fetchOpportunityDrilldownRecordsComputed = async ({
+  activeLocationId,
+  startIso,
+  endIso,
+  kind,
+  source,
+  limit
+}) => {
+  const wantedSource = source ? String(source) : null;
+  const effectiveLimit = clampLimit(limit, 200);
+  const pageSize = 1000;
+  const maxScan = 15000;
+
+  const rows = [];
+  let from = 0;
+  let previousBatchSignature = '';
+
+  while (rows.length < effectiveLimit && from < maxScan) {
+    let query = supabase
+      .from('opportunities_view')
+      .select(
+        'id,created_at,contact_id,contact_name,contact_email,contact_phone,source_guess,status,pipeline_name,pipeline_stage_name,assigned_to,monetary_value'
+      )
+      .eq('location_id', activeLocationId)
+      .gte('created_at', startIso)
+      .lt('created_at', endIso);
+    query = applyOpportunityPipelineFilter(query);
+    query = query.order('created_at', { ascending: false }).range(from, from + pageSize - 1);
+
+    const { data, error } = await withTimeout(
+      query,
+      12000,
+      'Supabase query timeout (opportunities drilldown).'
+    );
+    if (error) throw error;
+    const batch = Array.isArray(data) ? data : [];
+    if (!batch.length) break;
+    const batchSignature = buildPaginationBatchSignature(batch);
+    if (batchSignature && batchSignature === previousBatchSignature) break;
+    previousBatchSignature = batchSignature;
+
+    for (const row of batch) {
+      if (kind === 'deals' && !isWonOrClosedStatus(row?.status)) continue;
+
+      const recordSource = normalizeDrilldownSource(row?.source_guess) || getDefaultDrilldownSource();
+      if (wantedSource && recordSource !== wantedSource) continue;
+
+      rows.push({
+        record_id: row?.id ?? '',
+        record_type: kind === 'deals' ? 'deal' : 'lead',
+        occurred_at: row?.created_at ?? null,
+        contact_id: row?.contact_id ?? null,
+        contact_name: row?.contact_name ?? null,
+        contact_email: row?.contact_email ?? null,
+        contact_phone: row?.contact_phone ?? null,
+        pipeline_name: row?.pipeline_name ?? null,
+        pipeline_stage_name: row?.pipeline_stage_name ?? null,
+        assigned_to: row?.assigned_to ?? null,
+        monetary_value: row?.monetary_value ?? null,
+        source: recordSource,
+        status: row?.status ?? null
+      });
+
+      if (rows.length >= effectiveLimit) break;
+    }
+
+    if (batch.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+};
+
+const fetchAppointmentDrilldownRecordsComputed = async ({
+  activeLocationId,
+  startIso,
+  endIso,
+  kind,
+  source,
+  limit
+}) => {
+  const useTeamleader = useTeamleaderAppointments();
+  const wantedSource = source ? String(source) : null;
+  const effectiveLimit = clampLimit(limit, 200);
+  const pageSize = 1000;
+  const maxScan = 20000;
+
+  if (useTeamleader) {
+    if (kind === 'appointments_cancelled' || kind === 'appointments_no_show') return [];
+
+    const rows = [];
+    const leadEmails = new Set();
+    let leadInRangeLoaded = false;
+    let previousBatchSignature = '';
+
+    const ensureLeadInRangeEmails = async () => {
+      if (leadInRangeLoaded) return;
+      let query = supabase
+        .from('opportunities_view')
+        .select('contact_email')
+        .eq('location_id', activeLocationId)
+        .gte('created_at', startIso)
+        .lt('created_at', endIso);
+      query = applyOpportunityPipelineFilter(query);
+
+      const { data, error } = await withTimeout(
+        query,
+        12000,
+        'Supabase query timeout (lead-in-range lookup).'
+      );
+      if (error) throw error;
+      (data ?? []).forEach((row) => {
+        const emailNorm = normalizeEmailValue(row?.contact_email);
+        if (emailNorm) leadEmails.add(emailNorm);
+      });
+      leadInRangeLoaded = true;
+    };
+
+    let from = 0;
+    while (rows.length < effectiveLimit && from < maxScan) {
+      const batch = await fetchTeamleaderMeetingsBatch(activeLocationId, startIso, endIso, from, from + pageSize - 1);
+      if (!batch.length) break;
+      const batchSignature = buildPaginationBatchSignature(batch);
+      if (batchSignature && batchSignature === previousBatchSignature) break;
+      previousBatchSignature = batchSignature;
+
+      const hydrated = await hydrateTeamleaderMeetingCustomers(activeLocationId, batch);
+      const batchEmails = Array.from(
+        new Set(hydrated.map((row) => normalizeEmailValue(row?.contact_email)).filter(Boolean))
+      );
+
+      const opportunitiesForAppointments = await fetchOpportunitiesByEmails(
+        activeLocationId,
+        batchEmails,
+        'contact_email,source_guess,created_at',
+        'Supabase query timeout (appointment source lookup).'
+      );
+      const sourceByEmail = new Map();
+      opportunitiesForAppointments.forEach((row) => {
+        const emailNorm = normalizeEmailValue(row?.contact_email);
+        const mapped = normalizeDrilldownSource(row?.source_guess);
+        if (emailNorm && mapped && !sourceByEmail.has(emailNorm)) {
+          sourceByEmail.set(emailNorm, mapped);
+        }
+      });
+
+      if (kind === 'appointments_without_lead_in_range') {
+        await ensureLeadInRangeEmails();
+      }
+
+      const { byEmail: contactsByEmail } = await fetchContactsByEmailLookup(activeLocationId, batchEmails);
+
+      for (const row of hydrated) {
+        const emailNorm = normalizeEmailValue(row?.contact_email);
+        const contactFromEmail = emailNorm ? contactsByEmail.get(emailNorm) : null;
+        const contactSource = contactFromEmail
+          ? normalizeDrilldownSource(contactFromEmail?.source_guess)
+          : null;
+        const derivedSource =
+          (emailNorm ? sourceByEmail.get(emailNorm) : null) ||
+          contactSource ||
+          getDefaultDrilldownSource();
+        if (wantedSource && derivedSource !== wantedSource) continue;
+
+        if (kind === 'appointments_without_lead_in_range') {
+          if (emailNorm && leadEmails.has(emailNorm)) continue;
+        }
+
+        const contact = contactFromEmail;
+        const contactName =
+          row?.contact_name ||
+          contact?.contact_name ||
+          formatFullName(contact?.first_name, contact?.last_name, row?.contact_email || 'Onbekend');
+
+        rows.push({
+          record_id: row?.id ?? '',
+          record_type: 'appointment',
+          occurred_at: row?.scheduled_at ?? null,
+          contact_id: contact?.id ?? null,
+          contact_name: contactName,
+          contact_email: row?.contact_email ?? null,
+          source: derivedSource,
+          status: 'confirmed'
+        });
+
+        if (rows.length >= effectiveLimit) break;
+      }
+
+      if (batch.length < pageSize) break;
+      from += pageSize;
+    }
+
+    return rows;
+  }
+
+  const rows = [];
+  const sourceByContactId = new Map();
+  const sourceByEmail = new Map();
+  const leadContactIds = new Set();
+  const leadEmails = new Set();
+  let leadInRangeLoaded = false;
+
+  const statusMatches = (row, patterns) => {
+    const combined = `${toTrimmedText(row?.appointment_status) ?? ''} ${toTrimmedText(row?.appointment_status_raw) ?? ''}`.toLowerCase();
+    return patterns.some((pattern) => combined.includes(pattern));
+  };
+
+  const shouldIncludeStatus = (row) => {
+    if (kind === 'appointments_cancelled') return statusMatches(row, APPOINTMENT_STATUS_FILTERS.cancelled);
+    if (kind === 'appointments_confirmed') return statusMatches(row, APPOINTMENT_STATUS_FILTERS.confirmed);
+    if (kind === 'appointments_no_show') return statusMatches(row, APPOINTMENT_STATUS_FILTERS.noShow);
+    return true;
+  };
+
+  // For "zonder lead", we need to know which contacts had an opportunity in the range.
+  const ensureLeadInRangeSets = async (contactIds) => {
+    if (leadInRangeLoaded) return;
+    if (!Array.isArray(contactIds) || contactIds.length === 0) {
+      leadInRangeLoaded = true;
+      return;
+    }
+
+    const unique = Array.from(new Set(contactIds.filter(Boolean)));
+    const chunks = chunkValues(unique, 100);
+    for (const chunk of chunks) {
+      let query = supabase
+        .from('opportunities_view')
+        .select('contact_id,contact_email,created_at')
+        .eq('location_id', activeLocationId)
+        .gte('created_at', startIso)
+        .lt('created_at', endIso)
+        .in('contact_id', chunk);
+      query = applyOpportunityPipelineFilter(query);
+
+      const { data, error } = await withTimeout(
+        query,
+        12000,
+        'Supabase query timeout (lead-in-range lookup).'
+      );
+      if (error) throw error;
+      (data ?? []).forEach((row) => {
+        const contactId = toTrimmedText(row?.contact_id);
+        if (contactId) leadContactIds.add(contactId);
+        const emailNorm = normalizeEmailValue(row?.contact_email);
+        if (emailNorm) leadEmails.add(emailNorm);
+      });
+    }
+
+    leadInRangeLoaded = true;
+  };
+
+  const hydrateSourceMaps = async (contactIds) => {
+    const unique = Array.from(new Set(contactIds.filter(Boolean))).filter((id) => !sourceByContactId.has(id));
+    if (!unique.length) return;
+
+    const chunks = chunkValues(unique, 100);
+    for (const chunk of chunks) {
+      let query = supabase
+        .from('opportunities_view')
+        .select('contact_id,contact_email,source_guess,created_at')
+        .eq('location_id', activeLocationId)
+        .in('contact_id', chunk);
+      query = applyOpportunityPipelineFilter(query);
+      query = query.order('created_at', { ascending: false });
+
+      const { data, error } = await withTimeout(
+        query,
+        12000,
+        'Supabase query timeout (appointment source lookup).'
+      );
+      if (error) throw error;
+      (data ?? []).forEach((row) => {
+        const mapped = normalizeDrilldownSource(row?.source_guess);
+        if (!mapped) return;
+
+        const contactId = toTrimmedText(row?.contact_id);
+        if (contactId && !sourceByContactId.has(contactId)) {
+          sourceByContactId.set(contactId, mapped);
+        }
+
+        const emailNorm = normalizeEmailValue(row?.contact_email);
+        if (emailNorm && !sourceByEmail.has(emailNorm)) {
+          sourceByEmail.set(emailNorm, mapped);
+        }
+      });
+    }
+  };
+
+  let from = 0;
+  let previousBatchSignature = '';
+  while (rows.length < effectiveLimit && from < maxScan) {
+    const { data, error } = await withTimeout(
+      supabase
+        .from('appointments_view')
+        .select('id,start_time,contact_id,contact_name,contact_email,source,appointment_status,appointment_status_raw')
+        .eq('location_id', activeLocationId)
+        .gte('start_time', startIso)
+        .lt('start_time', endIso)
+        .order('start_time', { ascending: false })
+        .range(from, from + pageSize - 1),
+      12000,
+      'Supabase query timeout (appointments drilldown).'
+    );
+    if (error) throw error;
+    const batch = Array.isArray(data) ? data : [];
+    if (!batch.length) break;
+    const batchSignature = buildPaginationBatchSignature(batch);
+    if (batchSignature && batchSignature === previousBatchSignature) break;
+    previousBatchSignature = batchSignature;
+
+    const contactIds = batch.map((row) => toTrimmedText(row?.contact_id)).filter(Boolean);
+    await hydrateSourceMaps(contactIds);
+    if (kind === 'appointments_without_lead_in_range') {
+      await ensureLeadInRangeSets(contactIds);
+    }
+
+    for (const row of batch) {
+      if (!shouldIncludeStatus(row)) continue;
+
+      const contactId = toTrimmedText(row?.contact_id);
+      const emailNorm = normalizeEmailValue(row?.contact_email);
+
+      const derivedSource =
+        normalizeDrilldownSource(row?.source) ||
+        (contactId ? sourceByContactId.get(contactId) : null) ||
+        (emailNorm ? sourceByEmail.get(emailNorm) : null) ||
+        getDefaultDrilldownSource();
+
+      if (wantedSource && derivedSource !== wantedSource) continue;
+
+      if (kind === 'appointments_without_lead_in_range') {
+        const leadInRange = (contactId && leadContactIds.has(contactId)) || (emailNorm && leadEmails.has(emailNorm));
+        if (leadInRange) continue;
+      }
+
+      rows.push({
+        record_id: row?.id ?? '',
+        record_type: 'appointment',
+        occurred_at: row?.start_time ?? null,
+        contact_id: row?.contact_id ?? null,
+        contact_name: row?.contact_name ?? null,
+        contact_email: row?.contact_email ?? null,
+        source: derivedSource,
+        status: row?.appointment_status ?? row?.appointment_status_raw ?? null
+      });
+
+      if (rows.length >= effectiveLimit) break;
+    }
+
+    if (batch.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+};
+
+const fetchSourceRecordsComputed = async ({
+  activeLocationId,
+  startIso,
+  endIso,
+  kind,
+  source,
+  limit
+}) => {
+  if (kind === 'leads' || kind === 'deals') {
+    return fetchOpportunityDrilldownRecordsComputed({ activeLocationId, startIso, endIso, kind, source, limit });
+  }
+
+  if (String(kind || '').startsWith('appointments')) {
+    return fetchAppointmentDrilldownRecordsComputed({ activeLocationId, startIso, endIso, kind, source, limit });
+  }
+
+  return [];
+};
+
+const fetchLostReasonDrilldownRecordsComputed = async ({
+  activeLocationId,
+  startIso,
+  endIso,
+  reasonLabel,
+  limit
+}) => {
+  const wantedReason = reasonLabel ? String(reasonLabel) : null;
+  const effectiveLimit = clampLimit(limit, 200);
+  const pageSize = 1000;
+  const maxScan = 15000;
+  const rangeStart = parseDate(startIso);
+  const rangeEnd = parseDate(endIso);
+  const lostReasonFieldId = toTrimmedText(configState.lostReasonFieldId);
+
+  const lookupRows = await supabase
+    .from('lost_reason_lookup')
+    .select('reason_id,reason_name')
+    .eq('location_id', activeLocationId)
+    .then(({ data, error }) => {
+      if (error) throw error;
+      return data || [];
+    });
+
+  const lookupById = new Map(
+    lookupRows
+      .map((row) => [toTrimmedText(row?.reason_id), toTrimmedText(row?.reason_name)])
+      .filter(([id, name]) => id && name)
+  );
+
+  const { data: overrideRows, error: overrideError } = await supabase
+    .from('lost_reason_overrides')
+    .select('reason_id,reason_name')
+    .eq('location_id', activeLocationId);
+  if (overrideError) {
+    const message = overrideError.message ?? String(overrideError);
+    if (!message.includes('does not exist')) throw overrideError;
+  } else {
+    (overrideRows || [])
+      .map((row) => [toTrimmedText(row?.reason_id), toTrimmedText(row?.reason_name)])
+      .filter(([id, name]) => id && name)
+      .forEach(([id, name]) => lookupById.set(id, name));
+  }
+
+  const rows = [];
+  const contactsById = new Map();
+
+  const hydrateContacts = async (contactIds) => {
+    if (!lostReasonFieldId) return;
+    const unique = Array.from(new Set(contactIds.filter(Boolean))).filter((id) => !contactsById.has(id));
+    if (!unique.length) return;
+    const chunkSize = 100;
+    for (let i = 0; i < unique.length; i += chunkSize) {
+      const chunk = unique.slice(i, i + chunkSize);
+      const { data, error } = await withTimeout(
+        supabase
+          .from('contacts_view')
+          .select('id,custom_fields')
+          .eq('location_id', activeLocationId)
+          .in('id', chunk),
+        12000,
+        'Supabase query timeout (lost reason drilldown contacts).'
+      );
+      if (error) throw error;
+      (data || []).forEach((row) => {
+        const id = toTrimmedText(row?.id);
+        if (id) contactsById.set(id, row);
+      });
+    }
+  };
+
+  let from = 0;
+  let previousBatchSignature = '';
+  while (rows.length < effectiveLimit && from < maxScan) {
+    let query = supabase
+      .from('opportunities_view')
+      .select(
+        'id,updated_at,contact_id,contact_name,contact_email,contact_phone,source_guess,status,pipeline_name,pipeline_stage_name,assigned_to,monetary_value,raw_data,custom_fields'
+      )
+      .eq('location_id', activeLocationId)
+      .gte('updated_at', startIso);
+    query = applyOpportunityPipelineFilter(query);
+    query = query.order('updated_at', { ascending: false }).range(from, from + pageSize - 1);
+
+    const { data, error } = await withTimeout(
+      query,
+      12000,
+      'Supabase query timeout (lost reason drilldown opportunities).'
+    );
+    if (error) throw error;
+    const batch = Array.isArray(data) ? data : [];
+    if (!batch.length) break;
+    const batchSignature = buildPaginationBatchSignature(batch);
+    if (batchSignature && batchSignature === previousBatchSignature) break;
+    previousBatchSignature = batchSignature;
+
+    const batchContactIds = batch.map((row) => toTrimmedText(row?.contact_id)).filter(Boolean);
+    await hydrateContacts(batchContactIds);
+
+    for (const row of batch) {
+      const status = normalizeStatus(row?.status);
+      if (!isLostStatus(status)) continue;
+
+      const raw = row?.raw_data || null;
+      const statusChangedAt = parseStatusChangeAt(raw, row?.updated_at);
+      if (
+        !statusChangedAt ||
+        (rangeStart && statusChangedAt < rangeStart) ||
+        (rangeEnd && statusChangedAt >= rangeEnd)
+      ) {
+        continue;
+      }
+
+      const contactRaw = contactsById ? contactsById.get(toTrimmedText(row?.contact_id) || '') : null;
+      const reasonRaw = extractLostReasonRaw(raw, lostReasonFieldId, contactRaw);
+      if (!reasonRaw) continue;
+      const label = lookupById.get(reasonRaw) || reasonRaw;
+      if (wantedReason && label !== wantedReason) continue;
+
+      const recordSource =
+        normalizeDrilldownSource(row?.source_guess) || getDefaultDrilldownSource();
+
+      rows.push({
+        record_id: row?.id ?? '',
+        record_type: 'lead',
+        occurred_at: statusChangedAt.toISOString(),
+        contact_id: row?.contact_id ?? null,
+        contact_name: row?.contact_name ?? null,
+        contact_email: row?.contact_email ?? null,
+        contact_phone: row?.contact_phone ?? null,
+        pipeline_name: row?.pipeline_name ?? null,
+        pipeline_stage_name: row?.pipeline_stage_name ?? null,
+        assigned_to: row?.assigned_to ?? null,
+        monetary_value: row?.monetary_value ?? null,
+        source: recordSource,
+        status: row?.status ?? null
+      });
+
+      if (rows.length >= effectiveLimit) break;
+    }
+
+    if (batch.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+};
+
+const fetchHookOpportunityDrilldownRecordsComputed = async ({
+  activeLocationId,
+  startIso,
+  endIso,
+  hookLabel,
+  limit
+}) => {
+  const hookFieldId = toTrimmedText(configState.hookFieldId);
+  const campaignFieldId = toTrimmedText(configState.campaignFieldId);
+  if (!hookFieldId && !campaignFieldId) return [];
+
+  const filterBucket = resolveHookPerformanceSourceBucketFilter();
+  const wantedHook = hookLabel ? String(hookLabel) : null;
+  const effectiveLimit = clampLimit(limit, 200);
+  const defaultSource = getDefaultDrilldownSource();
+  const pageSize = 1000;
+  const maxScan = 15000;
+  const toBucketSource = (rawSource) => {
+    const bucket = mapSourceToBucketLabel(rawSource);
+    return bucket || defaultSource;
+  };
+
+  const rows = [];
+  const contactsById = new Map();
+  const contactsByEmail = new Map();
+  let previousBatchSignature = '';
+
+  const hydrateContacts = async (contactIds) => {
+    const unique = Array.from(new Set(contactIds.filter(Boolean))).filter((id) => !contactsById.has(id));
+    if (!unique.length) return;
+    const chunkSize = 100;
+    for (let i = 0; i < unique.length; i += chunkSize) {
+      const chunk = unique.slice(i, i + chunkSize);
+      const { data, error } = await withTimeout(
+        supabase
+          .from('contacts_view')
+          .select('id,email,custom_fields')
+          .eq('location_id', activeLocationId)
+          .in('id', chunk),
+        12000,
+        'Supabase query timeout (hook drilldown contacts).'
+      );
+      if (error) throw error;
+      (data || []).forEach((row) => {
+        const id = toTrimmedText(row?.id);
+        if (!id) return;
+        contactsById.set(id, row);
+        const emailNorm = normalizeEmailValue(row?.email);
+        if (emailNorm && !contactsByEmail.has(emailNorm)) contactsByEmail.set(emailNorm, row);
+      });
+    }
+  };
+
+  let from = 0;
+  while (rows.length < effectiveLimit && from < maxScan) {
+    let query = supabase
+      .from('opportunities_view')
+      .select(
+        'id,created_at,contact_id,contact_name,contact_email,contact_phone,source_guess,status,pipeline_name,pipeline_stage_name,assigned_to,monetary_value,custom_fields'
+      )
+      .eq('location_id', activeLocationId)
+      .gte('created_at', startIso)
+      .lt('created_at', endIso);
+    query = applyOpportunityPipelineFilter(query);
+    query = query.order('created_at', { ascending: false }).range(from, from + pageSize - 1);
+
+    const { data, error } = await withTimeout(
+      query,
+      12000,
+      'Supabase query timeout (hook drilldown opportunities).'
+    );
+    if (error) throw error;
+    const batch = Array.isArray(data) ? data : [];
+    if (!batch.length) break;
+    const batchSignature = buildPaginationBatchSignature(batch);
+    if (batchSignature && batchSignature === previousBatchSignature) break;
+    previousBatchSignature = batchSignature;
+
+    const batchContactIds = batch.map((row) => toTrimmedText(row?.contact_id)).filter(Boolean);
+    await hydrateContacts(batchContactIds);
+
+    for (const row of batch) {
+      const rawSource = normalizeSourceValue(row?.source_guess);
+      const recordSource = toBucketSource(rawSource);
+      if (filterBucket && recordSource !== filterBucket) continue;
+      const contactId = toTrimmedText(row?.contact_id);
+      const emailNorm = normalizeEmailValue(row?.contact_email);
+      const contact = (contactId ? contactsById.get(contactId) : null) || (emailNorm ? contactsByEmail.get(emailNorm) : null);
+      const fallbackSource = rawSource || recordSource || defaultSource;
+      const { hook, campaign } = resolveHookFields({
+        customFields: row?.custom_fields,
+        contactCustomFields: contact?.custom_fields,
+        hookFieldId,
+        campaignFieldId,
+        source: fallbackSource
+      });
+
+      if (
+        wantedHook &&
+        hook !== wantedHook &&
+        campaign !== wantedHook &&
+        recordSource !== wantedHook
+      ) {
+        continue;
+      }
+
+      rows.push({
+        record_id: row?.id ?? '',
+        record_type: 'lead',
+        occurred_at: row?.created_at ?? null,
+        contact_id: row?.contact_id ?? null,
+        contact_name: row?.contact_name ?? null,
+        contact_email: row?.contact_email ?? null,
+        contact_phone: row?.contact_phone ?? null,
+        pipeline_name: row?.pipeline_name ?? null,
+        pipeline_stage_name: row?.pipeline_stage_name ?? null,
+        assigned_to: row?.assigned_to ?? null,
+        monetary_value: row?.monetary_value ?? null,
+        source: recordSource,
+        status: row?.status ?? null
+      });
+
+      if (rows.length >= effectiveLimit) break;
+    }
+
+    if (batch.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+};
+
+const fetchHookAppointmentDrilldownRecordsComputed = async ({
+  activeLocationId,
+  startIso,
+  endIso,
+  hookLabel,
+  limit
+}) => {
+  const hookFieldId = toTrimmedText(configState.hookFieldId);
+  const campaignFieldId = toTrimmedText(configState.campaignFieldId);
+  if (!hookFieldId && !campaignFieldId) return [];
+
+  const filterBucket = resolveHookPerformanceSourceBucketFilter();
+  const wantedHook = hookLabel ? String(hookLabel) : null;
+  const effectiveLimit = clampLimit(limit, 200);
+  const defaultSource = getDefaultDrilldownSource();
+  const pageSize = 1000;
+  const maxScan = 20000;
+  const useTeamleader = useTeamleaderAppointments();
+  const toBucketSource = (rawSource) => {
+    const bucket = mapSourceToBucketLabel(rawSource);
+    return bucket || defaultSource;
+  };
+
+  if (useTeamleader) {
+    const rows = [];
+    let from = 0;
+    let previousBatchSignature = '';
+
+    while (rows.length < effectiveLimit && from < maxScan) {
+      const batch = await fetchTeamleaderMeetingsBatch(activeLocationId, startIso, endIso, from, from + pageSize - 1);
+      if (!batch.length) break;
+      const batchSignature = buildPaginationBatchSignature(batch);
+      if (batchSignature && batchSignature === previousBatchSignature) break;
+      previousBatchSignature = batchSignature;
+
+      const hydrated = await hydrateTeamleaderMeetingCustomers(activeLocationId, batch);
+      const batchEmails = Array.from(
+        new Set(hydrated.map((row) => normalizeEmailValue(row?.contact_email)).filter(Boolean))
+      );
+
+      const opportunitiesForAppointments = await fetchOpportunitiesByEmails(
+        activeLocationId,
+        batchEmails,
+        'contact_id,contact_email,source_guess,custom_fields,created_at',
+        'Supabase query timeout (appointment source lookup).'
+      );
+      const opportunityByEmail = new Map();
+      opportunitiesForAppointments.forEach((row) => {
+        const emailNorm = normalizeEmailValue(row?.contact_email);
+        if (emailNorm && !opportunityByEmail.has(emailNorm)) {
+          opportunityByEmail.set(emailNorm, row);
+        }
+      });
+
+      const contactIds = Array.from(
+        new Set(
+          opportunitiesForAppointments
+            .map((row) => toTrimmedText(row?.contact_id))
+            .filter(Boolean)
+        )
+      );
+      const { byId: contactsById, byEmail: contactsByEmailBase } = await fetchContactsCustomFieldsLookup(
+        activeLocationId,
+        contactIds
+      );
+      const { byEmail: contactsByEmailDirect } = await fetchContactsByEmailLookup(activeLocationId, batchEmails);
+      const contactsByEmail = new Map(contactsByEmailBase);
+      contactsByEmailDirect.forEach((value, key) => {
+        if (!contactsByEmail.has(key)) contactsByEmail.set(key, value);
+      });
+
+      for (const row of hydrated) {
+        const emailNorm = normalizeEmailValue(row?.contact_email);
+        const opportunity = emailNorm ? opportunityByEmail.get(emailNorm) : null;
+        const contactFromEmail = emailNorm ? contactsByEmail.get(emailNorm) : null;
+        const rawSource =
+          normalizeSourceValue(opportunity?.source_guess) ||
+          normalizeSourceValue(contactFromEmail?.source_guess);
+        const bucketSource = toBucketSource(rawSource);
+        if (filterBucket && bucketSource !== filterBucket) continue;
+
+        const contactId = toTrimmedText(opportunity?.contact_id) || toTrimmedText(contactFromEmail?.id);
+        const contact = (contactId ? contactsById.get(contactId) : null) || contactFromEmail;
+        const fallbackSource = rawSource || bucketSource || defaultSource;
+        const { hook, campaign } = resolveHookFields({
+          customFields: opportunity?.custom_fields,
+          contactCustomFields: contact?.custom_fields,
+          hookFieldId,
+          campaignFieldId,
+          source: fallbackSource
+        });
+
+        if (wantedHook && hook !== wantedHook && campaign !== wantedHook && bucketSource !== wantedHook) {
+          continue;
+        }
+
+        const contactName =
+          row?.contact_name ||
+          contact?.contact_name ||
+          formatFullName(contact?.first_name, contact?.last_name, row?.contact_email || 'Onbekend');
+
+        rows.push({
+          record_id: row?.id ?? '',
+          record_type: 'appointment',
+          occurred_at: row?.scheduled_at ?? null,
+          contact_id: contactId || contact?.id || null,
+          contact_name: contactName,
+          contact_email: row?.contact_email ?? null,
+          source: bucketSource,
+          status: 'confirmed'
+        });
+
+        if (rows.length >= effectiveLimit) break;
+      }
+
+      if (batch.length < pageSize) break;
+      from += pageSize;
+    }
+
+    return rows;
+  }
+
+  const rows = [];
+  const contactsById = new Map();
+  const contactsByEmail = new Map();
+  const rawSourceByContactId = new Map();
+  const rawSourceByEmail = new Map();
+  let previousBatchSignature = '';
+
+  const hydrateContacts = async (contactIds) => {
+    const unique = Array.from(new Set(contactIds.filter(Boolean))).filter((id) => !contactsById.has(id));
+    if (!unique.length) return;
+    const chunkSize = 100;
+    for (let i = 0; i < unique.length; i += chunkSize) {
+      const chunk = unique.slice(i, i + chunkSize);
+      const { data, error } = await withTimeout(
+        supabase
+          .from('contacts_view')
+          .select('id,email,custom_fields')
+          .eq('location_id', activeLocationId)
+          .in('id', chunk),
+        12000,
+        'Supabase query timeout (hook drilldown contacts).'
+      );
+      if (error) throw error;
+      (data || []).forEach((row) => {
+        const id = toTrimmedText(row?.id);
+        if (!id) return;
+        contactsById.set(id, row);
+        const emailNorm = normalizeEmailValue(row?.email);
+        if (emailNorm && !contactsByEmail.has(emailNorm)) contactsByEmail.set(emailNorm, row);
+      });
+    }
+  };
+
+  const hydrateSourceMaps = async (contactIds) => {
+    const unique = Array.from(new Set(contactIds.filter(Boolean))).filter((id) => !rawSourceByContactId.has(id));
+    if (!unique.length) return;
+    const chunks = chunkValues(unique, 100);
+    for (const chunk of chunks) {
+      let query = supabase
+        .from('opportunities_view')
+        .select('contact_id,contact_email,source_guess,created_at')
+        .eq('location_id', activeLocationId)
+        .in('contact_id', chunk);
+      query = applyOpportunityPipelineFilter(query);
+      query = query.order('created_at', { ascending: false });
+
+      const { data, error } = await withTimeout(
+        query,
+        12000,
+        'Supabase query timeout (hook drilldown appointment source).'
+      );
+      if (error) throw error;
+      (data ?? []).forEach((row) => {
+        const rawSource = normalizeSourceValue(row?.source_guess);
+        if (!rawSource) return;
+
+        const contactId = toTrimmedText(row?.contact_id);
+        if (contactId && !rawSourceByContactId.has(contactId)) {
+          rawSourceByContactId.set(contactId, rawSource);
+        }
+
+        const emailNorm = normalizeEmailValue(row?.contact_email);
+        if (emailNorm && !rawSourceByEmail.has(emailNorm)) {
+          rawSourceByEmail.set(emailNorm, rawSource);
+        }
+      });
+    }
+  };
+
+  let from = 0;
+  while (rows.length < effectiveLimit && from < maxScan) {
+    const { data, error } = await withTimeout(
+      supabase
+        .from('appointments_view')
+        .select('id,start_time,contact_id,contact_name,contact_email,source,appointment_status,appointment_status_raw,custom_fields')
+        .eq('location_id', activeLocationId)
+        .gte('start_time', startIso)
+        .lt('start_time', endIso)
+        .order('start_time', { ascending: false })
+        .range(from, from + pageSize - 1),
+      12000,
+      'Supabase query timeout (hook drilldown appointments).'
+    );
+    if (error) throw error;
+    const batch = Array.isArray(data) ? data : [];
+    if (!batch.length) break;
+    const batchSignature = buildPaginationBatchSignature(batch);
+    if (batchSignature && batchSignature === previousBatchSignature) break;
+    previousBatchSignature = batchSignature;
+
+    const batchContactIds = batch.map((row) => toTrimmedText(row?.contact_id)).filter(Boolean);
+    await hydrateContacts(batchContactIds);
+    await hydrateSourceMaps(batchContactIds);
+
+    for (const row of batch) {
+      if (!isAppointmentConfirmedStatus(row?.appointment_status, row?.appointment_status_raw)) continue;
+
+      const contactId = toTrimmedText(row?.contact_id);
+      const emailNorm = normalizeEmailValue(row?.contact_email);
+      const contact = (contactId ? contactsById.get(contactId) : null) || (emailNorm ? contactsByEmail.get(emailNorm) : null);
+
+      const rawSource =
+        normalizeSourceValue(row?.source) ||
+        (contactId ? rawSourceByContactId.get(contactId) : null) ||
+        (emailNorm ? rawSourceByEmail.get(emailNorm) : null);
+
+      const recordSource = toBucketSource(rawSource);
+      if (filterBucket && recordSource !== filterBucket) continue;
+      const fallbackSource = rawSource || recordSource || defaultSource;
+
+      const { hook, campaign } = resolveHookFields({
+        customFields: row?.custom_fields,
+        contactCustomFields: contact?.custom_fields,
+        hookFieldId,
+        campaignFieldId,
+        source: fallbackSource
+      });
+
+      if (
+        wantedHook &&
+        hook !== wantedHook &&
+        campaign !== wantedHook &&
+        recordSource !== wantedHook
+      ) {
+        continue;
+      }
+
+      rows.push({
+        record_id: row?.id ?? '',
+        record_type: 'appointment',
+        occurred_at: row?.start_time ?? null,
+        contact_id: row?.contact_id ?? null,
+        contact_name: row?.contact_name ?? null,
+        contact_email: row?.contact_email ?? null,
+        source: recordSource,
+        status: row?.appointment_status ?? row?.appointment_status_raw ?? null
+      });
+
+      if (rows.length >= effectiveLimit) break;
+    }
+
+    if (batch.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+};
+
+const fetchHookDrilldownRecordsComputed = async ({
+  activeLocationId,
+  startIso,
+  endIso,
+  kind,
+  hook,
+  limit
+}) => {
+  const effectiveLimit = clampLimit(limit, 200);
+  if (kind === 'leads') {
+    return fetchHookOpportunityDrilldownRecordsComputed({
+      activeLocationId,
+      startIso,
+      endIso,
+      hookLabel: hook,
+      limit: effectiveLimit
+    });
+  }
+  return fetchHookAppointmentDrilldownRecordsComputed({
+    activeLocationId,
+    startIso,
+    endIso,
+    hookLabel: hook,
+    limit: effectiveLimit
+  });
+};
+
+const fetchDrilldownRecords = async ({ kind, source, range, view }) => {
   if (!supabase) return null;
   const activeLocationId = configState.locationId || ghlLocationId;
   if (!activeLocationId) {
@@ -2488,55 +6314,44 @@ const fetchDrilldownRecords = async ({ kind, source, range }) => {
 
   if (kind === 'hook_leads' || kind === 'hook_appointments') {
     const hookKind = kind === 'hook_leads' ? 'leads' : 'appointments';
-    const { data, error } = await withTimeout(
-      supabase.rpc('get_hook_records', {
-        p_location_id: activeLocationId,
-        p_start: startIso,
-        p_end: endIso,
-        p_kind: hookKind,
-        p_hook: source || null,
-        p_limit: 200
-      }),
-      12000,
-      'Supabase query timeout (hook records).'
-    );
-
-    if (error) throw error;
-    return data ?? [];
+    return fetchHookDrilldownRecordsComputed({
+      activeLocationId,
+      startIso,
+      endIso,
+      kind: hookKind,
+      hook: source || null,
+      limit: DEFAULT_DRILLDOWN_LIMIT
+    });
   }
 
   if (kind === 'lost_reason_leads') {
-    const { data, error } = await withTimeout(
-      supabase.rpc('get_lost_reason_records', {
-        p_location_id: activeLocationId,
-        p_start: startIso,
-        p_end: endIso,
-        p_reason: source || null,
-        p_limit: 200
-      }),
-      12000,
-      'Supabase query timeout (lost reason records).'
-    );
-
-    if (error) throw error;
-    return data ?? [];
+    return fetchLostReasonDrilldownRecordsComputed({
+      activeLocationId,
+      startIso,
+      endIso,
+      reasonLabel: source || null,
+      limit: DEFAULT_DRILLDOWN_LIMIT
+    });
   }
 
-  const { data, error } = await withTimeout(
-    supabase.rpc('get_source_records', {
-      p_location_id: activeLocationId,
-      p_start: startIso,
-      p_end: endIso,
-      p_kind: kind,
-      p_source: source || null,
-      p_limit: 200
-    }),
-    12000,
-    'Supabase query timeout (records).'
-  );
+  if (kind === 'finance_spend') {
+    return fetchFinanceDrilldownRecords({
+      activeLocationId,
+      startIso,
+      endIso,
+      source: source || null,
+      view
+    });
+  }
 
-  if (error) throw error;
-  return data ?? [];
+  return fetchSourceRecordsComputed({
+    activeLocationId,
+    startIso,
+    endIso,
+    kind,
+    source: source || null,
+    limit: DEFAULT_DRILLDOWN_LIMIT
+  });
 };
 
 const normalizeEmail = (value) => {
@@ -2554,8 +6369,16 @@ const chunkValues = (values, size = 100) => {
 
 const hydrateDrilldownContacts = async (rows) => {
   if (!supabase || !Array.isArray(rows) || rows.length === 0) return rows;
+  const activeLocationId = configState.locationId || ghlLocationId;
+  if (!activeLocationId) return rows;
 
-  const missing = rows.filter((row) => !row?.contact_name || !row?.contact_email);
+  // Fill missing contact meta + recover contact_id from email so drilldowns can link back to GHL.
+  const missing = rows.filter((row) => {
+    if (!row) return false;
+    if (!row.contact_name || !row.contact_email) return true;
+    if (!row.contact_id && row.contact_email) return true;
+    return false;
+  });
   if (!missing.length) return rows;
 
   const ids = Array.from(new Set(missing.map((row) => row?.contact_id).filter(Boolean)));
@@ -2569,21 +6392,27 @@ const hydrateDrilldownContacts = async (rows) => {
   const fetchContacts = async (field, values) => {
     const chunks = chunkValues(values, 100);
     for (const chunk of chunks) {
-      const { data, error } = await supabase
-        .from('contacts_view')
-        .select('id, email, contact_name, first_name, last_name')
-        .in(field, chunk);
+      const { data, error } = await withTimeout(
+        supabase
+          .from('contacts_view')
+          .select('id, email, contact_name, first_name, last_name')
+          .eq('location_id', activeLocationId)
+          .in(field, chunk),
+        12000,
+        'Supabase query timeout (drilldown contact hydration).'
+      );
       if (error) throw error;
       (data ?? []).forEach((contact) => {
         const contactName =
           contact?.contact_name ||
           [contact?.first_name, contact?.last_name].filter(Boolean).join(' ').trim();
         const email = normalizeEmail(contact?.email);
+        const record = { id: contact?.id ?? null, name: contactName, email: contact?.email ?? null };
         if (contact?.id) {
-          contactById.set(contact.id, { name: contactName, email: contact?.email });
+          contactById.set(contact.id, record);
         }
         if (email) {
-          contactByEmail.set(email, { name: contactName, email: contact?.email });
+          contactByEmail.set(email, record);
         }
       });
     }
@@ -2609,11 +6438,14 @@ const hydrateDrilldownContacts = async (rows) => {
     if (!fallback) return row;
     return {
       ...row,
+      contact_id: row.contact_id || fallback.id || row.contact_id,
       contact_name: row.contact_name || fallback.name || row.contact_name,
       contact_email: row.contact_email || fallback.email || row.contact_email
     };
   });
 };
+
+const isFinanceDrilldown = (kind) => kind === 'finance_spend';
 
 const buildDrilldownTitle = (kind, source, label) => {
   const base = label || DRILLDOWN_LABELS[kind] || 'Records';
@@ -2650,6 +6482,9 @@ const openDrilldown = async ({ kind, source, label, range }) => {
   drilldownState.status = 'loading';
   drilldownState.kind = kind;
   drilldownState.source = source || null;
+  if (isFinanceDrilldown(kind)) {
+    drilldownState.financeView = 'daily';
+  }
   drilldownState.title = buildDrilldownTitle(kind, source, label);
   drilldownState.errorMessage = '';
   drilldownState.rows = [];
@@ -2657,8 +6492,19 @@ const openDrilldown = async ({ kind, source, label, range }) => {
   renderApp();
 
   try {
-    const rows = await fetchDrilldownRecords({ kind, source, range });
-    const hydratedRows = await hydrateDrilldownContacts(Array.isArray(rows) ? rows : []);
+    const rows = await withTimeout(
+      fetchDrilldownRecords({ kind, source, range, view: drilldownState.financeView }),
+      DRILLDOWN_FETCH_TIMEOUT_MS,
+      'Drilldown duurt te lang. Probeer een kleinere periode.'
+    );
+    const baseRows = Array.isArray(rows) ? rows : [];
+    const hydratedRows = isFinanceDrilldown(kind)
+      ? baseRows
+      : await withTimeout(
+          hydrateDrilldownContacts(baseRows),
+          DRILLDOWN_FETCH_TIMEOUT_MS,
+          'Drilldown duurt te lang om contactgegevens te laden. Probeer een kleinere periode.'
+        );
     drilldownState.status = 'ready';
     drilldownState.rows = Array.isArray(hydratedRows) ? hydratedRows : [];
   } catch (error) {
@@ -2768,9 +6614,11 @@ const ensureSourceBreakdown = async (range) => {
     inFlight: true
   };
   scheduleRender();
+  const requestVersion = metricsComputationVersion;
 
   try {
     const rows = await fetchSourceBreakdown(range);
+    if (requestVersion !== metricsComputationVersion) return;
     liveState.sourceBreakdown = {
       status: 'ready',
       rows,
@@ -2779,6 +6627,7 @@ const ensureSourceBreakdown = async (range) => {
       inFlight: false
     };
   } catch (error) {
+    if (requestVersion !== metricsComputationVersion) return;
     liveState.sourceBreakdown = {
       status: 'error',
       rows: null,
@@ -2816,9 +6665,11 @@ const ensureHookPerformance = async (range) => {
     inFlight: true
   };
   scheduleRender();
+  const requestVersion = metricsComputationVersion;
 
   try {
     const rows = await fetchHookPerformance(range);
+    if (requestVersion !== metricsComputationVersion) return;
     liveState.hookPerformance = {
       status: 'ready',
       rows,
@@ -2827,6 +6678,7 @@ const ensureHookPerformance = async (range) => {
       inFlight: false
     };
   } catch (error) {
+    if (requestVersion !== metricsComputationVersion) return;
     liveState.hookPerformance = {
       status: 'error',
       rows: null,
@@ -2954,9 +6806,11 @@ const ensureSpendBySource = async (range) => {
     inFlight: true
   };
   scheduleRender();
+  const requestVersion = metricsComputationVersion;
 
   try {
     const totals = await fetchSpendBySource(range);
+    if (requestVersion !== metricsComputationVersion) return;
     liveState.spendBySource = {
       status: 'ready',
       totals,
@@ -2965,6 +6819,7 @@ const ensureSpendBySource = async (range) => {
       inFlight: false
     };
   } catch (error) {
+    if (requestVersion !== metricsComputationVersion) return;
     liveState.spendBySource = {
       status: 'error',
       totals: null,
@@ -3025,7 +6880,6 @@ const ensureAppointmentCounts = async (range) => {
 
 const ensureLatestSync = async () => {
   if (!supabase) return;
-  if (!configState.locationId) return;
   if (liveState.sync.inFlight || liveState.sync.status === 'ready') return;
 
   liveState.sync = { ...liveState.sync, status: 'loading', inFlight: true };
@@ -3054,10 +6908,14 @@ const ensureLatestSync = async () => {
 const fetchAllRows = async (buildQuery, pageSize = 1000) => {
   const rows = [];
   let from = 0;
+  let previousBatchSignature = '';
   while (true) {
     const { data, error } = await buildQuery().range(from, from + pageSize - 1);
     if (error) throw error;
     if (!Array.isArray(data) || data.length === 0) break;
+    const batchSignature = buildPaginationBatchSignature(data);
+    if (batchSignature && batchSignature === previousBatchSignature) break;
+    previousBatchSignature = batchSignature;
     rows.push(...data);
     if (data.length < pageSize) break;
     from += pageSize;
@@ -3118,13 +6976,15 @@ const buildSalesMetrics = (
   companies,
   contacts,
   phases,
+  dealSourceLookupRows,
   spendRows,
   lostReasonsLookupRows,
   monthlyTargetDeals,
   monthlyTargetsByMonth,
   appointmentsSupported = true,
   quotesFromPhaseId = null,
-  quotePhaseTimingSupported = true
+  excludedDealKeywords = [],
+  bundleDealsForMetrics = true
 ) => {
   const now = new Date();
   const range = getSalesRange(activeRange);
@@ -3161,6 +7021,51 @@ const buildSalesMetrics = (
     ])
   );
   const phaseMap = new Map((phases || []).map((phase) => [phase.id, phase]));
+  const dealSourceNameById = new Map(
+    (dealSourceLookupRows || [])
+      .filter((row) => row && row.id)
+      .map((row) => {
+        const id = String(row.id);
+        const name = toTrimmedText(row.name ?? row.label ?? row.title);
+        return [id, name];
+      })
+  );
+
+  const extractDealSourceRef = (deal) => {
+    const raw = deal?.raw_data && typeof deal.raw_data === 'object' ? deal.raw_data : null;
+    if (!raw) return { id: '', label: '' };
+
+    const sourceRaw = raw.source;
+    if (sourceRaw && typeof sourceRaw === 'object') {
+      const sourceObj = sourceRaw;
+      return {
+        id: toTrimmedText(sourceObj.id ?? sourceObj.source_id ?? sourceObj.sourceId),
+        label: toTrimmedText(sourceObj.name ?? sourceObj.label ?? sourceObj.title)
+      };
+    }
+
+    if (typeof sourceRaw === 'string') {
+      const sourceText = sourceRaw.trim();
+      if (!sourceText) return { id: '', label: '' };
+      try {
+        const parsed = JSON.parse(sourceText);
+        if (parsed && typeof parsed === 'object') {
+          return {
+            id: toTrimmedText(parsed.id ?? parsed.source_id ?? parsed.sourceId),
+            label: toTrimmedText(parsed.name ?? parsed.label ?? parsed.title)
+          };
+        }
+      } catch (_error) {
+        // Not JSON: treat as plain source label.
+      }
+      return { id: '', label: sourceText };
+    }
+
+    return {
+      id: toTrimmedText(raw.source_id ?? raw.sourceId),
+      label: toTrimmedText(raw.source_name ?? raw.sourceName)
+    };
+  };
 
   const normalizedQuotesFromPhaseId = typeof quotesFromPhaseId === 'string' ? quotesFromPhaseId.trim() : '';
   const normalizeSortOrder = (value) => {
@@ -3175,9 +7080,11 @@ const buildSalesMetrics = (
     return Math.max(0, Math.min(1, normalized));
   };
   const quoteThresholdPhase = normalizedQuotesFromPhaseId ? phaseMap.get(normalizedQuotesFromPhaseId) : null;
-  const quoteThresholdPhaseName = quoteThresholdPhase?.name || (normalizedQuotesFromPhaseId || null);
   const quoteThresholdSortOrder = quoteThresholdPhase ? normalizeSortOrder(quoteThresholdPhase.sort_order) : null;
   const quoteThresholdProbability = quoteThresholdPhase ? normalizeProbability(quoteThresholdPhase.probability) : null;
+  const normalizedExcludedDealKeywords = sanitizeSalesExcludedDealKeywords(excludedDealKeywords).map((keyword) =>
+    keyword.toLowerCase()
+  );
   const isQuoteDeal = (deal) => {
     if (!normalizedQuotesFromPhaseId) return true;
     const phaseId = String(deal?.phase_id ?? '');
@@ -3193,8 +7100,74 @@ const buildSalesMetrics = (
     }
     return phaseId === normalizedQuotesFromPhaseId;
   };
+  const isExcludedDeal = (deal) => {
+    if (!normalizedExcludedDealKeywords.length) return false;
+    const title = String(deal?.title ?? '').toLowerCase();
+    if (!title.trim()) return false;
+    return normalizedExcludedDealKeywords.some((keyword) => title.includes(keyword));
+  };
 
-  let allDealsInRangeCount = 0;
+  // Belivert workflow: one customer can receive multiple quote revisions.
+  // Bundle those revisions to one commercial trajectory for KPI calculations.
+  const pickDealBundleKey = (deal) => {
+    const customerType = typeof deal?.customer_type === 'string' ? deal.customer_type.trim() : '';
+    const customerId = typeof deal?.customer_id === 'string' ? deal.customer_id.trim() : '';
+    if (customerType && customerId) return `${customerType}:${customerId}`;
+    return `deal:${String(deal?.id ?? '')}`;
+  };
+
+  const getDealActivityTime = (deal) => {
+    const updatedAt = parseDate(deal?.updated_at);
+    if (updatedAt) return updatedAt.getTime();
+    const createdAt = parseDate(deal?.created_at);
+    if (createdAt) return createdAt.getTime();
+    return 0;
+  };
+
+  const bundleDeals = (inputDeals) => {
+    const bundles = new Map();
+    (inputDeals || []).forEach((deal) => {
+      const key = pickDealBundleKey(deal);
+      if (!key) return;
+      const existing = bundles.get(key);
+      if (!existing) {
+        bundles.set(key, {
+          representative: deal,
+          count: 1
+        });
+        return;
+      }
+      existing.count += 1;
+      if (getDealActivityTime(deal) >= getDealActivityTime(existing.representative)) {
+        existing.representative = deal;
+      }
+    });
+    return Array.from(bundles.values()).map((bundle) => ({
+      ...bundle.representative,
+      __bundle_key: pickDealBundleKey(bundle.representative),
+      __bundle_count: bundle.count
+    }));
+  };
+
+  const inRangeDealsRaw = (deals || []).filter((deal) => {
+    const createdAt = parseDate(deal?.created_at);
+    if (!createdAt) return false;
+    if (isExcludedDeal(deal)) return false;
+    return createdAt >= range.start && createdAt <= range.end;
+  });
+  const quoteEligibleDealsRaw = inRangeDealsRaw.filter((deal) => isQuoteDeal(deal));
+
+  const withBundleMeta = (inputDeals) =>
+    (inputDeals || []).map((deal) => ({
+      ...deal,
+      __bundle_key: typeof deal?.__bundle_key === 'string' ? deal.__bundle_key : pickDealBundleKey(deal),
+      __bundle_count: Number.isFinite(Number(deal?.__bundle_count)) ? Number(deal.__bundle_count) : 1
+    }));
+
+  const inRangeDeals = bundleDealsForMetrics ? bundleDeals(inRangeDealsRaw) : withBundleMeta(inRangeDealsRaw);
+  const quoteEligibleDeals = bundleDealsForMetrics ? bundleDeals(quoteEligibleDealsRaw) : withBundleMeta(quoteEligibleDealsRaw);
+
+  let allDealsInRangeCount = inRangeDeals.length;
   const dealsInRange = [];
   const wonDeals = [];
   const lostDeals = [];
@@ -3202,23 +7175,16 @@ const buildSalesMetrics = (
   const quoteDurations = [];
   const cycleDurations = [];
   const records = [];
+  const detailRecords = [];
 
-  (deals || []).forEach((deal) => {
+  const toSalesRecord = (deal) => {
     const createdAt = parseDate(deal.created_at);
-    if (!createdAt) return;
-    if (createdAt < range.start || createdAt > range.end) return;
+    if (!createdAt) return null;
 
-    allDealsInRangeCount += 1;
-    if (!isQuoteDeal(deal)) return;
-
-    dealsInRange.push(deal);
     const status = normalizeStatus(deal.status);
     const won = isWonStatus(status);
     const lost = isLostStatus(status);
-
-    if (won) wonDeals.push(deal);
-    if (lost) lostDeals.push(deal);
-    if (!won && !lost) openDeals.push(deal);
+    const statusType = won ? 'won' : lost ? 'lost' : 'open';
 
     let customerName = deal.title || 'Onbekend';
     let customerEmail = '';
@@ -3234,43 +7200,63 @@ const buildSalesMetrics = (
 
     const phase = phaseMap.get(deal.phase_id);
     const phaseLabel = phase?.name || '';
-    const statusType = won ? 'won' : lost ? 'lost' : 'open';
     const sellerId = deal.responsible_user_id || null;
     const sellerName = sellerId ? userMap.get(sellerId) || 'Onbekend' : null;
     const lossReason = lost ? (extractLossReason(deal, lostReasonById) || 'Onbekend') : null;
-    records.push({
+    const dealTitle = toTrimmedText(deal?.title);
+    const estimatedValueRaw = Number(deal?.estimated_value);
+    const estimatedValue = Number.isFinite(estimatedValueRaw) ? estimatedValueRaw : null;
+    const estimatedCurrency = toTrimmedText(deal?.estimated_value_currency) || 'EUR';
+    const dealSource = extractDealSourceRef(deal);
+    const sourceLabel =
+      (dealSource.id ? dealSourceNameById.get(dealSource.id) : '') ||
+      dealSource.label ||
+      '';
+
+    return {
       record_id: deal.id,
       record_type: 'deal',
       occurred_at: deal.created_at,
       contact_name: customerName,
       contact_email: customerEmail,
-      source: phaseLabel || deal.customer_type || 'Deal',
+      source: sourceLabel || phaseLabel || deal.customer_type || 'Deal',
       status: deal.status || 'Onbekend',
       statusType,
+      deal_title: dealTitle || null,
+      phase_label: phaseLabel || null,
+      estimated_value: estimatedValue,
+      estimated_currency: estimatedCurrency,
       monthKey: toMonthKey(createdAt),
       seller_id: sellerId,
       seller_name: sellerName,
       loss_reason: lossReason ? String(lossReason).trim() : null,
+      bundle_key: typeof deal?.__bundle_key === 'string' ? deal.__bundle_key : pickDealBundleKey(deal),
+      bundle_count: Number(deal?.__bundle_count ?? 1),
       record_url: buildTeamleaderDealUrl(deal.id, deal.raw_data)
-    });
+    };
+  };
+
+  quoteEligibleDeals.forEach((deal) => {
+    const createdAt = parseDate(deal.created_at);
+    if (!createdAt) return;
+    dealsInRange.push(deal);
+    const status = normalizeStatus(deal.status);
+    const won = isWonStatus(status);
+    const lost = isLostStatus(status);
+
+    if (won) wonDeals.push(deal);
+    if (lost) lostDeals.push(deal);
+    if (!won && !lost) openDeals.push(deal);
+
+    const record = toSalesRecord(deal);
+    if (record) records.push(record);
 
     const updatedAt = parseDate(deal.updated_at);
-    const quoteMarkerPhaseId =
-      typeof deal.quote_phase_marker_phase_id === 'string' ? deal.quote_phase_marker_phase_id.trim() : '';
-    const quotePhaseStartedAt = parseDate(deal.quote_phase_first_started_at);
-
-    let quoteDays = null;
-    if (normalizedQuotesFromPhaseId && quotePhaseTimingSupported) {
-      if (quoteMarkerPhaseId === normalizedQuotesFromPhaseId && quotePhaseStartedAt) {
-        quoteDays = diffDays(quotePhaseStartedAt, createdAt);
-      }
-    } else {
-      quoteDays = diffDays(updatedAt, createdAt);
-    }
+    const quoteDays = diffDays(updatedAt, createdAt);
     if (Number.isFinite(quoteDays) && quoteDays >= 0) quoteDurations.push(quoteDays);
 
     if (won) {
-      const closedAt = parseDate(deal.closed_at);
+      const closedAt = parseDate(deal.closed_at) || updatedAt;
       const cycleDays = diffDays(closedAt, createdAt);
       if (Number.isFinite(cycleDays) && cycleDays >= 0) cycleDurations.push(cycleDays);
     }
@@ -3289,6 +7275,11 @@ const buildSalesMetrics = (
     }
   });
 
+  quoteEligibleDealsRaw.forEach((deal) => {
+    const record = toSalesRecord(deal);
+    if (record) detailRecords.push(record);
+  });
+
   const openValue = openDeals.reduce((sum, deal) => sum + (Number(deal.estimated_value) || 0), 0);
   const approvalRate = safeDivide(wonDeals.length, dealsInRange.length);
   const rejectionRate = safeDivide(lostDeals.length, dealsInRange.length);
@@ -3296,7 +7287,6 @@ const buildSalesMetrics = (
   const avgQuoteTimeDays = quoteDurations.length
     ? quoteDurations.reduce((sum, value) => sum + value, 0) / quoteDurations.length
     : null;
-  const avgQuoteTimeCount = quoteDurations.length;
   const avgSalesCycleDays = cycleDurations.length
     ? cycleDurations.reduce((sum, value) => sum + value, 0) / cycleDurations.length
     : null;
@@ -3412,7 +7402,7 @@ const buildSalesMetrics = (
       seller.won += 1;
       seller.revenue += Number(deal.estimated_value) || 0;
       const createdAt = parseDate(deal.created_at);
-      const closedAt = parseDate(deal.closed_at);
+      const closedAt = parseDate(deal.closed_at) || parseDate(deal.updated_at);
       const cycle = diffDays(closedAt, createdAt);
       if (Number.isFinite(cycle) && cycle >= 0) {
         seller.cycleSum += cycle;
@@ -3450,13 +7440,8 @@ const buildSalesMetrics = (
       lost: lostDeals.length,
       open: openDeals.length,
       openValue,
-      spendTotal,
       avgQuoteTimeDays,
-      avgQuoteTimeCount,
-      quotePhaseName: quoteThresholdPhaseName,
-      quotePhaseTimingSupported,
       avgSalesCycleDays,
-      avgSalesCycleCount: cycleDurations.length,
       approvalRate,
       rejectionRate,
       dealRatio,
@@ -3472,14 +7457,14 @@ const buildSalesMetrics = (
     lossReasons,
     openDeals: openDealRows,
     records,
+    detailRecords,
     sellers,
     summary,
     funnel: {
       appointments: allDealsInRangeCount,
       quotes: dealsInRange.length,
       approved: wonDeals.length,
-      rejected: lostDeals.length,
-      open: openDeals.length
+      rejected: lostDeals.length
     }
   };
 };
@@ -3542,240 +7527,58 @@ const buildTrendMarkup = (monthly) => {
     return '<div class="text-sm text-muted-foreground">Geen trenddata beschikbaar.</div>';
   }
 
-  const normalized = monthly.map((entry, index) => {
-    const labelRaw = typeof entry?.label === 'string' ? entry.label.trim() : '';
-    return {
-      key: typeof entry?.key === 'string' ? entry.key : String(index),
-      label: labelRaw || `M${index + 1}`,
-      quotes: Math.max(0, Number(entry?.quotes) || 0),
-      won: Math.max(0, Number(entry?.won) || 0)
-    };
-  });
+  const normalized = monthly.map((entry, index) => ({
+    key: typeof entry?.key === 'string' ? entry.key : String(index),
+    label: typeof entry?.label === 'string' && entry.label.trim() ? entry.label.trim() : `M${index + 1}`,
+    quotes: Math.max(0, Number(entry?.quotes) || 0),
+    won: Math.max(0, Number(entry?.won) || 0)
+  }));
 
   const totalQuotes = normalized.reduce((sum, entry) => sum + entry.quotes, 0);
   const totalWon = normalized.reduce((sum, entry) => sum + entry.won, 0);
   if (totalQuotes === 0 && totalWon === 0) {
-    return `
-      <div class="h-[180px] w-full flex items-center justify-center text-sm text-muted-foreground">
-        Nog geen offertes of deals in deze periode.
-      </div>
-      <div class="mt-3 flex items-center justify-end gap-4 text-xs text-muted-foreground">
-        <span class="inline-flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-primary/80"></span>Offertes</span>
-        <span class="inline-flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-emerald-500/70"></span>Deals</span>
-      </div>
-    `;
+    return '<div class="h-[200px] w-full flex items-center justify-center text-sm text-muted-foreground">Nog geen offertes of deals in deze periode.</div>';
   }
 
-  const defaultEntry = normalized[normalized.length - 1] || normalized[0];
   const maxValue = Math.max(1, ...normalized.map((entry) => Math.max(entry.quotes, entry.won)));
+  const axisMax = Math.max(15, Math.ceil(maxValue / 15) * 15);
+  const axisTicks = [axisMax, Math.round(axisMax * 0.75), Math.round(axisMax * 0.5), Math.round(axisMax * 0.25), 0];
+
   const bars = normalized
-    .map((entry, index) => {
-      const quotesHeight = entry.quotes > 0 ? Math.max(4, Math.round((entry.quotes / maxValue) * 100)) : 0;
-      const wonHeight = entry.won > 0 ? Math.max(4, Math.round((entry.won / maxValue) * 100)) : 0;
-      const conversion = formatPercent(safeDivide(entry.won, entry.quotes), 1);
-      const label = escapeHtml(entry.label);
-      const key = escapeHtml(entry.key);
-      const ariaLabel = escapeHtml(
-        `${entry.label}: ${formatNumber(entry.quotes)} offertes, ${formatNumber(entry.won)} deals, ${conversion} conversie`
-      );
+    .map((entry) => {
+      const quotesHeight = entry.quotes > 0 ? Math.max(4, Math.round((entry.quotes / axisMax) * 100)) : 0;
+      const wonHeight = entry.won > 0 ? Math.max(4, Math.round((entry.won / axisMax) * 100)) : 0;
       return `
-        <button
-          type="button"
-          class="sales-trend-month"
-          data-sales-trend-item
-          data-sales-trend-index="${index}"
-          data-sales-trend-key="${key}"
-          data-sales-trend-label="${label}"
-          data-sales-trend-quotes="${entry.quotes}"
-          data-sales-trend-won="${entry.won}"
-          aria-label="${ariaLabel}"
-        >
-          <span class="sales-trend-bars">
-            <span class="sales-trend-bar sales-trend-bar-quotes" data-sales-trend-bar="quotes" style="height:${quotesHeight}%"></span>
-            <span class="sales-trend-bar sales-trend-bar-deals" data-sales-trend-bar="won" style="height:${wonHeight}%"></span>
-          </span>
-          <span class="sales-trend-month-label">${label}</span>
-        </button>
+        <div class="sales-trend-column" data-sales-trend-key="${escapeHtml(entry.key)}">
+          <div class="sales-trend-column-bars">
+            <span class="sales-trend-column-bar sales-trend-column-bar-quotes" style="height:${quotesHeight}%"></span>
+            <span class="sales-trend-column-bar sales-trend-column-bar-won" style="height:${wonHeight}%"></span>
+          </div>
+          <span class="sales-trend-column-label">${escapeHtml(entry.label)}</span>
+        </div>
       `;
     })
     .join('');
 
+  const axisLabels = axisTicks.map((tick) => `<span class="sales-trend-yaxis-label">${formatNumber(tick)}</span>`).join('');
+  const gridLines = axisTicks
+    .slice(0, -1)
+    .map(
+      (_, index) => `
+        <span class="sales-trend-grid-line" style="bottom:${index * 25}%"></span>
+      `
+    )
+    .join('');
+
   return `
-    <div class="sales-trend-chart" data-sales-trend-chart>
-      <div class="sales-trend-top">
-        <div class="sales-trend-tooltip">
-          <p class="sales-trend-tooltip-month" data-sales-trend-tooltip-month>${escapeHtml(defaultEntry.label)}</p>
-          <div class="sales-trend-tooltip-metrics">
-            <span class="sales-trend-tooltip-metric">
-              <span class="sales-trend-dot sales-trend-dot-quotes"></span>
-              <span data-sales-trend-tooltip-quotes>${formatNumber(defaultEntry.quotes)}</span>
-              offertes
-            </span>
-            <span class="sales-trend-tooltip-metric">
-              <span class="sales-trend-dot sales-trend-dot-deals"></span>
-              <span data-sales-trend-tooltip-deals>${formatNumber(defaultEntry.won)}</span>
-              deals
-            </span>
-            <span class="sales-trend-tooltip-conversion" data-sales-trend-tooltip-conversion>
-              ${formatPercent(safeDivide(defaultEntry.won, defaultEntry.quotes), 1)} conversie
-            </span>
-          </div>
-        </div>
-        <div class="sales-trend-legend">
-          <button
-            type="button"
-            class="sales-trend-series-toggle is-active"
-            data-sales-trend-toggle="quotes"
-            aria-label="Toon of verberg offertes"
-            aria-pressed="true"
-          >
-            <span class="sales-trend-dot sales-trend-dot-quotes"></span>
-            Offertes
-          </button>
-          <button
-            type="button"
-            class="sales-trend-series-toggle is-active"
-            data-sales-trend-toggle="won"
-            aria-label="Toon of verberg deals"
-            aria-pressed="true"
-          >
-            <span class="sales-trend-dot sales-trend-dot-deals"></span>
-            Deals
-          </button>
-        </div>
-      </div>
-      <div class="sales-trend-grid" data-sales-trend-grid>
-        ${bars}
+    <div class="sales-trend">
+      <div class="sales-trend-yaxis">${axisLabels}</div>
+      <div class="sales-trend-plot">
+        <div class="sales-trend-grid">${gridLines}</div>
+        <div class="sales-trend-columns">${bars}</div>
       </div>
     </div>
   `;
-};
-
-const bindSalesTrendCharts = () => {
-  document.querySelectorAll('[data-sales-trend-chart]').forEach((chart) => {
-    if (chart.dataset.salesTrendBound === 'true') return;
-    chart.dataset.salesTrendBound = 'true';
-
-    const items = Array.from(chart.querySelectorAll('[data-sales-trend-item]'));
-    if (!items.length) return;
-
-    const toggles = Array.from(chart.querySelectorAll('[data-sales-trend-toggle]'));
-    const tooltipMonth = chart.querySelector('[data-sales-trend-tooltip-month]');
-    const tooltipQuotes = chart.querySelector('[data-sales-trend-tooltip-quotes]');
-    const tooltipDeals = chart.querySelector('[data-sales-trend-tooltip-deals]');
-    const tooltipConversion = chart.querySelector('[data-sales-trend-tooltip-conversion]');
-    const visibleSeries = new Set(['quotes', 'won']);
-    const defaultItem = items[items.length - 1] || items[0];
-
-    const readMetric = (item, attribute) => {
-      const value = Number(item.getAttribute(attribute));
-      return Number.isFinite(value) ? Math.max(0, value) : 0;
-    };
-
-    const setActive = (item) => {
-      if (!item) return;
-      const label = item.getAttribute('data-sales-trend-label') || '';
-      const quotes = readMetric(item, 'data-sales-trend-quotes');
-      const deals = readMetric(item, 'data-sales-trend-won');
-
-      if (tooltipMonth) tooltipMonth.textContent = label;
-      if (tooltipQuotes) tooltipQuotes.textContent = formatNumber(quotes);
-      if (tooltipDeals) tooltipDeals.textContent = formatNumber(deals);
-      if (tooltipConversion) tooltipConversion.textContent = `${formatPercent(safeDivide(deals, quotes), 1)} conversie`;
-
-      items.forEach((entry) => {
-        const isActive = entry === item;
-        entry.classList.toggle('is-active', isActive);
-        if (isActive) {
-          entry.setAttribute('aria-current', 'true');
-        } else {
-          entry.removeAttribute('aria-current');
-        }
-      });
-    };
-
-    const applySeriesVisibility = () => {
-      const showQuotes = visibleSeries.has('quotes');
-      const showWon = visibleSeries.has('won');
-
-      chart.querySelectorAll('[data-sales-trend-bar="quotes"]').forEach((bar) => {
-        bar.classList.toggle('is-hidden', !showQuotes);
-      });
-      chart.querySelectorAll('[data-sales-trend-bar="won"]').forEach((bar) => {
-        bar.classList.toggle('is-hidden', !showWon);
-      });
-
-      toggles.forEach((toggle) => {
-        const series = toggle.getAttribute('data-sales-trend-toggle');
-        const isActive = series ? visibleSeries.has(series) : false;
-        toggle.classList.toggle('is-active', isActive);
-        toggle.setAttribute('aria-pressed', isActive ? 'true' : 'false');
-      });
-    };
-
-    setActive(defaultItem);
-    applySeriesVisibility();
-
-    items.forEach((item, index) => {
-      item.addEventListener('mouseenter', () => setActive(item));
-      item.addEventListener('focus', () => setActive(item));
-      item.addEventListener('click', () => setActive(item));
-      item.addEventListener('keydown', (event) => {
-        if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
-          event.preventDefault();
-          const next = items[Math.min(items.length - 1, index + 1)];
-          if (next) next.focus();
-          return;
-        }
-        if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
-          event.preventDefault();
-          const prev = items[Math.max(0, index - 1)];
-          if (prev) prev.focus();
-          return;
-        }
-        if (event.key === 'Home') {
-          event.preventDefault();
-          items[0]?.focus();
-          return;
-        }
-        if (event.key === 'End') {
-          event.preventDefault();
-          items[items.length - 1]?.focus();
-        }
-      });
-    });
-
-    const grid = chart.querySelector('[data-sales-trend-grid]');
-    if (grid) {
-      grid.addEventListener('mouseleave', () => {
-        if (!chart.contains(document.activeElement)) {
-          setActive(defaultItem);
-        }
-      });
-    }
-
-    chart.addEventListener('focusout', () => {
-      requestAnimationFrame(() => {
-        if (!chart.contains(document.activeElement)) {
-          setActive(defaultItem);
-        }
-      });
-    });
-
-    toggles.forEach((toggle) => {
-      toggle.addEventListener('click', () => {
-        const series = toggle.getAttribute('data-sales-trend-toggle');
-        if (!series) return;
-        if (visibleSeries.has(series)) {
-          if (visibleSeries.size === 1) return;
-          visibleSeries.delete(series);
-        } else {
-          visibleSeries.add(series);
-        }
-        applySeriesVisibility();
-      });
-    });
-  });
 };
 
 const buildLossReasonsMarkup = (reasons) => {
@@ -3838,6 +7641,7 @@ const buildFunnelMarkup = (funnel) => {
   const appointmentsRaw = Math.max(0, Number(funnel?.appointments) || 0);
   const quotesRaw = Math.max(0, Number(funnel?.quotes) || 0);
   const approvedRaw = Math.max(0, Number(funnel?.approved) || 0);
+
   const appointments = Math.round(appointmentsRaw);
   const quotes = Math.round(Math.min(quotesRaw, appointments || quotesRaw));
   const approved = Math.round(Math.min(approvedRaw, quotes || approvedRaw));
@@ -3853,10 +7657,12 @@ const buildFunnelMarkup = (funnel) => {
   const appointmentsToQuotesRate = safeDivide(quotes, base);
   const quotesToDealsRate = safeDivide(approved, quotes);
   const totalConversionRate = safeDivide(approved, base);
+
   const lostBeforeQuote = Math.max(base - quotes, 0);
   const lostBeforeDeal = Math.max(quotes - approved, 0);
   const lostBeforeQuoteRate = safeDivide(lostBeforeQuote, base);
   const lostBeforeDealRate = safeDivide(lostBeforeDeal, quotes);
+
   const quotesWidth = toWidthPercent(quotes, base);
   const approvedWidth = toWidthPercent(approved, base);
 
@@ -3953,6 +7759,13 @@ const buildFunnelMarkup = (funnel) => {
 };
 const buildSellerRows = (sellers, options = {}) => {
   const appointmentsSupported = options.appointmentsSupported !== false;
+  const monthlyRevenueBySellerId =
+    options.monthlyRevenueBySellerId && typeof options.monthlyRevenueBySellerId === 'object'
+      ? options.monthlyRevenueBySellerId
+      : null;
+  const useCurrentMonthKpi = options.useCurrentMonthKpi === true;
+  const monthsCountRaw = Number(options.monthsCount ?? 1);
+  const monthsCount = Number.isFinite(monthsCountRaw) && monthsCountRaw > 0 ? monthsCountRaw : 1;
   if (!Array.isArray(sellers) || sellers.length === 0) {
     return `
       <tr class="border-b">
@@ -3964,8 +7777,27 @@ const buildSellerRows = (sellers, options = {}) => {
     .map((seller, index) => {
       const conversion = formatPercent(seller.conversion, 1);
       const avgCycle = seller.avgCycle ? formatDays(seller.avgCycle, 1) : '--';
-      const revenue = seller.revenue ? formatCurrency(seller.revenue, 0) : '--';
-      const sellerId = escapeHtml(String(seller.id || ''));
+      const revenueRaw = Number(seller.revenue) || 0;
+      const revenue = revenueRaw ? formatCurrency(revenueRaw, 0) : '--';
+      const sellerIdRaw = String(seller.id || '');
+      const fallbackMonthlyRevenue = revenueRaw > 0 ? revenueRaw / monthsCount : 0;
+      let monthlyRevenue = fallbackMonthlyRevenue;
+      if (useCurrentMonthKpi) {
+        const mappedRevenue = monthlyRevenueBySellerId
+          ? Number(monthlyRevenueBySellerId[sellerIdRaw])
+          : Number.NaN;
+        monthlyRevenue = Number.isFinite(mappedRevenue) ? mappedRevenue : 0;
+      }
+      const monthlyRevenueLabel = revenueRaw > 0 ? `${formatCurrency(monthlyRevenue, 0)}/m` : '--';
+      const monthlyKpiRatio =
+        revenueRaw > 0 ? safeDivide(monthlyRevenue, SALES_SELLER_MONTHLY_REVENUE_TARGET) : 0;
+      const monthlyKpiLabel = revenueRaw > 0 ? `${formatPercent(monthlyKpiRatio, 0)} KPI` : '--';
+      const monthlyKpiToneClass = monthlyKpiRatio >= 1 ? 'is-good' : monthlyKpiRatio >= 0.8 ? 'is-warn' : 'is-low';
+      const monthlyKpiProgress = Math.max(0, Math.min(monthlyKpiRatio * 100, 100));
+      const monthlyKpiProgressWidth = revenueRaw > 0 ? Math.max(monthlyKpiProgress, 4) : 0;
+      const monthlyKpiBarToneClass =
+        monthlyKpiRatio >= 1 ? 'is-good' : monthlyKpiRatio >= 0.8 ? 'is-warn' : 'is-low';
+      const sellerId = escapeHtml(sellerIdRaw);
       const sellerName = escapeHtml(seller.name);
       const sellerAttrs = `data-sales-drill="all" data-sales-seller-id="${sellerId}" data-sales-seller-name="${sellerName}"`;
       const pendingAppointments = Number(seller.appointmentsPending) || 0;
@@ -3992,12 +7824,17 @@ const buildSellerRows = (sellers, options = {}) => {
         <tr class="border-b transition-colors data-[state=selected]:bg-muted hover:bg-muted/50">
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0">${index + 1}</td>
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0">
-            <div class="flex items-center gap-3">
-              <div class="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+            <button
+              type="button"
+              class="inline-flex items-center gap-3 rounded-md px-1 py-0.5 -mx-1 text-left hover:bg-secondary/40"
+              data-sales-drill-label="Deals"
+              ${sellerAttrs}
+            >
+              <span class="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
                 <span class="text-sm font-semibold text-primary">${escapeHtml(seller.initials)}</span>
-              </div>
+              </span>
               <span class="font-medium">${sellerName}</span>
-            </div>
+            </button>
           </td>
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-center">${appointmentsCell}</td>
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-center"><span ${sellerAttrs}>${formatNumber(seller.deals)}</span></td>
@@ -4010,7 +7847,26 @@ const buildSellerRows = (sellers, options = {}) => {
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-center">
             <span class="text-sm text-muted-foreground" ${sellerAttrs}>${avgCycle}</span>
           </td>
-          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right font-semibold"><span ${sellerAttrs}>${revenue}</span></td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right font-semibold">
+            <span ${sellerAttrs}>${revenue}</span>
+            <div class="text-[11px] seller-kpi-label ${monthlyKpiToneClass}" ${sellerAttrs}>${escapeHtml(
+              `${monthlyRevenueLabel} • ${monthlyKpiLabel}`
+            )}</div>
+            <div
+              class="seller-kpi-bar"
+              role="progressbar"
+              aria-label="Omzet KPI voortgang"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              aria-valuenow="${Math.round(monthlyKpiProgress)}"
+              title="${escapeHtml(`${monthlyRevenueLabel} vs ${formatCurrency(SALES_SELLER_MONTHLY_REVENUE_TARGET, 0)}/maand`)}"
+              ${sellerAttrs}
+            >
+              <span class="seller-kpi-bar-fill ${monthlyKpiBarToneClass}" style="width:${monthlyKpiProgressWidth.toFixed(
+                1
+              )}%"></span>
+            </div>
+          </td>
         </tr>
       `;
     })
@@ -4075,6 +7931,11 @@ const getSalesRecordsForFilter = (records, filter, options = {}) => {
     rows = rows.filter((record) => String(record.record_id || '') === recordId);
   }
 
+  if (options.bundleKey) {
+    const bundleKey = String(options.bundleKey);
+    rows = rows.filter((record) => String(record.bundle_key || '') === bundleKey);
+  }
+
   if (options.lossReason) {
     const target = normalizeSalesKey(options.lossReason);
     rows = rows.filter((record) => normalizeSalesKey(record.loss_reason) === target);
@@ -4086,7 +7947,11 @@ const getSalesRecordsForFilter = (records, filter, options = {}) => {
 const openSalesDrilldownByFilter = (filter, options = {}) => {
   if (!salesState.data?.records) return;
   const effectiveFilter = filter || 'all';
-  const rows = getSalesRecordsForFilter(salesState.data.records, effectiveFilter, options);
+  const sourceRows =
+    options.bundleKey && Array.isArray(salesState.data.detailRecords)
+      ? salesState.data.detailRecords
+      : salesState.data.records;
+  const rows = getSalesRecordsForFilter(sourceRows, effectiveFilter, options);
 
   let title = options.label || SALES_FILTER_LABELS[effectiveFilter] || 'Deals';
   if (options.recordLabel) {
@@ -4117,6 +7982,7 @@ const bindSalesClicks = () => {
   const elements = document.querySelectorAll('[data-sales-kpi], [data-sales-drill]');
   if (!elements.length) return;
   elements.forEach((element) => {
+    if (element.getAttribute('data-sales-static') === 'true') return;
     if (element.dataset.salesClickBound === 'true') return;
     element.dataset.salesClickBound = 'true';
     element.classList.add('cursor-pointer', 'transition-colors', 'hover:underline');
@@ -4129,6 +7995,7 @@ const bindSalesClicks = () => {
           sellerName: element.getAttribute('data-sales-seller-name'),
           recordId: element.getAttribute('data-sales-record-id'),
           recordLabel: element.getAttribute('data-sales-record-label'),
+          bundleKey: element.getAttribute('data-sales-bundle-key'),
           lossReason: element.getAttribute('data-sales-loss-reason')
         });
         return;
@@ -4138,84 +8005,6 @@ const bindSalesClicks = () => {
       if (!key) return;
       openSalesDrilldown(key);
     });
-  });
-};
-
-const applySalesInfoTooltips = (data) => {
-  if (!data?.totals) return;
-  const totals = data.totals;
-
-  const quoteCount = Number(totals.quotes) || 0;
-  const totalDeals = Number(totals.allDeals) || 0;
-  const wonCount = Number(totals.won) || 0;
-  const lostCount = Number(totals.lost) || 0;
-  const openCount = Number(totals.open) || 0;
-  const openValue = Number(totals.openValue) || 0;
-  const spendTotal = Number(totals.spendTotal) || 0;
-  const avgQuoteTimeCount = Number(totals.avgQuoteTimeCount) || 0;
-  const quotePhaseName =
-    typeof totals.quotePhaseName === 'string' && totals.quotePhaseName.trim() ? totals.quotePhaseName.trim() : null;
-  const quotePhaseTimingSupported = totals.quotePhaseTimingSupported === true;
-  const avgSalesCycleCount = Number(totals.avgSalesCycleCount) || 0;
-
-  const avgQuoteTimeTooltip =
-    quotePhaseName && quotePhaseTimingSupported
-      ? `Gem. tijd tot offerte = gemiddelde van (eerste keer fase "${quotePhaseName}" bereikt - created_at) in dagen. Nu: ${formatDays(
-          totals.avgQuoteTimeDays
-        )} over ${formatNumber(avgQuoteTimeCount)} deals met gekende fase-timestamp (totaal offertes: ${formatNumber(quoteCount)}).`
-      : `Gem. tijd tot offerte = gemiddelde van (updated_at - created_at) in dagen over alle offertes. Nu: ${formatDays(
-          totals.avgQuoteTimeDays
-        )} over ${formatNumber(avgQuoteTimeCount || quoteCount)} offertes.`;
-
-  const tooltips = {
-    quotes_created: `Offertes gemaakt = aantal deals in de periode die als offerte tellen. Nu: ${formatNumber(quoteCount)} van ${formatNumber(totalDeals)} totale deals.`,
-    avg_quote_time: avgQuoteTimeTooltip,
-    approved_quotes: `Goedgekeurde offertes = aantal offertes met status WON. Formule: ${formatNumber(wonCount)} / ${formatNumber(quoteCount)} = ${formatPercent(
-      totals.approvalRate,
-      1
-    )}.`,
-    deal_ratio: `Deal ratio = goedgekeurde offertes / totale offertes. Formule: ${formatNumber(wonCount)} / ${formatNumber(
-      quoteCount
-    )} = ${formatPercent(totals.dealRatio, 1)}.`,
-    avg_sales_cycle: `Gem. sales cycle = gemiddelde van (closed_at - created_at) in dagen voor gewonnen deals met closed_at. Nu: ${formatDays(
-      totals.avgSalesCycleDays
-    )} over ${formatNumber(avgSalesCycleCount)} deals met closed_at (totaal gewonnen: ${formatNumber(wonCount)}).`,
-    open_quotes: `Hangende offertes = offertes - goedgekeurd - afgekeurd. Formule: ${formatNumber(
-      quoteCount
-    )} - ${formatNumber(wonCount)} - ${formatNumber(lostCount)} = ${formatNumber(
-      openCount
-    )}. Open waarde = som estimated_value van open deals (${formatCurrency(openValue, 0)}).`,
-    rejected_quotes: `Afgekeurde offertes = aantal offertes met status LOST. Formule: ${formatNumber(lostCount)} / ${formatNumber(
-      quoteCount
-    )} = ${formatPercent(totals.rejectionRate, 1)}.`,
-    cost_per_customer: wonCount
-      ? `Kost per klant = totale spend / gewonnen deals. Formule: ${formatCurrency(spendTotal, 0)} / ${formatNumber(
-          wonCount
-        )} = ${formatCurrency(totals.costPerCustomer, 0)}.`
-      : 'Kost per klant = totale spend / gewonnen deals. Nog niet berekend omdat er 0 gewonnen deals zijn in deze periode.'
-  };
-
-  Object.entries(tooltips).forEach(([key, text]) => {
-    const valueNode = document.querySelector(`[data-sales-kpi="${key}"]`);
-    const card = valueNode?.closest('.kpi-card');
-    const infoIcon = card?.querySelector('.lucide-info');
-    if (card) {
-      card.setAttribute('title', text);
-      card.setAttribute('aria-label', text);
-    }
-    if (!infoIcon) return;
-
-    infoIcon.setAttribute('title', text);
-    infoIcon.setAttribute('aria-label', text);
-
-    const existingTitleNode = infoIcon.querySelector('title');
-    if (existingTitleNode) {
-      existingTitleNode.textContent = text;
-    } else {
-      const titleNode = document.createElementNS('http://www.w3.org/2000/svg', 'title');
-      titleNode.textContent = text;
-      infoIcon.prepend(titleNode);
-    }
   });
 };
 
@@ -4230,19 +8019,6 @@ const applySalesData = (data) => {
   setKpi('quotes_created', formatNumber(data.totals.quotes));
   setKpi('quotes_subtext', `Van ${formatNumber(data.totals.allDeals)} deals`);
   setKpi('avg_quote_time', formatDays(data.totals.avgQuoteTimeDays));
-  const quotePhaseName =
-    typeof data.totals.quotePhaseName === 'string' && data.totals.quotePhaseName.trim()
-      ? data.totals.quotePhaseName.trim()
-      : '';
-  const quotePhaseTimingSupported = data.totals.quotePhaseTimingSupported === true;
-  setKpi(
-    'avg_quote_time_subtext',
-    quotePhaseName
-      ? quotePhaseTimingSupported
-        ? `Tot fase "${quotePhaseName}"`
-        : `Tot fase "${quotePhaseName}" (fallback)`
-      : 'Tot offertefase'
-  );
   setKpi('approved_quotes', formatNumber(data.totals.won));
   setKpi('approval_rate', `${formatPercent(data.totals.approvalRate, 1)} approval rate`);
   setKpi('deal_ratio', formatPercent(data.totals.dealRatio, 1));
@@ -4256,7 +8032,6 @@ const applySalesData = (data) => {
     Number.isFinite(data.totals.costPerCustomer) ? formatCurrency(data.totals.costPerCustomer, 0) : '--'
   );
   setKpi('open_total_value', data.totals.openValue ? `${formatCurrency(data.totals.openValue, 0)} totaal` : '--');
-  applySalesInfoTooltips(data);
 
   setKpi('deals_this_month', formatNumber(data.target.current));
   setKpi('deals_target', formatNumber(data.target.target));
@@ -4269,10 +8044,7 @@ const applySalesData = (data) => {
   }
 
   const trend = document.querySelector('[data-sales-trend]');
-  if (trend) {
-    trend.innerHTML = buildTrendMarkup(data.monthly);
-    bindSalesTrendCharts();
-  }
+  if (trend) trend.innerHTML = buildTrendMarkup(data.monthly);
 
   const reasons = document.querySelector('[data-sales-loss-reasons]');
   if (reasons) reasons.innerHTML = buildLossReasonsMarkup(data.lossReasons);
@@ -4283,9 +8055,39 @@ const applySalesData = (data) => {
   const funnel = document.querySelector('[data-sales-funnel]');
   if (funnel) funnel.innerHTML = buildFunnelMarkup(data.funnel);
 
+  const monthlyRevenueBySellerId =
+    data?.sellerMonthlyRevenueById && typeof data.sellerMonthlyRevenueById === 'object'
+      ? data.sellerMonthlyRevenueById
+      : {};
   const sellers = document.querySelector('[data-sales-seller-rows]');
-  if (sellers) sellers.innerHTML = buildSellerRows(data.sellers, { appointmentsSupported: data.appointmentsSupported });
-  setKpi('seller_count', `${formatNumber(data.sellers.length)} verkopers`);
+  if (sellers) {
+    sellers.innerHTML = buildSellerRows(data.sellers, {
+      appointmentsSupported: data.appointmentsSupported,
+      monthsCount: 1,
+      monthlyRevenueBySellerId,
+      useCurrentMonthKpi: true
+    });
+  }
+  const sellerCount = Array.isArray(data.sellers) ? data.sellers.length : 0;
+  setKpi('seller_count', `${formatNumber(sellerCount)} verkopers`);
+  const monthlySellerIds = Object.keys(monthlyRevenueBySellerId);
+  const monthlySellerCount = monthlySellerIds.length;
+  const sellersOnTarget = monthlySellerIds.filter((sellerId) => {
+    const revenue = Number(monthlyRevenueBySellerId[sellerId]) || 0;
+    return revenue >= SALES_SELLER_MONTHLY_REVENUE_TARGET;
+  }).length;
+  const sellerKpiText =
+    monthlySellerCount > 0
+      ? `${formatNumber(sellersOnTarget)}/${formatNumber(monthlySellerCount)} op KPI (${formatCurrency(
+          SALES_SELLER_MONTHLY_REVENUE_TARGET,
+          0
+        )}/maand)`
+      : `KPI ${formatCurrency(SALES_SELLER_MONTHLY_REVENUE_TARGET, 0)}/maand`;
+  setKpi('seller_revenue_kpi_progress', sellerKpiText);
+  const sellerKpiNode = document.querySelector('[data-sales-kpi="seller_revenue_kpi_progress"]');
+  if (sellerKpiNode) {
+    sellerKpiNode.setAttribute('title', 'Gebaseerd op huidige maand');
+  }
 
   setKpi('summary_won_deals', formatNumber(data.summary.wonDeals));
   setKpi('summary_revenue', data.summary.revenue ? formatCurrency(data.summary.revenue, 0) : '--');
@@ -4304,6 +8106,11 @@ const renderSalesDateControls = () => {
   const endLabel = controls.querySelector('[data-sales-date-end]');
   if (startLabel) startLabel.textContent = formatDisplayDate(dateRange.start);
   if (endLabel) endLabel.textContent = formatDisplayDate(dateRange.end);
+
+  const quickRangeControls = controls.querySelector('[data-quick-range-controls]');
+  if (quickRangeControls) {
+    quickRangeControls.innerHTML = renderQuickRangeButtonsMarkup(dateRange);
+  }
 
   const startButton = controls.querySelector('[data-date-trigger="start"]');
   const endButton = controls.querySelector('[data-date-trigger="end"]');
@@ -4359,17 +8166,16 @@ const ensureSalesData = async () => {
   // marketing_spend_daily.date is a YYYY-MM-DD value in the dashboard/business timezone, not UTC.
   const spendStart = dateRange.start;
   const spendEnd = dateRange.end;
+  const currentMonthRange = getCurrentMonthRange();
+  const currentMonthStartIso = toUtcStart(currentMonthRange.start);
+  const currentMonthEndIso = toUtcEndExclusive(currentMonthRange.end);
+  const requestVersion = metricsComputationVersion;
 
   try {
     const dealsSelectBase =
       'id,title,location_id,created_at,updated_at,closed_at,status,customer_type,customer_id,responsible_user_id,phase_id,estimated_value,estimated_value_currency,raw_data';
-    const quotePhaseSelect =
-      'quote_phase_marker_phase_id,quote_phase_first_started_at,quote_phase_last_checked_at';
-    const dealsSelectWithAllOptional = `${dealsSelectBase},had_appointment_phase,${quotePhaseSelect}`;
-    const dealsSelectWithoutAppointments = `${dealsSelectBase},${quotePhaseSelect}`;
-    const dealsSelectWithoutQuotePhase = `${dealsSelectBase},had_appointment_phase`;
+    const dealsSelectWithAppointments = `${dealsSelectBase},had_appointment_phase`;
     let appointmentsSupported = true;
-    let quotePhaseTimingSupported = true;
 
     const buildDealsQuery = (selectClause) => () =>
       supabase
@@ -4383,29 +8189,29 @@ const ensureSalesData = async () => {
         .order('id', { ascending: true });
 
     const dealsPromise = (async () => {
-      const attempts = [
-        { selectClause: dealsSelectWithAllOptional, appointments: true, quoteTiming: true },
-        { selectClause: dealsSelectWithoutAppointments, appointments: false, quoteTiming: true },
-        { selectClause: dealsSelectWithoutQuotePhase, appointments: true, quoteTiming: false },
-        { selectClause: dealsSelectBase, appointments: false, quoteTiming: false }
-      ];
-
-      let lastMissingColumnError = null;
-      for (const attempt of attempts) {
-        try {
-          const rows = await fetchAllRows(buildDealsQuery(attempt.selectClause));
-          appointmentsSupported = attempt.appointments;
-          quotePhaseTimingSupported = attempt.quoteTiming;
-          return rows;
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          if (!message.includes('does not exist')) throw error;
-          lastMissingColumnError = error;
+      try {
+        return await fetchAllRows(buildDealsQuery(dealsSelectWithAppointments));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes('had_appointment_phase') && message.includes('does not exist')) {
+          console.warn('teamleader_deals.had_appointment_phase ontbreekt nog; fallback zonder afsprakenveld.');
+          appointmentsSupported = false;
+          return await fetchAllRows(buildDealsQuery(dealsSelectBase));
         }
+        throw error;
       }
-
-      throw lastMissingColumnError || new Error('Kon teamleader_deals niet laden.');
     })();
+    const buildCurrentMonthDealsQuery = () =>
+      supabase
+        .from('teamleader_deals')
+        .select(dealsSelectBase)
+        .eq('location_id', activeLocationId)
+        .gte('created_at', currentMonthStartIso)
+        .lt('created_at', currentMonthEndIso);
+    const currentMonthDealsPromise = fetchAllRows(buildCurrentMonthDealsQuery).catch((error) => {
+      console.warn('Unable to load current-month Teamleader deals for seller KPI', error);
+      return [];
+    });
 
     const buildUsersQuery = () =>
       supabase
@@ -4443,18 +8249,37 @@ const ensureSalesData = async () => {
 
       const [
         deals,
+        currentMonthDeals,
         users,
         companies,
         contacts,
         phases,
+        dealSources,
         spendRows,
         lostReasonsLookup
       ] = await Promise.all([
         dealsPromise,
+        currentMonthDealsPromise,
         fetchAllRows(buildUsersQuery),
         fetchAllRows(buildCompaniesQuery),
         fetchAllRows(buildContactsQuery),
         phasesPromise,
+        supabase
+          .from('teamleader_deal_sources')
+          .select('id,name')
+          .eq('location_id', activeLocationId)
+          .then(({ data, error }) => {
+            if (error) {
+              const message = error?.message || '';
+              if (message.includes('teamleader_deal_sources') && message.includes('does not exist')) {
+                console.warn('teamleader_deal_sources ontbreekt nog; deal source labels blijven voorlopig fallback.');
+                return [];
+              }
+              console.warn('Unable to load Teamleader deal sources lookup', error);
+              return [];
+            }
+            return data || [];
+          }),
         supabase
           .from('marketing_spend_daily')
           .select('spend,date')
@@ -4478,12 +8303,13 @@ const ensureSalesData = async () => {
           })
       ]);
 
-    if (!appointmentsSupported) {
-      console.warn('teamleader_deals.had_appointment_phase ontbreekt nog; afspraken KPI gebruikt fallback.');
-    }
-    if (!quotePhaseTimingSupported && configState.salesQuotesFromPhaseId) {
-      console.warn('teamleader_deals.quote_phase_* ontbreekt nog; Gem. Tijd tot Offerte gebruikt fallback op updated_at.');
-    }
+    if (requestVersion !== metricsComputationVersion) return;
+
+    const debugMode = isMetricsDebugModeEnabled();
+    const effectiveSalesMonthlyDealsTarget = debugMode ? null : configState.salesMonthlyDealsTarget;
+    const effectiveSalesMonthlyDealsTargets = debugMode ? {} : configState.salesMonthlyDealsTargets;
+    const effectiveSalesQuotesFromPhaseId = debugMode ? null : configState.salesQuotesFromPhaseId;
+    const effectiveSalesExcludedDealKeywords = debugMode ? [] : configState.salesExcludedDealKeywords;
 
     const data = buildSalesMetrics(
       dateRange,
@@ -4492,19 +8318,115 @@ const ensureSalesData = async () => {
       companies,
       contacts,
       phases,
+      dealSources,
       spendRows,
       lostReasonsLookup,
-      configState.salesMonthlyDealsTarget,
-      configState.salesMonthlyDealsTargets,
+      effectiveSalesMonthlyDealsTarget,
+      effectiveSalesMonthlyDealsTargets,
       appointmentsSupported,
-      configState.salesQuotesFromPhaseId,
-      quotePhaseTimingSupported
+      effectiveSalesQuotesFromPhaseId,
+      effectiveSalesExcludedDealKeywords,
+      !debugMode
     );
+    const phaseMap = new Map((phases || []).map((phase) => [phase.id, phase]));
+    const normalizedQuotesFromPhaseId =
+      typeof effectiveSalesQuotesFromPhaseId === 'string'
+        ? effectiveSalesQuotesFromPhaseId.trim()
+        : '';
+    const normalizeSortOrder = (value) => {
+      const raw = typeof value === 'number' ? value : Number(value);
+      if (!Number.isFinite(raw)) return null;
+      return Math.max(0, Math.round(raw));
+    };
+    const normalizeProbability = (value) => {
+      const raw = typeof value === 'number' ? value : Number(value);
+      if (!Number.isFinite(raw)) return null;
+      const normalized = raw > 1 ? raw / 100 : raw;
+      return Math.max(0, Math.min(1, normalized));
+    };
+    const quoteThresholdPhase = normalizedQuotesFromPhaseId ? phaseMap.get(normalizedQuotesFromPhaseId) : null;
+    const quoteThresholdSortOrder = quoteThresholdPhase
+      ? normalizeSortOrder(quoteThresholdPhase.sort_order)
+      : null;
+    const quoteThresholdProbability = quoteThresholdPhase
+      ? normalizeProbability(quoteThresholdPhase.probability)
+      : null;
+    const normalizedExcludedDealKeywords = sanitizeSalesExcludedDealKeywords(
+      effectiveSalesExcludedDealKeywords
+    ).map((keyword) => keyword.toLowerCase());
+    const isExcludedDeal = (deal) => {
+      if (!normalizedExcludedDealKeywords.length) return false;
+      const title = String(deal?.title ?? '').toLowerCase().trim();
+      if (!title) return false;
+      return normalizedExcludedDealKeywords.some((keyword) => title.includes(keyword));
+    };
+    const isQuoteDeal = (deal) => {
+      if (!normalizedQuotesFromPhaseId) return true;
+      const phaseId = String(deal?.phase_id ?? '');
+      const phase = phaseMap.get(phaseId);
+      if (!phase) return phaseId === normalizedQuotesFromPhaseId;
+      const sortOrder = normalizeSortOrder(phase.sort_order);
+      if (quoteThresholdSortOrder !== null && sortOrder !== null) {
+        return sortOrder >= quoteThresholdSortOrder;
+      }
+      const probability = normalizeProbability(phase.probability);
+      if (quoteThresholdProbability !== null && probability !== null) {
+        return probability >= quoteThresholdProbability;
+      }
+      return phaseId === normalizedQuotesFromPhaseId;
+    };
+    const pickDealBundleKey = (deal) => {
+      const customerType = typeof deal?.customer_type === 'string' ? deal.customer_type.trim() : '';
+      const customerId = typeof deal?.customer_id === 'string' ? deal.customer_id.trim() : '';
+      if (customerType && customerId) return `${customerType}:${customerId}`;
+      return `deal:${String(deal?.id ?? '')}`;
+    };
+    const getDealActivityTime = (deal) => {
+      const updatedAt = parseDate(deal?.updated_at);
+      if (updatedAt) return updatedAt.getTime();
+      const createdAt = parseDate(deal?.created_at);
+      if (createdAt) return createdAt.getTime();
+      return 0;
+    };
+    const bundleDealsForKpi = (inputDeals) => {
+      const bundles = new Map();
+      (inputDeals || []).forEach((deal) => {
+        const key = pickDealBundleKey(deal);
+        if (!key) return;
+        const existing = bundles.get(key);
+        if (!existing || getDealActivityTime(deal) >= getDealActivityTime(existing)) {
+          bundles.set(key, deal);
+        }
+      });
+      return Array.from(bundles.values());
+    };
+    const filteredCurrentMonthDeals = (currentMonthDeals || []).filter(
+      (deal) => !isExcludedDeal(deal) && isQuoteDeal(deal)
+    );
+    const currentMonthDealsForKpi = debugMode
+      ? filteredCurrentMonthDeals
+      : bundleDealsForKpi(filteredCurrentMonthDeals);
+    const sellerMonthlyRevenueById = {};
+    currentMonthDealsForKpi.forEach((deal) => {
+      const sellerId = String(deal?.responsible_user_id || 'unknown');
+      if (!Object.prototype.hasOwnProperty.call(sellerMonthlyRevenueById, sellerId)) {
+        sellerMonthlyRevenueById[sellerId] = 0;
+      }
+      const status = normalizeStatus(deal?.status);
+      if (!isWonStatus(status)) return;
+      const value = Number(deal?.estimated_value);
+      if (Number.isFinite(value) && value > 0) {
+        sellerMonthlyRevenueById[sellerId] += value;
+      }
+    });
+    if (requestVersion !== metricsComputationVersion) return;
+    data.sellerMonthlyRevenueById = sellerMonthlyRevenueById;
     salesState.status = 'ready';
     salesState.data = data;
     salesState.inFlight = false;
     applySalesData(data);
   } catch (error) {
+    if (requestVersion !== metricsComputationVersion) return;
     salesState.status = 'error';
     salesState.errorMessage = error instanceof Error ? error.message : 'Onbekende fout';
     salesState.inFlight = false;
@@ -4538,6 +8460,31 @@ const formatDisplayDate = (dateValue) => {
   return `${day} ${MONTHS_SHORT[month - 1]}. ${year}`;
 };
 
+const QUICK_RANGE_PRESETS = [
+  { days: 7, label: 'Afgelopen 7 dagen' },
+  { days: 14, label: 'Afgelopen 14 dagen' },
+  { days: 30, label: 'Afgelopen 30 dagen' }
+];
+
+const buildStableRangeEnd = () => addDaysYmd(getTodayYmd(dashboardTimeZone), -1);
+
+const buildLastNDaysRange = (days) => {
+  const safeDays = Math.max(1, Number(days) || 1);
+  const end = buildStableRangeEnd();
+  const start = addDaysYmd(end, -(safeDays - 1));
+  return { start, end };
+};
+
+const renderQuickRangeButtonsMarkup = (range) => {
+  const current = range && typeof range === 'object' ? range : dateRange;
+  return QUICK_RANGE_PRESETS.map(({ days, label }) => {
+    const expected = buildLastNDaysRange(days);
+    const isActive = current?.start === expected.start && current?.end === expected.end;
+    const title = `${label}: ${formatDisplayDate(expected.start)} -> ${formatDisplayDate(expected.end)}`;
+    return `<button type="button" class="quick-range-button${isActive ? ' active' : ''}" data-quick-range-days="${days}" aria-pressed="${isActive ? 'true' : 'false'}" title="${escapeHtml(title)}">${escapeHtml(label)}</button>`;
+  }).join('');
+};
+
 const formatSyncTimestamp = (value) => {
   if (!value) return 'Laatste sync: onbekend';
   const dt = new Date(value);
@@ -4551,6 +8498,24 @@ const formatSyncTimestamp = (value) => {
   });
   return `Laatste sync: ${formatted}`;
 };
+
+const renderLatestSyncBadge = (containerClass = 'hidden sm:flex') => `
+  <div class="${containerClass} items-center gap-2 px-3 py-1.5 rounded-full bg-secondary/10 border border-secondary/20" data-latest-sync-badge>
+    <div class="w-2 h-2 rounded-full bg-secondary animate-pulse"></div>
+    <div class="flex flex-col leading-tight">
+      <span class="text-xs font-semibold text-secondary">Live Data</span>
+      <span class="text-[10px] text-muted-foreground">
+        ${
+          liveState.sync.status === 'loading'
+            ? 'Laatste sync: laden...'
+            : liveState.sync.status === 'ready'
+              ? formatSyncTimestamp(liveState.sync.timestamp)
+              : 'Laatste sync: onbekend'
+        }
+      </span>
+    </div>
+  </div>
+`;
 
 const formatDateTime = (value) => {
   if (!value) return '--';
@@ -4713,7 +8678,7 @@ const getOpportunityDebug = (range) => {
     liveState.sourceBreakdown.status === 'loading' ||
     liveState.lostReasons.status === 'loading'
   ) {
-    return { tone: 'info', text: 'Live data wordt opgehaald uit Supabase...' };
+    return { tone: 'info', text: 'Data wordt opgehaald uit de database...' };
   }
 
   if (liveState.opportunities.status === 'error') {
@@ -4798,10 +8763,11 @@ const renderAdminModal = () => {
 
   const loggedIn = Boolean(authSession);
   const userEmail = authSession?.user?.email || '';
-  const kpiOnlyMode = settingsModeEnabled && !adminModeEnabled;
+  const adminAccessEnabled = isAdminAccessEnabled();
+  const kpiOnlyMode = settingsModeEnabled && !adminAccessEnabled;
   const canManageKpi = loggedIn || kpiOnlyMode;
   const modalTitle = settingsButtonLabel;
-  const modalSubtitle = adminModeEnabled
+  const modalSubtitle = adminAccessEnabled
     ? 'Beheer GHL integratie, kostattributie en KPI targets.'
     : 'Stel Sales KPI targets in voor dit dashboard.';
   const signOutButtonMarkup = loggedIn
@@ -4812,6 +8778,62 @@ const renderAdminModal = () => {
   const mappingStatusClass = adminState.mapping.status === 'error' ? 'error' : 'success';
   const kpiBusy = adminState.kpi.loading || adminState.kpi.saving;
   const kpiStatusClass = adminState.kpi.status === 'error' ? 'error' : 'success';
+  const sourcesBusy = adminState.sources.loading || adminState.sources.saving;
+  const sourcesStatusClass = adminState.sources.status === 'error' ? 'error' : 'success';
+  const lostBusy = adminState.lostReasons.loading || adminState.lostReasons.saving;
+  const lostStatusClass = adminState.lostReasons.status === 'error' ? 'error' : 'success';
+  const leadCostBusy = adminState.leadCost.loading || adminState.leadCost.saving;
+  const leadCostStatusClass = adminState.leadCost.status === 'error' ? 'error' : 'success';
+  const metricsDebugModeChecked = metricsDebugModeEnabled ? 'checked' : '';
+  const sourceBucketingCfg = resolveSourceBucketingConfig();
+  const sourcesFallbackBucket = normalizeSourceLabel(sourceBucketingCfg.fallbackBucket) || 'Overig';
+  const sourcesEmptyBucket = normalizeSourceLabel(sourceBucketingCfg.emptyBucket) || 'Onbekend';
+  const sourcesSubtitle = `Koppel raw sources aan vaste kanalen. Lege source telt als ${escapeHtml(sourcesEmptyBucket)}. ${
+    sourceBucketingCfg.unmatchedMode === 'keep'
+      ? 'Alles wat niet matcht blijft zijn eigen source.'
+      : `Alles wat niet matcht valt onder ${escapeHtml(sourcesFallbackBucket)}.`
+  }`;
+  const sourcesRules = Array.isArray(adminState.sources.rules) ? adminState.sources.rules : [];
+  const sourcesRulesRowsMarkup = sourcesRules.length
+    ? sourcesRules
+        .map((rule, idx) => {
+          const bucket = normalizeSourceLabel(rule?.bucket);
+          const patterns = Array.isArray(rule?.patterns) ? rule.patterns.join(', ') : '';
+          return `
+            <tr>
+              <td>
+                <input type="text" class="admin-input admin-mapping-input" value="${escapeHtml(bucket)}" placeholder="Kanaal" data-source-rule-bucket="${idx}" ${sourcesBusy ? 'disabled' : ''} />
+              </td>
+              <td>
+                <input type="text" class="admin-input admin-mapping-input" value="${escapeHtml(patterns)}" placeholder="keywords, komma-gescheiden" data-source-rule-patterns="${idx}" ${sourcesBusy ? 'disabled' : ''} />
+              </td>
+            </tr>
+          `;
+        })
+        .join('')
+    : '<tr><td colspan="2" class="admin-mapping-empty">Geen regels gevonden.</td></tr>';
+  const sourcesSamples = Array.isArray(adminState.sources.samples) ? adminState.sources.samples : [];
+  const sourcesSamplesRowsMarkup = sourcesSamples.length
+    ? sourcesSamples
+        .map((row) => {
+          const raw = escapeHtml(row?.raw ?? '');
+          const count = formatNumber(row?.count ?? 0);
+          const bucketRaw = normalizeSourceLabel(row?.bucket);
+          const bucket = escapeHtml(bucketRaw);
+          const bucketDisplay = bucket || '--';
+          const highlightFallback =
+            sourceBucketingCfg.unmatchedMode !== 'keep' && bucketRaw && bucketRaw === sourcesFallbackBucket;
+          const bucketMarkup = highlightFallback ? `<span class="text-destructive">${bucketDisplay}</span>` : bucketDisplay;
+          return `
+            <tr>
+              <td>${raw || '--'}</td>
+              <td class="admin-mapping-muted">${count}</td>
+              <td>${bucketMarkup}</td>
+            </tr>
+          `;
+        })
+        .join('')
+    : '<tr><td colspan="3" class="admin-mapping-empty">Nog geen samples geladen.</td></tr>';
   const monthlyDealsTargetValue =
     adminState.kpi.monthlyDealsTarget ||
     String(
@@ -4856,6 +8878,44 @@ const renderAdminModal = () => {
   const quotesFromPhaseIdValue = String(
     adminState.kpi.quotesFromPhaseId ?? configState.salesQuotesFromPhaseId ?? ''
   ).trim();
+  const lostReasonFieldIdValue = String(
+    adminState.kpi.lostReasonFieldId ?? configState.lostReasonFieldId ?? ''
+  ).trim();
+  const leadOpportunityPipelineIdValue = normalizePipelineId(
+    adminState.kpi.leadOpportunityPipelineId ?? resolveLeadOpportunityPipelineIdFromLayout(configState.dashboardLayout)
+  );
+  const leadOpportunityPipelineOptionsBase = Array.isArray(adminState.kpi.leadOpportunityPipelineOptions)
+    ? adminState.kpi.leadOpportunityPipelineOptions
+    : [];
+  const hasCurrentLeadPipelineOption = leadOpportunityPipelineOptionsBase.some(
+    (option) => normalizePipelineId(option?.id) === leadOpportunityPipelineIdValue
+  );
+  const leadOpportunityPipelineOptions =
+    leadOpportunityPipelineIdValue && !hasCurrentLeadPipelineOption
+      ? [{ id: leadOpportunityPipelineIdValue, name: leadOpportunityPipelineIdValue, count: 0 }, ...leadOpportunityPipelineOptionsBase]
+      : leadOpportunityPipelineOptionsBase;
+  const leadOpportunityPipelineSelectOptionsMarkup = [
+    `<option value=""${leadOpportunityPipelineIdValue ? '' : ' selected'}>Alle pipelines</option>`,
+    ...leadOpportunityPipelineOptions
+      .map((option) => {
+        const id = normalizePipelineId(option?.id);
+        if (!id) return '';
+        const name = toTrimmedText(option?.name) || id;
+        const label = name === id ? id : name;
+        const selected = id === leadOpportunityPipelineIdValue ? ' selected' : '';
+        return `<option value="${escapeHtml(id)}"${selected}>${escapeHtml(label)}</option>`;
+      })
+      .filter(Boolean)
+  ].join('');
+  const excludedDealKeywordsTextValue =
+    typeof adminState.kpi.excludedDealKeywordsText === 'string'
+      ? adminState.kpi.excludedDealKeywordsText
+      : formatSalesExcludedDealKeywordsText(configState.salesExcludedDealKeywords || []);
+  const matthiasDealKeywords = Array.isArray(adminState.kpi.matthiasDealKeywords)
+    ? adminState.kpi.matthiasDealKeywords
+    : [];
+  const matthiasDealKeywordsCount = matthiasDealKeywords.length;
+  const showBelivertSalesExclusions = resolveBrandTheme() === 'belivert';
   const normalizeProbability = (value) => {
     const raw = typeof value === 'number' ? value : Number(value);
     if (!Number.isFinite(raw)) return null;
@@ -4897,6 +8957,84 @@ const renderAdminModal = () => {
       return `<option value="${escapeHtml(row.id)}"${selected}>${escapeHtml(label)}</option>`;
     })
   ].join('');
+
+  const lostReasonEntries = Array.isArray(adminState.lostReasons.entries) ? adminState.lostReasons.entries : [];
+  const lostReasonLabelOptions = Array.isArray(adminState.lostReasons.labelOptions) ? adminState.lostReasons.labelOptions : [];
+  const lostReasonLabelOptionsMarkup = lostReasonLabelOptions
+    .map((option) => `<option value="${escapeHtml(option)}"></option>`)
+    .join('');
+  const lostReasonLabelOptionsList = lostReasonLabelOptionsMarkup
+    ? `<datalist id="lost-reason-label-options">${lostReasonLabelOptionsMarkup}</datalist>`
+    : '';
+  const lostReasonLabelHintMarkup = lostReasonLabelOptionsList
+    ? ''
+    : '<div class="admin-meta">Geen label suggesties gevonden. Klik \"Haal labels op\" (of update je GHL token scopes) en vul anders de labels manueel in.</div>';
+  const lostReasonRowsMarkup = lostReasonEntries.length
+    ? lostReasonEntries
+        .map((entry) => {
+          const id = toTrimmedText(entry?.id);
+          const occurrences = formatNumber(entry?.occurrences ?? 0);
+          const name = escapeHtml(entry?.name ?? '');
+          return `
+            <tr>
+              <td class="admin-mapping-muted">${escapeHtml(id || '--')}</td>
+              <td class="admin-mapping-muted">${occurrences}</td>
+              <td>
+                <input
+                  type="text"
+                  class="admin-input admin-mapping-input"
+                  value="${name}"
+                  placeholder="Label (bv. Te duur)"
+                  list="lost-reason-label-options"
+                  data-lost-reason-id="${escapeHtml(id || '')}"
+                  ${lostBusy ? 'disabled' : ''}
+                />
+              </td>
+            </tr>
+          `;
+        })
+        .join('')
+    : '<tr><td colspan="3" class="admin-mapping-empty">Geen lost reasons gevonden in deze periode.</td></tr>';
+
+  const leadCostRows = Array.isArray(adminState.leadCost.rows) ? adminState.leadCost.rows : [];
+  const leadCostRowsMarkup = leadCostRows.length
+    ? leadCostRows
+        .map((row, idx) => {
+          const source = normalizeSourceLabel(row?.source);
+          const cpl = String(row?.cpl ?? '');
+          return `
+            <tr>
+              <td>
+                <input type="text" class="admin-input admin-mapping-input" value="${escapeHtml(source)}" placeholder="Kanaal" list="lead-cost-source-options" data-lead-cost-source="${idx}" ${leadCostBusy ? 'disabled' : ''} />
+              </td>
+              <td>
+                <input type="number" class="admin-input admin-mapping-input" value="${escapeHtml(cpl)}" placeholder="0" min="0" step="0.01" data-lead-cost-cpl="${idx}" ${leadCostBusy ? 'disabled' : ''} />
+              </td>
+            </tr>
+          `;
+        })
+        .join('')
+    : '<tr><td colspan="2" class="admin-mapping-empty">Klik \"+ Kanaal\" om te starten.</td></tr>';
+
+  const leadCostOptionsMarkup = buildSourceOptions(liveState.sourceBreakdown.rows)
+    .map((option) => `<option value="${escapeHtml(option)}"></option>`)
+    .join('');
+  const leadCostOptionsList = leadCostOptionsMarkup
+    ? `<datalist id="lead-cost-source-options">${leadCostOptionsMarkup}</datalist>`
+    : '';
+
+  const savedLeadCost = sanitizeCostPerLeadBySource(configState.costPerLeadBySource) || {};
+  let leadCostMissingSources = [];
+  if (liveState.sourceBreakdown.status === 'ready' && Array.isArray(liveState.sourceBreakdown.rows)) {
+    leadCostMissingSources = (liveState.sourceBreakdown.rows || [])
+      .map((row) => ({ source: normalizeSourceLabel(row?.source), leads: Number(row?.leads ?? 0) }))
+      .filter((entry) => entry.source && entry.leads > 0 && !Object.prototype.hasOwnProperty.call(savedLeadCost, entry.source))
+      .sort((a, b) => (b.leads ?? 0) - (a.leads ?? 0) || a.source.localeCompare(b.source))
+      .map((entry) => entry.source);
+  }
+  const leadCostMissingHintMarkup = leadCostMissingSources.length
+    ? `<div class="admin-meta">Kanalen zonder CPL (in deze periode): ${escapeHtml(leadCostMissingSources.slice(0, 8).join(', '))}${leadCostMissingSources.length > 8 ? '…' : ''}</div>`
+    : '';
 
   const sourceOptionsMarkup = (adminState.mapping.sourceOptions ?? [])
     .map((option) => `<option value="${escapeHtml(option)}"></option>`)
@@ -4985,12 +9123,24 @@ const renderAdminModal = () => {
                   : 'Je hoeft niet in te loggen om KPI targets aan te passen.'
               }</div>
                ${
-                 adminModeEnabled && loggedIn && adminState.loading
+                 adminAccessEnabled && loggedIn && adminState.loading
                    ? '<div class="admin-meta">Integratie wordt geladen...</div>'
                    : ''
                }
                ${
-                 adminModeEnabled && loggedIn
+                 !adminModeEnabled && !adminAccessEnabled
+                   ? loggedIn
+                     ? '<div class="admin-meta">Wil je integratie-instellingen beheren? <button type="button" class="admin-ghost" data-admin-login-toggle>Admin instellingen</button></div>'
+                     : '<div class="admin-meta">Wil je integratie-instellingen beheren? <button type="button" class="admin-ghost" data-admin-login-toggle>Admin login</button></div>'
+                   : ''
+               }
+               ${
+                 !adminModeEnabled && adminAccessEnabled && loggedIn
+                   ? '<div class="admin-meta">Admin instellingen actief. <button type="button" class="admin-ghost" data-admin-login-cancel>Terug naar instellingen</button></div>'
+                   : ''
+               }
+               ${
+                 adminAccessEnabled && loggedIn
                    ? `<form class="admin-form" data-admin-form>
                         <label class="admin-label">
                           Location ID
@@ -5018,6 +9168,23 @@ const renderAdminModal = () => {
                 <div class="admin-section">
                   <div class="admin-section-header">
                     <div>
+                      <h4 class="admin-section-title">Debug modus</h4>
+                      <p class="admin-section-subtitle">
+                        Schakelt alle cijfer-beïnvloedende regels uit: lead pipeline filter, sales fasefilter, uitsluitwoorden, source normalisatie, CPL overrides en spend mapping.
+                      </p>
+                    </div>
+                  </div>
+                  <div class="admin-form">
+                    <label class="admin-checkbox">
+                      <input type="checkbox" data-metrics-debug-mode ${metricsDebugModeChecked} />
+                      Debug modus actief (toon ruwe cijfers zonder regels)
+                    </label>
+                    <div class="admin-meta">Lokaal opgeslagen in deze browser.</div>
+                  </div>
+                </div>
+                <div class="admin-section">
+                  <div class="admin-section-header">
+                    <div>
                       <h4 class="admin-section-title">Sales KPI</h4>
                       <p class="admin-section-subtitle">
                         Stel je default target in en override per maand. Leeg laten bij een maand = default.
@@ -5037,6 +9204,20 @@ const renderAdminModal = () => {
                   ${adminState.kpi.loading ? '<div class="admin-meta">KPI wordt geladen...</div>' : ''}
                    <div class="admin-form">
                      <label class="admin-label">
+                       Lead dashboard pipeline filter (optioneel)
+                       <select
+                         class="admin-input"
+                         data-kpi-lead-opportunity-pipeline
+                         ${kpiBusy ? 'disabled' : ''}
+                       >
+                         ${leadOpportunityPipelineSelectOptionsMarkup}
+                       </select>
+                     </label>
+                     <div class="admin-meta">
+                       Kies een pipeline om de lead dashboard cijfers te beperken. Selecteer "Alle pipelines" om alles mee te tellen.
+                     </div>
+                     ${leadOpportunityPipelineOptions.length ? '' : '<div class="admin-meta">Nog geen pipeline namen gevonden in recente opportunities.</div>'}
+                     <label class="admin-label">
                        Default maandtarget (deals)
                        <input type="number" class="admin-input" value="${escapeHtml(monthlyDealsTargetValue)}" min="1" step="1" data-kpi-monthly-deals-target ${kpiBusy ? 'disabled' : ''} />
                      </label>
@@ -5047,12 +9228,56 @@ const renderAdminModal = () => {
                          ${quotePhaseOptionsMarkup}
                        </select>
                      </label>
-                     <div class="admin-meta">
-                       Kies de Teamleader fase die overeenkomt met \"Offerte verzonden klant\". Leeg = alle deals tellen als offerte.
-                     </div>
-                     ${quotePhaseRows.length ? '' : '<div class="admin-meta">Geen Teamleader fases gevonden. Run eerst teamleader-sync.</div>'}
-                   </div>
-                  <div class="admin-mapping-block">
+                      <div class="admin-meta">
+                        Kies de Teamleader fase die overeenkomt met \"Offerte verzonden klant\". Leeg = alle deals tellen als offerte.
+                      </div>
+                      ${quotePhaseRows.length ? '' : '<div class="admin-meta">Geen Teamleader fases gevonden. Run eerst teamleader-sync.</div>'}
+                      <label class="admin-label">
+                        Verliesreden custom field id (optioneel)
+                        <input
+                          type="text"
+                          class="admin-input"
+                          value="${escapeHtml(lostReasonFieldIdValue)}"
+                          placeholder="Custom field id"
+                          data-kpi-lost-reason-field
+                          ${kpiBusy ? 'disabled' : ''}
+                        />
+                      </label>
+                      <div class="admin-meta">
+                        Optioneel: als je in GHL een Opportunity custom field gebruikt voor verliesredenen, plak hier de field id. Zo krijg je labels in plaats van IDs.
+                      </div>
+                      <label class="admin-label">
+                        Uitsluitwoorden voor deals (1 per lijn)
+                        <textarea
+                          class="admin-input admin-textarea"
+                          placeholder="Service"
+                          data-kpi-excluded-deal-keywords
+                          ${kpiBusy ? 'disabled' : ''}
+                        >${escapeHtml(excludedDealKeywordsTextValue)}</textarea>
+                      </label>
+                      <div class="admin-meta">
+                        Deals waarvan de titel een van deze woorden of zinnen bevat, worden niet meegeteld in Sales KPI's en Sales drilldowns.
+                      </div>
+                      ${
+                        showBelivertSalesExclusions
+                          ? `<div class="admin-mapping-toolbar">
+                               <button type="button" class="admin-ghost" data-kpi-fill-matthias ${kpiBusy || adminState.kpi.matthiasDealKeywordsLoading ? 'disabled' : ''}>
+                                 Vul met deals die niet meetellen
+                               </button>
+                               <div class="admin-meta mb-0">
+                                 ${
+                                   adminState.kpi.matthiasDealKeywordsLoading
+                                     ? 'Deals die niet meetellen laden...'
+                                     : matthiasDealKeywordsCount > 0
+                                       ? `${formatNumber(matthiasDealKeywordsCount)} voorgestelde deals die niet meetellen beschikbaar.`
+                                       : 'Nog geen voorgestelde deals gevonden.'
+                                 }
+                               </div>
+                             </div>`
+                          : ''
+                      }
+                    </div>
+                   <div class="admin-mapping-block">
                     <div class="admin-mapping-toolbar">
                       <button type="button" class="admin-ghost" data-kpi-year-prev ${kpiBusy ? 'disabled' : ''}>Vorige jaar</button>
                       <div class="admin-meta">Jaar: ${kpiYear}</div>
@@ -5072,8 +9297,147 @@ const renderAdminModal = () => {
                     <div class="admin-meta">Leeg = gebruikt default target (placeholder).</div>
                   </div>
                 </div>
+                <div class="admin-section">
+                  <div class="admin-section-header">
+                    <div>
+                      <h4 class="admin-section-title">Verliesredenen</h4>
+                      <p class="admin-section-subtitle">
+                        GHL geeft voor lost reasons enkel IDs. Map die IDs naar labels zodat het dashboard leesbaar wordt.
+                      </p>
+                    </div>
+                    <div class="admin-mapping-toolbar">
+                      <button type="button" class="admin-ghost" data-lost-reasons-refresh ${lostBusy ? 'disabled' : ''}>Vernieuw IDs</button>
+                      <button type="button" class="admin-ghost" data-lost-reasons-sync ${lostBusy ? 'disabled' : ''}>Haal labels op</button>
+                      <button type="button" class="admin-submit" data-lost-reasons-save ${lostBusy ? 'disabled' : ''}>
+                        ${adminState.lostReasons.saving ? 'Opslaan...' : 'Opslaan'}
+                      </button>
+                    </div>
+                  </div>
+                  ${
+                    adminState.lostReasons.message
+                      ? `<div class="admin-message ${lostStatusClass}">${escapeHtml(adminState.lostReasons.message)}</div>`
+                      : ''
+                  }
+                  ${adminState.lostReasons.loading ? '<div class="admin-meta">Lost reasons worden geladen...</div>' : ''}
+                  <div class="admin-mapping-block">
+                    <div class="admin-mapping-table-wrapper">
+                      <table class="admin-mapping-table">
+                        <thead>
+                          <tr>
+                            <th>LostReasonId</th>
+                            <th>Aantal</th>
+                            <th>Label</th>
+                          </tr>
+                        </thead>
+                        <tbody>${lostReasonRowsMarkup}</tbody>
+                      </table>
+                    </div>
+                    <div class="admin-meta">Tip: vul enkel labels in voor IDs die je effectief gebruikt. Leeg laten = blijft onbekend.</div>
+                    ${lostReasonLabelHintMarkup}
+                    ${lostReasonLabelOptionsList}
+                  </div>
+                </div>
                 ${
-                  adminModeEnabled && loggedIn
+                  settingsEnabled
+                    ? `<div class="admin-section">
+                        <div class="admin-section-header">
+                          <div>
+                            <h4 class="admin-section-title">Source normalisatie</h4>
+                            <p class="admin-section-subtitle">
+                              ${sourcesSubtitle}
+                            </p>
+                          </div>
+                          <div class="admin-mapping-toolbar">
+                            <button type="button" class="admin-ghost" data-source-rules-add ${sourcesBusy ? 'disabled' : ''}>+ Bucket</button>
+                            <button type="button" class="admin-ghost" data-source-samples-refresh ${adminState.sources.samplesLoading ? 'disabled' : ''}>Vernieuw bronnen</button>
+                            <button type="button" class="admin-submit" data-source-rules-save ${sourcesBusy ? 'disabled' : ''}>
+                              ${adminState.sources.saving ? 'Opslaan...' : 'Opslaan'}
+                            </button>
+                          </div>
+                        </div>
+                        ${
+                          adminState.sources.message
+                            ? `<div class="admin-message ${sourcesStatusClass}">${escapeHtml(adminState.sources.message)}</div>`
+                            : ''
+                        }
+                        ${adminState.sources.loading ? '<div class="admin-meta">Normalisatie wordt geladen...</div>' : ''}
+                        <div class="admin-mapping-block">
+                          <h5 class="admin-mapping-title">Regels (keywords)</h5>
+                          <div class="admin-mapping-table-wrapper">
+                            <table class="admin-mapping-table">
+                              <thead>
+                                <tr>
+                                  <th>Kanaal</th>
+                                  <th>Keywords</th>
+                                </tr>
+                              </thead>
+                              <tbody>${sourcesRulesRowsMarkup}</tbody>
+                            </table>
+                          </div>
+                          <div class="admin-meta">
+                            Voorbeeld: kanaal = Bambelo, keywords = bambelo. Gebruik komma's om meerdere keywords toe te voegen.
+                          </div>
+                        </div>
+                        <div class="admin-mapping-block">
+                          <h5 class="admin-mapping-title">Gedetecteerde raw sources</h5>
+                          <div class="admin-mapping-table-wrapper">
+                            <table class="admin-mapping-table">
+                              <thead>
+                                <tr>
+                                  <th>Raw source</th>
+                                  <th>Aantal</th>
+                                  <th>Bucket</th>
+                                </tr>
+                              </thead>
+                              <tbody>${sourcesSamplesRowsMarkup}</tbody>
+                            </table>
+                          </div>
+                          ${adminState.sources.samplesLoading ? '<div class="admin-meta">Bronnen worden geladen...</div>' : ''}
+                          <div class="admin-meta">Tip: kijk vooral naar alles dat in Overig valt en voeg keywords toe.</div>
+                        </div>
+                      </div>`
+                    : ''
+                }
+                <div class="admin-section">
+                  <div class="admin-section-header">
+                    <div>
+                      <h4 class="admin-section-title">Leadkosten (CPL)</h4>
+                      <p class="admin-section-subtitle">
+                        Stel de kost per lead in per kanaal. Leeg = niet meegerekend. Zet 0 om mee te tellen zonder kost (bv. Organic).
+                      </p>
+                    </div>
+                    <div class="admin-mapping-toolbar">
+                      <button type="button" class="admin-ghost" data-lead-cost-add ${leadCostBusy ? 'disabled' : ''}>+ Kanaal</button>
+                      <button type="button" class="admin-submit" data-lead-cost-save ${leadCostBusy ? 'disabled' : ''}>
+                        ${adminState.leadCost.saving ? 'Opslaan...' : 'Opslaan'}
+                      </button>
+                    </div>
+                  </div>
+                  ${
+                    adminState.leadCost.message
+                      ? `<div class="admin-message ${leadCostStatusClass}">${escapeHtml(adminState.leadCost.message)}</div>`
+                      : ''
+                  }
+                  ${adminState.leadCost.loading ? '<div class="admin-meta">Leadkosten worden geladen...</div>' : ''}
+                  <div class="admin-mapping-block">
+                    <div class="admin-mapping-table-wrapper">
+                      <table class="admin-mapping-table">
+                        <thead>
+                          <tr>
+                            <th>Kanaal</th>
+                            <th>Kost per Lead (EUR)</th>
+                          </tr>
+                        </thead>
+                        <tbody>${leadCostRowsMarkup}</tbody>
+                      </table>
+                    </div>
+                    <div class="admin-meta">Tip: zet Organic op 0 als je dit wil meenemen in de totale kost per lead.</div>
+                    ${leadCostMissingHintMarkup}
+                    ${leadCostOptionsList}
+                  </div>
+                </div>
+                ${
+                  adminAccessEnabled && loggedIn
                     ? `<div class="admin-section">
                         <div class="admin-section-header">
                           <div>
@@ -5176,6 +9540,11 @@ const renderAdminModal = () => {
                  <button type="submit" class="admin-submit" ${adminState.auth.status === 'sending' ? 'disabled' : ''}>
                    ${adminState.auth.status === 'sending' ? 'Versturen...' : 'Stuur magic link'}
                  </button>
+                 ${
+                   !adminModeEnabled && adminState.auth.requested
+                     ? '<button type="button" class="admin-ghost" data-admin-login-cancel>Terug naar instellingen</button>'
+                     : ''
+                 }
                </form>`
         }
       </div>
@@ -5277,19 +9646,42 @@ const computeMetrics = (range) => {
     { label: 'Lead -> Afspraak', value: formatPercent(conversionRate, 1), icon: icons.target('lucide lucide-target w-4 h-4 text-primary'), className: '' }
   ];
 
-  const sourceRows = SOURCE_ORDER.map((source) => {
-    const sourceEntries = filtered.filter((entry) => entry.source === source);
-    const sourceTotals = sourceEntries.reduce(
-      (acc, entry) => {
-        const confirmed = Math.max(entry.appointments - entry.cancelled - entry.noShow - entry.rescheduled, 0);
-        acc.leads += entry.leads;
-        acc.appointments += entry.appointments;
-        acc.confirmed += confirmed;
-        acc.cost += entry.leads * entry.costPerLead;
-        return acc;
-      },
-      { leads: 0, appointments: 0, confirmed: 0, cost: 0 }
-    );
+  const defaultSource = getDefaultDrilldownSource();
+  const denominatorKind = resolveSourceBreakdownCostDenominator();
+  const sourceTotalsByLabel = new Map();
+  filtered.forEach((entry) => {
+    const source = mapSourceToBucketLabel(entry.source) || defaultSource;
+    const current = sourceTotalsByLabel.get(source) || {
+      leads: 0,
+      appointments: 0,
+      confirmed: 0,
+      deals: 0,
+      cost: 0
+    };
+    const confirmed = Math.max(entry.appointments - entry.cancelled - entry.noShow - entry.rescheduled, 0);
+    current.leads += entry.leads;
+    current.appointments += entry.appointments;
+    current.confirmed += confirmed;
+    current.deals += entry.deals;
+    current.cost += entry.leads * entry.costPerLead;
+    sourceTotalsByLabel.set(source, current);
+  });
+
+  const orderedSources = Array.from(new Set([...getSourceBreakdownOrder(), ...Array.from(sourceTotalsByLabel.keys())]));
+  const sourceRows = orderedSources.map((source) => {
+    const sourceTotals = sourceTotalsByLabel.get(source) || {
+      leads: 0,
+      appointments: 0,
+      confirmed: 0,
+      deals: 0,
+      cost: 0
+    };
+    const costDenominator =
+      denominatorKind === 'deals'
+        ? sourceTotals.deals
+        : denominatorKind === 'appointments'
+          ? sourceTotals.appointments
+          : sourceTotals.confirmed;
 
     return {
       source,
@@ -5297,12 +9689,15 @@ const computeMetrics = (range) => {
       appointments: formatNumber(sourceTotals.appointments),
       confirmed: formatNumber(sourceTotals.confirmed),
       noLeadInRange: formatNumber(0),
+      deals: formatNumber(sourceTotals.deals),
       plan: formatPercent(safeDivide(sourceTotals.appointments, sourceTotals.leads), 1),
-      cost: formatCurrency(safeDivide(sourceTotals.cost, sourceTotals.confirmed), 2),
+      dealRate: formatPercent(safeDivide(sourceTotals.deals, sourceTotals.appointments), 1),
+      cost: costDenominator > 0 ? formatCurrency(sourceTotals.cost / costDenominator, 2) : '--',
       rawLeads: sourceTotals.leads,
       rawAppointments: sourceTotals.appointments,
       rawConfirmedAppointments: sourceTotals.confirmed,
-      rawNoLeadInRange: 0
+      rawNoLeadInRange: 0,
+      rawDeals: sourceTotals.deals
     };
   });
 
@@ -5692,24 +10087,29 @@ const applyLiveOverrides = (metrics, range) => {
   }
 
   if (liveState.sourceBreakdown.status === 'ready' && Array.isArray(liveState.sourceBreakdown.rows)) {
+    const defaultSource = getDefaultDrilldownSource();
     let liveRows = liveState.sourceBreakdown.rows.map((row) => {
       const leads = Number(row.leads ?? 0);
       const appointments = Number(row.appointments ?? 0);
       const confirmed = Number(row.appointments_confirmed ?? row.confirmed_appointments ?? 0);
       const noLeadInRange = Number(row.appointments_without_lead_in_range ?? 0);
+      const deals = Number(row.deals ?? 0);
 
       return {
-        source: row.source ?? 'Onbekend',
+        source: row.source ?? defaultSource,
         leads: formatNumber(leads),
         appointments: formatNumber(appointments),
         confirmed: formatNumber(confirmed),
         noLeadInRange: formatNumber(noLeadInRange),
+        deals: formatNumber(deals),
         plan: formatPercent(safeDivide(appointments, leads), 1),
+        dealRate: formatPercent(safeDivide(deals, appointments), 1),
         cost: '--',
         rawLeads: leads,
         rawAppointments: appointments,
         rawConfirmedAppointments: confirmed,
-        rawNoLeadInRange: noLeadInRange
+        rawNoLeadInRange: noLeadInRange,
+        rawDeals: deals
       };
     });
 
@@ -5742,25 +10142,91 @@ const applyLiveOverrides = (metrics, range) => {
     }
   }
 
+  const cplConfig = isMetricsDebugModeEnabled()
+    ? {}
+    : sanitizeCostPerLeadBySource(configState.costPerLeadBySource) || {};
+  const wantsCplFinance = Object.keys(cplConfig).length > 0;
+
+  if (wantsCplFinance) {
+    if (liveState.sourceBreakdown.status === 'ready' && Array.isArray(liveState.sourceBreakdown.rows)) {
+      let spend = 0;
+      let coveredLeads = 0;
+      (liveState.sourceBreakdown.rows || []).forEach((row) => {
+        const source = normalizeSourceLabel(row?.source);
+        const leads = Number(row?.leads ?? 0);
+        if (!source || leads <= 0) return;
+        if (!Object.prototype.hasOwnProperty.call(cplConfig, source)) return;
+        const cpl = Number(cplConfig[source]);
+        if (!Number.isFinite(cpl) || cpl < 0) return;
+        spend += leads * cpl;
+        coveredLeads += leads;
+      });
+
+      if (coveredLeads > 0) {
+        const costPerLead = spend / coveredLeads;
+        metrics.financeMetrics = [
+          {
+            label: 'Totale Leadkosten',
+            value: formatCurrency(spend, 0),
+            icon: icons.dollar('lucide lucide-dollar-sign w-4 h-4 text-primary'),
+            className: '',
+            isMock: false
+          },
+          {
+            label: 'Kost per Lead',
+            value: formatOptionalCurrency(costPerLead, 2),
+            icon: icons.chartColumn('lucide lucide-chart-column w-4 h-4 text-primary'),
+            className: '',
+            isMock: false
+          }
+        ];
+        return metrics;
+      }
+    } else if (liveState.sourceBreakdown.status === 'loading') {
+      metrics.financeMetrics = [
+        {
+          label: 'Totale Leadkosten',
+          value: '...',
+          icon: icons.dollar('lucide lucide-dollar-sign w-4 h-4 text-primary'),
+          className: '',
+          isMock: false
+        },
+        {
+          label: 'Kost per Lead',
+          value: '...',
+          icon: icons.chartColumn('lucide lucide-chart-column w-4 h-4 text-primary'),
+          className: '',
+          isMock: false
+        }
+      ];
+      return metrics;
+    }
+  }
+
   if (liveState.finance.status === 'ready') {
     const totals = liveState.finance.totals || {};
     const spend = Number(totals.total_spend ?? 0);
     const leads = Number(totals.total_leads ?? 0);
     const costPerLead = leads > 0 ? spend / leads : Number.NaN;
+    const financeRawValue = Math.max(spend, leads);
     metrics.financeMetrics = [
       {
         label: 'Totale Leadkosten',
         value: formatCurrency(spend, 0),
         icon: icons.dollar('lucide lucide-dollar-sign w-4 h-4 text-primary'),
         className: '',
-        isMock: false
+        isMock: false,
+        rawValue: financeRawValue,
+        drilldown: { kind: 'finance_spend' }
       },
       {
         label: 'Kost per Lead',
         value: formatOptionalCurrency(costPerLead, 2),
         icon: icons.chartColumn('lucide lucide-chart-column w-4 h-4 text-primary'),
         className: '',
-        isMock: false
+        isMock: false,
+        rawValue: financeRawValue,
+        drilldown: { kind: 'finance_spend' }
       }
     ];
   } else if (liveState.finance.status === 'loading') {
@@ -5798,9 +10264,14 @@ const renderNavLinks = (activeId, tabs = ALL_DASHBOARD_TABS) =>
     })
     .join('');
 
-const renderKpiCards = (cards) =>
-  cards
+const renderKpiCards = (cards, options = {}) => {
+  const animate = options.animate !== false;
+  const animateClass = animate ? ' animate-slide-up' : '';
+
+  return cards
     .map((card) => {
+      const extraClass = String(card?.className || '').trim();
+      const extraClassMarkup = extraClass ? ` ${extraClass}` : '';
       const canDrill = Boolean(card.drilldown) && card.isMock === false && Number(card.rawValue) > 0;
       const valueMarkup = renderDrilldownValue({
         value: card.value,
@@ -5812,7 +10283,7 @@ const renderKpiCards = (cards) =>
         fallbackTag: 'p'
       });
 
-      return `<div class="kpi-card animate-slide-up ${card.className}">
+      return `<div class="kpi-card${animateClass}${extraClassMarkup}">
           <div class="flex items-start justify-between gap-2">
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-2">
@@ -5829,9 +10300,11 @@ const renderKpiCards = (cards) =>
         </div>`;
     })
     .join('');
+};
 
-const renderSourceRows = (rows, isLive) =>
-  rows
+const renderSourceRows = (rows, isLive) => {
+  const dealsMode = resolveSourceBreakdownVariant() === 'deals';
+  return rows
     .map((row) => {
       const sourceText = row.source ? escapeHtml(row.source) : 'Onbekend';
       const leadsValue = renderDrilldownValue({
@@ -5867,6 +10340,26 @@ const renderSourceRows = (rows, isLive) =>
         className: 'drilldown-cell'
       });
 
+      if (dealsMode) {
+        const dealsValue = renderDrilldownValue({
+          value: row.deals,
+          kind: 'deals',
+          source: row.source,
+          label: 'Deals',
+          enabled: isLive && Number(row.rawDeals) > 0,
+          className: 'drilldown-cell'
+        });
+        return `<tr class="border-b transition-colors data-[state=selected]:bg-muted hover:bg-muted/50">
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 font-medium">${sourceText}</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${leadsValue}</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${appointmentsValue}</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${row.plan}</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${dealsValue}</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${row.dealRate}</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${row.cost}</td>
+        </tr>`;
+      }
+
       return `<tr class="border-b transition-colors data-[state=selected]:bg-muted hover:bg-muted/50">
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 font-medium">${sourceText}</td>
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${leadsValue}</td>
@@ -5878,34 +10371,274 @@ const renderSourceRows = (rows, isLive) =>
         </tr>`;
     })
     .join('');
+};
+
+const hasDrilldownFieldValue = (rows, field) =>
+  Array.isArray(rows) &&
+  rows.some((row) => {
+    const value = row?.[field];
+    if (value === null || value === undefined) return false;
+    if (typeof value === 'number') return Number.isFinite(value);
+    return Boolean(toTrimmedText(value));
+  });
+
+const formatDrilldownStatusType = (value) => {
+  const raw = (toTrimmedText(value) || '').toLowerCase();
+  if (!raw) return '';
+  if (raw === 'won') return 'Gewonnen';
+  if (raw === 'lost') return 'Verloren';
+  if (raw === 'open') return 'Open';
+  return raw;
+};
+
+const formatDrilldownAmount = (amount, currency = 'EUR') => {
+  const numeric = Number(amount);
+  if (!Number.isFinite(numeric)) return '--';
+  const code = toTrimmedText(currency) || 'EUR';
+  return `${code} ${formatNumber(numeric, 0)}`;
+};
+
+const summarizeFinanceDrilldown = (rows) => {
+  const safeRows = Array.isArray(rows) ? rows : [];
+  return safeRows.reduce(
+    (acc, row) => {
+      acc.spend += Number(row?.spend ?? 0);
+      acc.leads += Number(row?.leads ?? 0);
+      return acc;
+    },
+    { spend: 0, leads: 0 }
+  );
+};
+
+const hasDrilldownNumericValue = (rows, field) =>
+  Array.isArray(rows) &&
+  rows.some((row) => {
+    const raw = row?.[field];
+    if (raw === null || raw === undefined || raw === '') return false;
+    const value = Number(raw);
+    return Number.isFinite(value);
+  });
+
+const buildNonFinanceDrilldownColumns = (rows, options = {}) => ({
+  showStatusType: hasDrilldownFieldValue(rows, 'statusType'),
+  showSeller: hasDrilldownFieldValue(rows, 'seller_name'),
+  showLossReason: hasDrilldownFieldValue(rows, 'loss_reason'),
+  showContactPhone: hasDrilldownFieldValue(rows, 'contact_phone'),
+  showPipeline: hasDrilldownFieldValue(rows, 'pipeline_name'),
+  showPipelineStage: hasDrilldownFieldValue(rows, 'pipeline_stage_name'),
+  showAssignedTo: hasDrilldownFieldValue(rows, 'assigned_to'),
+  showOpportunityValue: hasDrilldownNumericValue(rows, 'monetary_value'),
+  showDealTitle: hasDrilldownFieldValue(rows, 'deal_title'),
+  showPhase: hasDrilldownFieldValue(rows, 'phase_label'),
+  showEstimatedValue: hasDrilldownNumericValue(rows, 'estimated_value'),
+  showTeamleader: Boolean(options.showTeamleader)
+});
+
+const renderFinanceDrilldownRows = (rows) =>
+  rows
+    .map((row) => {
+      const date = row?.date ? formatDisplayDate(row.date) : '--';
+      const source = row?.source ? escapeHtml(row.source) : 'Onbekend';
+      const spend = formatCurrency(Number(row?.spend ?? 0), 2);
+      const leads = formatNumber(Number(row?.leads ?? 0));
+      const cplValue = Number(row?.leads ?? 0) > 0 ? Number(row?.spend ?? 0) / Number(row.leads ?? 0) : Number.NaN;
+      const cpl = formatOptionalCurrency(cplValue, 2);
+
+      return `<tr class="border-b last:border-0">
+          <td class="px-3 py-2 text-sm text-foreground">${date}</td>
+          <td class="px-3 py-2 text-sm text-foreground">${source}</td>
+          <td class="px-3 py-2 text-sm text-foreground text-right">${spend}</td>
+          <td class="px-3 py-2 text-sm text-foreground text-right">${leads}</td>
+          <td class="px-3 py-2 text-sm text-muted-foreground text-right">${cpl}</td>
+        </tr>`;
+    })
+    .join('');
+
+const renderFinanceAdsetDrilldownRows = (rows) =>
+  rows
+    .map((row) => {
+      const source = row?.source ? escapeHtml(row.source) : 'Onbekend';
+      const campaign = escapeHtml(
+        formatMetaEntityLabel(row?.campaign_name, row?.campaign_id, 'Campagne')
+      );
+      const adset = escapeHtml(formatMetaEntityLabel(row?.adset_name, row?.adset_id, 'Adset'));
+      const spend = formatCurrency(Number(row?.spend ?? 0), 2);
+      const leads = formatNumber(Number(row?.leads ?? 0));
+      const cplValue = Number(row?.leads ?? 0) > 0 ? Number(row?.spend ?? 0) / Number(row.leads ?? 0) : Number.NaN;
+      const cpl = formatOptionalCurrency(cplValue, 2);
+
+      return `<tr class="border-b last:border-0">
+          <td class="px-3 py-2 text-sm text-foreground">${source}</td>
+          <td class="px-3 py-2 text-sm text-foreground">${campaign}</td>
+          <td class="px-3 py-2 text-sm text-foreground">${adset}</td>
+          <td class="px-3 py-2 text-sm text-foreground text-right">${spend}</td>
+          <td class="px-3 py-2 text-sm text-foreground text-right">${leads}</td>
+          <td class="px-3 py-2 text-sm text-muted-foreground text-right">${cpl}</td>
+        </tr>`;
+    })
+    .join('');
+
+const renderFinanceCampaignDrilldownRows = (rows) =>
+  rows
+    .map((row) => {
+      const source = row?.source ? escapeHtml(row.source) : 'Onbekend';
+      const campaign = escapeHtml(
+        formatMetaEntityLabel(row?.campaign_name, row?.campaign_id, 'Campagne')
+      );
+      const spend = formatCurrency(Number(row?.spend ?? 0), 2);
+      const leads = formatNumber(Number(row?.leads ?? 0));
+      const cplValue = Number(row?.leads ?? 0) > 0 ? Number(row?.spend ?? 0) / Number(row.leads ?? 0) : Number.NaN;
+      const cpl = formatOptionalCurrency(cplValue, 2);
+
+      return `<tr class="border-b last:border-0">
+          <td class="px-3 py-2 text-sm text-foreground">${source}</td>
+          <td class="px-3 py-2 text-sm text-foreground">${campaign}</td>
+          <td class="px-3 py-2 text-sm text-foreground text-right">${spend}</td>
+          <td class="px-3 py-2 text-sm text-foreground text-right">${leads}</td>
+          <td class="px-3 py-2 text-sm text-muted-foreground text-right">${cpl}</td>
+        </tr>`;
+    })
+    .join('');
+
+const renderFinanceAdDrilldownRows = (rows) =>
+  rows
+    .map((row) => {
+      const source = row?.source ? escapeHtml(row.source) : 'Onbekend';
+      const campaign = escapeHtml(
+        formatMetaEntityLabel(row?.campaign_name, row?.campaign_id, 'Campagne')
+      );
+      const adset = escapeHtml(formatMetaEntityLabel(row?.adset_name, row?.adset_id, 'Adset'));
+      const ad = escapeHtml(formatMetaEntityLabel(row?.ad_name, row?.ad_id, 'Ad'));
+      const spend = formatCurrency(Number(row?.spend ?? 0), 2);
+      const leads = formatNumber(Number(row?.leads ?? 0));
+      const cplValue = Number(row?.leads ?? 0) > 0 ? Number(row?.spend ?? 0) / Number(row.leads ?? 0) : Number.NaN;
+      const cpl = formatOptionalCurrency(cplValue, 2);
+
+      return `<tr class="border-b last:border-0">
+          <td class="px-3 py-2 text-sm text-foreground">${source}</td>
+          <td class="px-3 py-2 text-sm text-foreground">${campaign}</td>
+          <td class="px-3 py-2 text-sm text-foreground">${adset}</td>
+          <td class="px-3 py-2 text-sm text-foreground">${ad}</td>
+          <td class="px-3 py-2 text-sm text-foreground text-right">${spend}</td>
+          <td class="px-3 py-2 text-sm text-foreground text-right">${leads}</td>
+          <td class="px-3 py-2 text-sm text-muted-foreground text-right">${cpl}</td>
+        </tr>`;
+    })
+    .join('');
 
 const renderDrilldownRows = (rows, options = {}) =>
   rows
     .map((row) => {
       const occurred = formatDateTime(row.occurred_at);
-      const contactName = row.contact_name ? escapeHtml(row.contact_name) : '--';
+      const contactId = toTrimmedText(row?.contact_id);
+      const locationId = configState.locationId || ghlLocationId;
+      const ghlUrl = buildGhlContactUrl(locationId, contactId);
+      const contactName = row.contact_name ? escapeHtml(row.contact_name) : '';
+      const contactEmailRaw = toTrimmedText(row?.contact_email);
+      const ghlFallbackUrl = contactEmailRaw ? buildGhlContactSearchUrl(locationId, contactEmailRaw) : '';
+      const ghlLink = ghlUrl || ghlFallbackUrl;
+      const contactCell = ghlUrl
+        ? `<a class="text-primary hover:underline" href="${escapeHtml(ghlUrl)}" target="_blank" rel="noreferrer">${
+            contactName || 'Open contact'
+          }</a>`
+        : ghlLink
+          ? `<a class="text-primary hover:underline" href="${escapeHtml(ghlLink)}" target="_blank" rel="noreferrer">${
+              contactName || 'Open contact'
+            }</a>`
+          : contactName || '--';
       const contactEmail = row.contact_email ? escapeHtml(row.contact_email) : '--';
+      const contactPhone = row.contact_phone ? escapeHtml(row.contact_phone) : '--';
       const source = row.source ? escapeHtml(row.source) : 'Onbekend';
       const status = row.status ? escapeHtml(row.status) : '--';
+      const statusType = formatDrilldownStatusType(row?.statusType);
+      const sellerName = row?.seller_name ? escapeHtml(row.seller_name) : '--';
+      const lossReason = row?.loss_reason ? escapeHtml(row.loss_reason) : '--';
       const type = row.record_type ? escapeHtml(row.record_type) : 'record';
+      const columns = options.columns || {};
+      const bundleCount = Number(row?.bundle_count ?? 1);
+      const bundleKey = toTrimmedText(row?.bundle_key);
+      const bundleBadge =
+        options.showBundle && Number.isFinite(bundleCount) && bundleCount > 1
+          ? `<button type="button" class="inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold border-primary/30 bg-primary/10 text-primary hover:bg-primary/20 transition-colors" data-sales-drill="all" data-sales-drill-label="Onderliggende offertes" data-sales-bundle-key="${escapeHtml(
+              bundleKey || ''
+            )}">Bundel x${formatNumber(bundleCount)}</button>`
+          : '';
+      const statusTypeCell = columns.showStatusType
+        ? `<td class="px-3 py-2 text-sm text-muted-foreground">${statusType ? escapeHtml(statusType) : '--'}</td>`
+        : '';
+      const sellerCell = columns.showSeller
+        ? `<td class="px-3 py-2 text-sm text-foreground">${sellerName}</td>`
+        : '';
+      const lossReasonCell = columns.showLossReason
+        ? `<td class="px-3 py-2 text-sm text-muted-foreground">${lossReason}</td>`
+        : '';
+      const dealTitleCell = columns.showDealTitle
+        ? `<td class="px-3 py-2 text-sm text-foreground">${row?.deal_title ? escapeHtml(row.deal_title) : '--'}</td>`
+        : '';
+      const phaseCell = columns.showPhase
+        ? `<td class="px-3 py-2 text-sm text-muted-foreground">${row?.phase_label ? escapeHtml(row.phase_label) : '--'}</td>`
+        : '';
+      const contactPhoneCell = columns.showContactPhone
+        ? `<td class="px-3 py-2 text-sm text-muted-foreground">${contactPhone}</td>`
+        : '';
+      const pipelineCell = columns.showPipeline
+        ? `<td class="px-3 py-2 text-sm text-muted-foreground">${
+            row?.pipeline_name ? escapeHtml(row.pipeline_name) : '--'
+          }</td>`
+        : '';
+      const pipelineStageCell = columns.showPipelineStage
+        ? `<td class="px-3 py-2 text-sm text-muted-foreground">${
+            row?.pipeline_stage_name ? escapeHtml(row.pipeline_stage_name) : '--'
+          }</td>`
+        : '';
+      const assignedToCell = columns.showAssignedTo
+        ? `<td class="px-3 py-2 text-sm text-muted-foreground">${row?.assigned_to ? escapeHtml(row.assigned_to) : '--'}</td>`
+        : '';
+      const opportunityValueCell = columns.showOpportunityValue
+        ? `<td class="px-3 py-2 text-sm text-muted-foreground text-right">${formatDrilldownAmount(
+            row?.monetary_value
+          )}</td>`
+        : '';
+      const estimatedValueCell = columns.showEstimatedValue
+        ? `<td class="px-3 py-2 text-sm text-muted-foreground text-right">${formatDrilldownAmount(
+            row?.estimated_value,
+            row?.estimated_currency
+          )}</td>`
+        : '';
       const teamleaderUrl = options.showTeamleader
         ? row.record_url || buildTeamleaderDealUrl(row.record_id)
-        : "";
+        : '';
       const teamleaderCell = options.showTeamleader
         ? `<td class="px-3 py-2 text-sm text-foreground">${
             teamleaderUrl
               ? `<a class="text-primary hover:underline" href="${escapeHtml(teamleaderUrl)}" target="_blank" rel="noreferrer">Open</a>`
               : '--'
           }</td>`
-        : "";
+        : '';
 
       return `<tr class="border-b last:border-0">
-          <td class="px-3 py-2 text-xs font-semibold uppercase text-muted-foreground">${type}</td>
+          <td class="px-3 py-2 text-xs font-semibold uppercase text-muted-foreground">
+            <div class="flex items-center gap-2">
+              <span>${type}</span>
+              ${bundleBadge}
+            </div>
+          </td>
           <td class="px-3 py-2 text-sm text-foreground">${occurred}</td>
-          <td class="px-3 py-2 text-sm text-foreground">${contactName}</td>
+          <td class="px-3 py-2 text-sm text-foreground">${contactCell}</td>
           <td class="px-3 py-2 text-sm text-muted-foreground">${contactEmail}</td>
+          ${contactPhoneCell}
+          ${pipelineCell}
+          ${pipelineStageCell}
+          ${assignedToCell}
+          ${opportunityValueCell}
+          ${dealTitleCell}
+          ${phaseCell}
+          ${estimatedValueCell}
           <td class="px-3 py-2 text-sm text-foreground">${source}</td>
           <td class="px-3 py-2 text-sm text-muted-foreground">${status}</td>
+          ${statusTypeCell}
+          ${sellerCell}
+          ${lossReasonCell}
           ${teamleaderCell}
         </tr>`;
     })
@@ -5917,17 +10650,108 @@ const renderDrilldownModal = () => {
   const rangeLabel = range ? `${formatDisplayDate(range.start)} -> ${formatDisplayDate(range.end)}` : '';
   const sourceLabel = getDrilldownFilterLabel(drilldownState.kind, drilldownState.source);
   const subtitle = [rangeLabel, sourceLabel].filter(Boolean).join(' | ');
-  const showTeamleaderLink = String(drilldownState.kind || '').startsWith('sales_');
+  const isFinance = isFinanceDrilldown(drilldownState.kind);
+  const isSalesDrilldown = String(drilldownState.kind || '').startsWith('sales_');
+  const financeView = drilldownState.financeView || 'daily';
+  const financeToggle = isFinance
+    ? `<div class="drilldown-toggle">
+         <button type="button" class="drilldown-toggle-btn${financeView === 'daily' ? ' active' : ''}" data-finance-view="daily">Per dag</button>
+         <button type="button" class="drilldown-toggle-btn${financeView === 'campaign' ? ' active' : ''}" data-finance-view="campaign">Per campagne</button>
+         <button type="button" class="drilldown-toggle-btn${financeView === 'adset' ? ' active' : ''}" data-finance-view="adset">Per adset</button>
+         <button type="button" class="drilldown-toggle-btn${financeView === 'ad' ? ' active' : ''}" data-finance-view="ad">Per ad</button>
+       </div>`
+    : '';
+  const showTeamleaderLink = !isFinance && String(drilldownState.kind || '').startsWith('sales_');
+  const drilldownRows = Array.isArray(drilldownState.rows) ? drilldownState.rows : [];
+  const nonFinanceColumns = buildNonFinanceDrilldownColumns(drilldownRows, { showTeamleader: showTeamleaderLink });
+  const financeSummary = summarizeFinanceDrilldown(drilldownRows);
+  const financeCplValue = financeSummary.leads > 0 ? financeSummary.spend / financeSummary.leads : Number.NaN;
+  const financeSummaryMarkup = isFinance
+    ? `<div class="drilldown-meta">
+         <span><strong>${formatNumber(drilldownRows.length)}</strong> rijen</span>
+         <span>Kosten: <strong>${formatCurrency(financeSummary.spend, 2)}</strong></span>
+         <span>Leads: <strong>${formatNumber(financeSummary.leads)}</strong></span>
+         <span>Kost/Lead: <strong>${formatOptionalCurrency(financeCplValue, 2)}</strong></span>
+       </div>`
+    : '';
+  const recordsSummaryMarkup = !isFinance
+    ? `<div class="drilldown-meta">
+         <span><strong>${formatNumber(drilldownRows.length)}</strong> records</span>
+       </div>`
+    : '';
 
   let body = '';
   if (drilldownState.status === 'loading') {
     body = '<div class="drilldown-loading">Records laden...</div>';
   } else if (drilldownState.status === 'error') {
     body = `<div class="drilldown-error">${escapeHtml(drilldownState.errorMessage || 'Onbekende fout')}</div>`;
-  } else if (!drilldownState.rows?.length) {
+  } else if (!drilldownRows.length) {
     body = '<div class="drilldown-empty">Geen records gevonden voor deze selectie.</div>';
+  } else if (isFinance) {
+    body = `
+      ${financeSummaryMarkup}
+      <div class="drilldown-table-wrapper">
+        <table class="drilldown-table">
+          <thead>
+            ${
+              financeView === 'ad'
+                ? `<tr>
+                     <th>Bron</th>
+                     <th>Campagne</th>
+                     <th>Adset</th>
+                     <th>Ad</th>
+                     <th class="text-right">Kosten</th>
+                     <th class="text-right">Leads</th>
+                     <th class="text-right">Kost/Lead</th>
+                   </tr>`
+                : financeView === 'adset'
+                  ? `<tr>
+                       <th>Bron</th>
+                       <th>Campagne</th>
+                       <th>Adset</th>
+                       <th class="text-right">Kosten</th>
+                       <th class="text-right">Leads</th>
+                       <th class="text-right">Kost/Lead</th>
+                     </tr>`
+                  : financeView === 'campaign'
+                    ? `<tr>
+                         <th>Bron</th>
+                         <th>Campagne</th>
+                         <th class="text-right">Kosten</th>
+                         <th class="text-right">Leads</th>
+                         <th class="text-right">Kost/Lead</th>
+                       </tr>`
+                    : `<tr>
+                         <th>Datum</th>
+                         <th>Bron</th>
+                         <th class="text-right">Kosten</th>
+                         <th class="text-right">Leads</th>
+                         <th class="text-right">Kost/Lead</th>
+                       </tr>`
+            }
+          </thead>
+          <tbody>
+            ${
+              financeView === 'ad'
+                ? renderFinanceAdDrilldownRows(drilldownRows)
+                : financeView === 'adset'
+                  ? renderFinanceAdsetDrilldownRows(drilldownRows)
+                  : financeView === 'campaign'
+                    ? renderFinanceCampaignDrilldownRows(drilldownRows)
+                    : renderFinanceDrilldownRows(drilldownRows)
+            }
+          </tbody>
+        </table>
+      </div>
+    `;
   } else {
     body = `
+      ${recordsSummaryMarkup}
+      ${
+        isSalesDrilldown
+          ? '<div class="px-1 pb-3 text-xs text-muted-foreground">Rijen zijn gebundeld per klant. <span class="font-semibold">Bundel xN</span> toont hoeveel offertes/deals voor die klant samengevoegd zijn.</div>'
+          : ''
+      }
       <div class="drilldown-table-wrapper">
         <table class="drilldown-table">
           <thead>
@@ -5936,14 +10760,28 @@ const renderDrilldownModal = () => {
               <th>Datum</th>
               <th>Contact</th>
               <th>Email</th>
+              ${nonFinanceColumns.showContactPhone ? '<th>Telefoon</th>' : ''}
+              ${nonFinanceColumns.showPipeline ? '<th>Pipeline</th>' : ''}
+              ${nonFinanceColumns.showPipelineStage ? '<th>Pipeline fase</th>' : ''}
+              ${nonFinanceColumns.showAssignedTo ? '<th>Assignee</th>' : ''}
+              ${nonFinanceColumns.showOpportunityValue ? '<th class="text-right">Opportunity Waarde</th>' : ''}
+              ${nonFinanceColumns.showDealTitle ? '<th>Titel</th>' : ''}
+              ${nonFinanceColumns.showPhase ? '<th>Fase</th>' : ''}
+              ${nonFinanceColumns.showEstimatedValue ? '<th class="text-right">Waarde</th>' : ''}
               <th>Source</th>
               <th>Status</th>
-              ${showTeamleaderLink ? '<th>Teamleader</th>' : ''}
-              
+              ${nonFinanceColumns.showStatusType ? '<th>Status Type</th>' : ''}
+              ${nonFinanceColumns.showSeller ? '<th>Verkoper</th>' : ''}
+              ${nonFinanceColumns.showLossReason ? '<th>Verliesreden</th>' : ''}
+              ${nonFinanceColumns.showTeamleader ? '<th>Teamleader</th>' : ''}
             </tr>
           </thead>
           <tbody>
-            ${renderDrilldownRows(drilldownState.rows, { showTeamleader: showTeamleaderLink })}
+            ${renderDrilldownRows(drilldownRows, {
+              showTeamleader: nonFinanceColumns.showTeamleader,
+              showBundle: isSalesDrilldown,
+              columns: nonFinanceColumns
+            })}
           </tbody>
         </table>
       </div>
@@ -5958,6 +10796,7 @@ const renderDrilldownModal = () => {
           <div>
             <h3 class="drilldown-title">${escapeHtml(drilldownState.title || 'Records')}</h3>
             ${subtitle ? `<p class="drilldown-subtitle">${subtitle}</p>` : ''}
+            ${financeToggle}
           </div>
           <button type="button" class="drilldown-close" data-drilldown-close>Sluit</button>
         </div>
@@ -5965,6 +10804,13 @@ const renderDrilldownModal = () => {
       </div>
     </div>
   `;
+};
+
+const formatLostReasonDisplayLabel = (value) => {
+  const raw = toTrimmedText(value);
+  if (!raw) return 'Onbekend';
+  if (/^[0-9a-f]{24}$/i.test(raw)) return `Onbekend (${raw.slice(0, 6)}...)`;
+  return raw;
 };
 
 const renderLostReasons = (reasons, isLive) =>
@@ -5979,11 +10825,12 @@ const renderLostReasons = (reasons, isLive) =>
         className: 'text-sm font-medium text-foreground w-16 text-right inline-block',
         fallbackTag: 'span'
       });
+      const displayLabel = formatLostReasonDisplayLabel(reason.label);
 
       return `<div class="flex items-center justify-between p-3 bg-secondary/30 rounded-lg">
           <div class="flex items-center gap-3">
             <div class="w-3 h-3 rounded-full" style="background-color: ${reason.color};"></div>
-            <span class="text-sm text-foreground">${reason.label}</span>
+            <span class="text-sm text-foreground">${escapeHtml(displayLabel)}</span>
             ${
               reason.highlight
                 ? '<div class="inline-flex items-center rounded-full border px-2.5 py-0.5 font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-destructive text-destructive-foreground hover:bg-destructive/80 text-xs">Top reden</div>'
@@ -6029,6 +10876,7 @@ const renderLostReasonsChart = (reasons) => {
     .map((reason, index) => {
       const percent = safeDivide(reason.count, total) * 100;
       const isDefault = index === defaultIndex;
+      const displayLabel = formatLostReasonDisplayLabel(reason.label);
       return `
         <button
           type="button"
@@ -6039,10 +10887,10 @@ const renderLostReasonsChart = (reasons) => {
           data-percent="${percent.toFixed(3)}"
           data-color="${escapeHtml(reason.color)}"
           aria-pressed="${isDefault ? 'true' : 'false'}"
-          title="${escapeHtml(reason.label)} - ${formatNumber(percent, 1)}%"
+          title="${escapeHtml(displayLabel)} - ${formatNumber(percent, 1)}%"
         >
           <span class="lost-reason-dot" style="background-color: ${reason.color};"></span>
-          <span class="lost-reason-name" data-lost-label>${escapeHtml(reason.label)}</span>
+          <span class="lost-reason-name" data-lost-label>${escapeHtml(displayLabel)}</span>
           <span class="lost-reason-meta">${formatNumber(percent, 1)}%</span>
         </button>
       `;
@@ -6055,7 +10903,7 @@ const renderLostReasonsChart = (reasons) => {
         <div class="lost-reason-center">
           <p class="lost-reason-kicker">Verloren leads</p>
           <p class="lost-reason-total" data-lost-total>${formatNumber(total)}</p>
-          <p class="lost-reason-active" data-lost-active>${escapeHtml(defaultReason?.label ?? 'Onbekend')}</p>
+          <p class="lost-reason-active" data-lost-active>${escapeHtml(formatLostReasonDisplayLabel(defaultReason?.label ?? 'Onbekend'))}</p>
           <p class="lost-reason-percent" data-lost-percent>${formatNumber(defaultPercent, 1)}%</p>
         </div>
       </div>
@@ -6074,11 +10922,15 @@ const getLostReasonTip = (reasons) => {
   const labelRaw = topReason?.label ? String(topReason.label) : '';
   const label = labelRaw ? escapeHtml(labelRaw) : 'Onbekend';
   const normalized = labelRaw.trim().toLowerCase();
+  const looksLikeObjectId = /^[0-9a-f]{24}$/i.test(labelRaw.trim());
   if (!topReason || !Number.isFinite(topReason.count) || topReason.count <= 0) {
     return 'Vul een verliesreden in op je lead om betere inzichten te krijgen.';
   }
   if (!labelRaw || normalized === 'geen data' || normalized === 'onbekend') {
     return 'Vul een verliesreden in op je lead om betere inzichten te krijgen.';
+  }
+  if (looksLikeObjectId) {
+    return 'Er zijn verloren leads met een GHL lostReasonId zonder label. Map deze ID naar een label via Instellingen > Verliesredenen.';
   }
   return `"${label}" is je grootste blocker. Overweeg een gratis waardebepaling of exclusieve verkooptips te delen.`;
 };
@@ -6341,7 +11193,7 @@ const resolveLayoutSections = (layoutOverride) => {
 const resolveDashboardTabs = (layoutOverride) => {
   const rawLayout = layoutOverride ?? configState.dashboardLayout;
   const rawTabs = rawLayout && Array.isArray(rawLayout.dashboards) ? rawLayout.dashboards : null;
-  if (!rawTabs) return ALL_DASHBOARD_TABS;
+  if (!rawTabs) return DEFAULT_DASHBOARD_TABS;
 
   const normalized = rawTabs
     .map((entry) => {
@@ -6360,43 +11212,38 @@ const resolveDashboardTabs = (layoutOverride) => {
     })
     .filter(Boolean);
 
-  return normalized.length ? normalized : ALL_DASHBOARD_TABS;
-};
-
-const resolveBrandingRaw = () => {
-  const title =
-    typeof configState.dashboardTitle === 'string' && configState.dashboardTitle.trim()
-      ? configState.dashboardTitle.trim()
-      : DEFAULT_BRANDING.title;
-  const subtitleFromConfig =
-    typeof configState.dashboardSubtitle === 'string' && configState.dashboardSubtitle.trim()
-      ? configState.dashboardSubtitle.trim()
-      : '';
-  const headerSubtitle = subtitleFromConfig || DEFAULT_BRANDING.headerSubtitle;
-  const pageSubtitle = subtitleFromConfig || DEFAULT_BRANDING.pageSubtitle;
-  const logoUrl =
-    typeof configState.dashboardLogoUrl === 'string' && configState.dashboardLogoUrl.trim()
-      ? configState.dashboardLogoUrl.trim()
-      : DEFAULT_BRANDING.logoUrl;
-  const logoAlt = title ? `${title} logo` : DEFAULT_BRANDING.logoAlt;
-
-  return {
-    title,
-    headerSubtitle,
-    pageSubtitle,
-    logoUrl,
-    logoAlt
-  };
+  return normalized.length ? normalized : DEFAULT_DASHBOARD_TABS;
 };
 
 const resolveBranding = () => {
-  const raw = resolveBrandingRaw();
+  const title = configState.dashboardTitle || envDashboardTitle || DEFAULT_BRANDING.title;
+  const headerSubtitle = configState.dashboardSubtitle || envDashboardSubtitle || DEFAULT_BRANDING.headerSubtitle;
+  const pageSubtitle = configState.dashboardSubtitle || envDashboardSubtitle || DEFAULT_BRANDING.pageSubtitle;
+  const logoUrl = configState.dashboardLogoUrl || envDashboardLogoUrl || DEFAULT_BRANDING.logoUrl;
+  const logoAlt = title ? `${title} logo` : DEFAULT_BRANDING.logoAlt;
+
   return {
-    title: escapeHtml(raw.title),
-    headerSubtitle: escapeHtml(raw.headerSubtitle),
-    pageSubtitle: escapeHtml(raw.pageSubtitle),
-    logoUrl: escapeHtml(raw.logoUrl),
-    logoAlt: escapeHtml(raw.logoAlt)
+    title: escapeHtml(title),
+    headerSubtitle: escapeHtml(headerSubtitle),
+    pageSubtitle: escapeHtml(pageSubtitle),
+    logoUrl: escapeHtml(logoUrl),
+    logoAlt: escapeHtml(logoAlt),
+    raw: {
+      title,
+      headerSubtitle,
+      pageSubtitle,
+      logoUrl,
+      logoAlt
+    }
+  };
+};
+
+const resolveSidebarBranding = () => {
+  const logoUrl = envSidebarLogoUrl || DEFAULT_SIDEBAR_BRANDING.logoUrl;
+  const logoAlt = envSidebarLogoAlt || DEFAULT_SIDEBAR_BRANDING.logoAlt;
+  return {
+    logoUrl: escapeHtml(logoUrl),
+    logoAlt: escapeHtml(logoAlt)
   };
 };
 
@@ -6410,85 +11257,320 @@ const normalizeThemeKey = (value) => {
     .replace(/^-|-$/g, '');
 };
 
-const inferBrandThemeFromTitle = (title) => {
-  const normalizedTitle = normalizeThemeKey(title);
-  if (!normalizedTitle) return '';
-  if (normalizedTitle.includes('belivert')) return 'belivert';
-  return '';
-};
+const BRAND_THEME_STORAGE_KEY = 'dashboard_brand_theme';
 
-const resolveBrandTheme = (branding) => {
-  const explicitTheme = normalizeThemeKey(BRAND_DEFAULT_THEME);
-  if (explicitTheme === 'belivert') return explicitTheme;
-  return inferBrandThemeFromTitle(branding?.title);
-};
-
-const applyBrandTheme = (themeKey) => {
-  const rootNode = document.documentElement;
-  if (!rootNode) return;
-  if (themeKey) {
-    rootNode.setAttribute('data-brand-theme', themeKey);
-  } else {
-    rootNode.removeAttribute('data-brand-theme');
-  }
-};
-
-const normalizeSiteUrl = (value) => {
-  if (typeof value !== 'string') return '';
-  const trimmed = value.trim();
-  if (!trimmed) return '';
-  if (/^https?:\/\//i.test(trimmed)) {
-    return trimmed.replace(/\/+$/, '');
-  }
-  if (/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(trimmed)) {
-    return `https://${trimmed}`.replace(/\/+$/, '');
-  }
-  return '';
-};
-
-const toAbsoluteUrl = (value, siteUrl = '') => {
-  if (typeof value !== 'string') return '';
-  const trimmed = value.trim();
-  if (!trimmed) return '';
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  if (!trimmed.startsWith('/')) return '';
-
-  const base = normalizeSiteUrl(siteUrl) || window.location.origin;
+const readCachedBrandTheme = () => {
   try {
-    return new URL(trimmed, `${base}/`).toString();
-  } catch {
+    return normalizeThemeKey(localStorage.getItem(BRAND_THEME_STORAGE_KEY) || '');
+  } catch (error) {
     return '';
   }
 };
 
-const setMetaContent = (selector, value) => {
-  const node = document.head.querySelector(selector);
-  if (!node || typeof value !== 'string') return;
-  node.setAttribute('content', value);
+const writeCachedBrandTheme = (theme) => {
+  try {
+    if (theme) {
+      localStorage.setItem(BRAND_THEME_STORAGE_KEY, theme);
+    } else {
+      localStorage.removeItem(BRAND_THEME_STORAGE_KEY);
+    }
+  } catch (error) {
+    // Ignore localStorage access issues (privacy mode, blocked storage, etc.).
+  }
 };
 
-const applyDocumentBranding = () => {
-  const branding = resolveBrandingRaw();
-  applyBrandTheme(resolveBrandTheme(branding));
-  const siteUrl = normalizeSiteUrl(PREVIEW_DEFAULT_SITE_URL) || window.location.origin;
-  const previewTitle = branding.title || PREVIEW_DEFAULT_TITLE;
-  const previewDescription = branding.pageSubtitle || PREVIEW_DEFAULT_DESCRIPTION;
-  const previewAuthor = branding.title || PREVIEW_DEFAULT_AUTHOR;
-  const imageFromEnv = toAbsoluteUrl(PREVIEW_DEFAULT_IMAGE_URL, siteUrl);
-  const imageFromBranding = toAbsoluteUrl(branding.logoUrl, siteUrl);
-  const previewImage = imageFromEnv || imageFromBranding || `${siteUrl}/favicon-512.png`;
+const getLayoutThemeHint = () => {
+  const layout = configState.dashboardLayout;
+  if (!layout || typeof layout !== 'object' || Array.isArray(layout)) return '';
 
-  document.title = previewTitle;
-  setMetaContent('meta[name="description"]', previewDescription);
-  setMetaContent('meta[name="author"]', previewAuthor);
-  setMetaContent('meta[property="og:title"]', previewTitle);
-  setMetaContent('meta[property="og:description"]', previewDescription);
-  setMetaContent('meta[property="og:url"]', siteUrl);
-  setMetaContent('meta[property="og:image"]', previewImage);
-  setMetaContent('meta[property="og:site_name"]', previewTitle);
-  setMetaContent('meta[name="twitter:title"]', previewTitle);
-  setMetaContent('meta[name="twitter:description"]', previewDescription);
-  setMetaContent('meta[name="twitter:image"]', previewImage);
+  const direct = layout.theme || layout.brand || layout.brand_theme || layout.brandTheme;
+  if (typeof direct === 'string' && direct.trim()) return direct.trim();
+
+  const branding = layout.branding;
+  if (!branding || typeof branding !== 'object') return '';
+  const nested = branding.theme || branding.key || branding.slug;
+  return typeof nested === 'string' && nested.trim() ? nested.trim() : '';
+};
+
+const resolveBrandTheme = () => {
+  const explicitTheme = normalizeThemeKey(envDashboardTheme || getLayoutThemeHint());
+  if (explicitTheme === 'belivert' || explicitTheme === 'belivet') {
+    return 'belivert';
+  }
+
+  const candidate = [
+    explicitTheme,
+    normalizeThemeKey(configState.dashboardTitle || ''),
+    normalizeThemeKey(configState.dashboardSubtitle || ''),
+    normalizeThemeKey(configState.dashboardLogoUrl || ''),
+    normalizeThemeKey(envDashboardTitle),
+    normalizeThemeKey(envDashboardSubtitle),
+    normalizeThemeKey(envDashboardLogoUrl),
+    normalizeThemeKey(DEFAULT_BRANDING.title)
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  if (candidate.includes('belivert') || candidate.includes('belivet')) {
+    return 'belivert';
+  }
+
+  // During initial load, keep the previously-detected theme to avoid a flash of template styles.
+  if (configState.status !== 'ready') {
+    const cachedTheme = readCachedBrandTheme();
+    if (cachedTheme === 'belivert' || cachedTheme === 'belivet') {
+      return 'belivert';
+    }
+  }
+
+  return '';
+};
+
+const applyBrandTheme = () => {
+  const rootNode = document.documentElement;
+  if (!rootNode) return;
+  const theme = resolveBrandTheme();
+  if (theme) {
+    rootNode.setAttribute('data-brand-theme', theme);
+    writeCachedBrandTheme(theme);
+  } else {
+    rootNode.removeAttribute('data-brand-theme');
+    if (configState.status === 'ready') {
+      writeCachedBrandTheme('');
+    }
+  }
+};
+
+
+// Optional per-customer brand colors (set via dashboard_layout.branding.colors or env vars).
+// These override a small set of CSS variables so we can brand without shipping client-specific CSS.
+const BRAND_COLOR_VAR_KEYS = [
+  'primary',
+  'primary-foreground',
+  'secondary',
+  'secondary-foreground',
+  'ring',
+  'sidebar-primary',
+  'sidebar-primary-foreground',
+  'sidebar-ring',
+  'gradient-primary',
+  'gradient-secondary',
+  'shadow-glow',
+  'chart-1',
+  'chart-2'
+];
+
+const clampNumber = (value, min, max) => Math.min(max, Math.max(min, value));
+
+const parseHexColor = (value) => {
+  if (typeof value !== 'string') return null;
+  const raw = value.trim();
+  if (!raw) return null;
+  const match = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(raw);
+  if (!match?.[1]) return null;
+  let hex = match[1].toLowerCase();
+  if (hex.length === 3) {
+    hex = hex
+      .split('')
+      .map((ch) => ch + ch)
+      .join('');
+  }
+  const r = Number.parseInt(hex.slice(0, 2), 16);
+  const g = Number.parseInt(hex.slice(2, 4), 16);
+  const b = Number.parseInt(hex.slice(4, 6), 16);
+  if (![r, g, b].every(Number.isFinite)) return null;
+  return { r, g, b };
+};
+
+const rgbToHsl = (rgb) => {
+  const r = rgb.r / 255;
+  const g = rgb.g / 255;
+  const b = rgb.b / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+
+  let h = 0;
+  let s = 0;
+  const l = (max + min) / 2;
+
+  if (delta !== 0) {
+    s = l > 0.5 ? delta / (2 - max - min) : delta / (max + min);
+    switch (max) {
+      case r:
+        h = (g - b) / delta + (g < b ? 6 : 0);
+        break;
+      case g:
+        h = (b - r) / delta + 2;
+        break;
+      default:
+        h = (r - g) / delta + 4;
+        break;
+    }
+    h /= 6;
+  }
+
+  return { h: h * 360, s: s * 100, l: l * 100 };
+};
+
+const formatHslVar = (hsl) => {
+  const h = Math.round(clampNumber(hsl.h, 0, 360));
+  const s = Math.round(clampNumber(hsl.s, 0, 100));
+  const l = Math.round(clampNumber(hsl.l, 0, 100));
+  return `${h} ${s}% ${l}%`;
+};
+
+const shadeHsl = (hsl, options = {}) => {
+  const sMul = typeof options.sMul === 'number' ? options.sMul : 1;
+  const lDelta = typeof options.lDelta === 'number' ? options.lDelta : 0;
+  return {
+    h: hsl.h,
+    s: clampNumber(hsl.s * sMul, 0, 100),
+    l: clampNumber(hsl.l + lDelta, 0, 100)
+  };
+};
+
+const srgbChannelToLinear = (channel) => {
+  const value = clampNumber(channel / 255, 0, 1);
+  return value <= 0.04045 ? value / 12.92 : Math.pow((value + 0.055) / 1.055, 2.4);
+};
+
+const relativeLuminance = (rgb) => {
+  const r = srgbChannelToLinear(rgb.r);
+  const g = srgbChannelToLinear(rgb.g);
+  const b = srgbChannelToLinear(rgb.b);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+
+const contrastRatio = (lumA, lumB) => {
+  const [lighter, darker] = lumA >= lumB ? [lumA, lumB] : [lumB, lumA];
+  return (lighter + 0.05) / (darker + 0.05);
+};
+
+const pickForegroundVar = (rgb) => {
+  const lum = relativeLuminance(rgb);
+  const whiteContrast = contrastRatio(1, lum);
+  const blackContrast = contrastRatio(lum, 0);
+  return whiteContrast >= blackContrast ? '0 0% 100%' : '0 0% 15%';
+};
+
+const readLayoutBrandColors = () => {
+  const layout = configState.dashboardLayout;
+  if (!layout || typeof layout !== 'object' || Array.isArray(layout)) return null;
+  const branding = layout.branding;
+  if (!branding || typeof branding !== 'object') return null;
+  const colors = branding.colors;
+  if (!colors || typeof colors !== 'object') return null;
+  return {
+    primary: typeof colors.primary === 'string' ? colors.primary.trim() : '',
+    secondary: typeof colors.secondary === 'string' ? colors.secondary.trim() : ''
+  };
+};
+
+const applyBrandColors = () => {
+  const rootNode = document.documentElement;
+  if (!rootNode) return;
+
+  const layoutColors = readLayoutBrandColors() || {};
+  const primaryRaw = layoutColors.primary || envDashboardPrimaryColor;
+  const secondaryRaw = layoutColors.secondary || envDashboardSecondaryColor;
+
+  const primaryRgb = parseHexColor(primaryRaw);
+  const secondaryRgb = parseHexColor(secondaryRaw);
+
+  if (!primaryRgb && !secondaryRgb) {
+    BRAND_COLOR_VAR_KEYS.forEach((key) => rootNode.style.removeProperty(`--${key}`));
+    return;
+  }
+
+  const setVar = (key, value) => {
+    if (value) rootNode.style.setProperty(`--${key}`, value);
+    else rootNode.style.removeProperty(`--${key}`);
+  };
+
+  if (primaryRgb) {
+    const primary = rgbToHsl(primaryRgb);
+    const primaryDark = shadeHsl(primary, { sMul: 0.85, lDelta: -8 });
+    const primaryVar = formatHslVar(primary);
+    setVar('primary', primaryVar);
+    setVar('primary-foreground', pickForegroundVar(primaryRgb));
+    setVar('sidebar-primary', primaryVar);
+    setVar('sidebar-primary-foreground', pickForegroundVar(primaryRgb));
+    setVar('gradient-primary', `linear-gradient(135deg, hsl(${primaryVar}), hsl(${formatHslVar(primaryDark)}))`);
+    setVar('chart-1', primaryVar);
+  } else {
+    setVar('primary', '');
+    setVar('primary-foreground', '');
+    setVar('sidebar-primary', '');
+    setVar('sidebar-primary-foreground', '');
+    setVar('gradient-primary', '');
+    setVar('chart-1', '');
+  }
+
+  if (secondaryRgb) {
+    const secondary = rgbToHsl(secondaryRgb);
+    const secondaryDark = shadeHsl(secondary, { sMul: 0.9, lDelta: -7 });
+    const secondaryVar = formatHslVar(secondary);
+    setVar('secondary', secondaryVar);
+    setVar('secondary-foreground', pickForegroundVar(secondaryRgb));
+    setVar('gradient-secondary', `linear-gradient(135deg, hsl(${secondaryVar}), hsl(${formatHslVar(secondaryDark)}))`);
+    setVar('chart-2', secondaryVar);
+  } else {
+    setVar('secondary', '');
+    setVar('secondary-foreground', '');
+    setVar('gradient-secondary', '');
+    setVar('chart-2', '');
+  }
+
+  const ringRgb = secondaryRgb || primaryRgb;
+  if (ringRgb) {
+    const ringVar = formatHslVar(rgbToHsl(ringRgb));
+    setVar('ring', ringVar);
+    setVar('sidebar-ring', ringVar);
+    setVar('shadow-glow', `0 0 40px hsl(${ringVar} / 0.15)`);
+  } else {
+    setVar('ring', '');
+    setVar('sidebar-ring', '');
+    setVar('shadow-glow', '');
+  }
+};
+
+const absolutizeUrl = (value) => {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith('//')) return `${window.location.protocol}${trimmed}`;
+  if (trimmed.startsWith('/')) return `${window.location.origin}${trimmed}`;
+  return `${window.location.origin}/${trimmed.replace(/^\.?\//, '')}`;
+};
+
+const setMetaTag = (attr, key, content) => {
+  if (!content || !document?.head) return;
+  let node = document.head.querySelector(`meta[${attr}="${key}"]`);
+  if (!node) {
+    node = document.createElement('meta');
+    node.setAttribute(attr, key);
+    document.head.appendChild(node);
+  }
+  node.setAttribute('content', content);
+};
+
+const applyDocumentBranding = (branding) => {
+  if (!branding) return;
+  const title = envMetaTitle || `${branding.title} Dashboard`;
+  const description =
+    envMetaDescription ||
+    branding.pageSubtitle ||
+    branding.headerSubtitle ||
+    DEFAULT_BRANDING.pageSubtitle;
+  const image = absolutizeUrl(envMetaImage || branding.logoUrl || '');
+
+  document.title = title;
+  setMetaTag('name', 'description', description);
+  setMetaTag('property', 'og:title', title);
+  setMetaTag('property', 'og:description', description);
+  if (image) setMetaTag('property', 'og:image', image);
 };
 
 const resolveSectionText = (value, fallback) => {
@@ -6512,7 +11594,8 @@ const filterCardsByLabels = (cards, labels) => {
 
 const isSectionEnabled = (section) => section?.enabled !== false && section?.hidden !== true;
 
-const renderFunnelSection = (section, metrics) => {
+const renderFunnelSection = (section, metrics, options = {}) => {
+  const animateKpis = options.animateKpis !== false;
   const cards = filterCardsByLabels(metrics.funnelMetrics, resolveSectionLabels(section));
   if (!cards.length) return '';
   const title = escapeHtml(resolveSectionText(section?.title, 'Funnel Metrics'));
@@ -6533,13 +11616,14 @@ const renderFunnelSection = (section, metrics) => {
       </h2>
       ${descriptionMarkup}
       <div class="${columns}">
-        ${renderKpiCards(cards)}
+        ${renderKpiCards(cards, { animate: animateKpis })}
       </div>
     </section>
   `;
 };
 
-const renderFinanceSection = (section, metrics) => {
+const renderFinanceSection = (section, metrics, options = {}) => {
+  const animateKpis = options.animateKpis !== false;
   const cards = filterCardsByLabels(metrics.financeMetrics, resolveSectionLabels(section));
   if (!cards.length) return '';
   const title = escapeHtml(resolveSectionText(section?.title, 'Financiele Metrics'));
@@ -6560,17 +11644,28 @@ const renderFinanceSection = (section, metrics) => {
       </h2>
       ${descriptionMarkup}
       <div class="${columns}">
-        ${renderKpiCards(cards)}
+        ${renderKpiCards(cards, { animate: animateKpis })}
       </div>
     </section>
   `;
 };
 
 const renderSourceBreakdownSection = (section, metrics) => {
+  const variant = resolveSourceBreakdownVariant();
+  const dealsMode = variant === 'deals';
+  const denominatorKind = resolveSourceBreakdownCostDenominator();
+  const costLabel =
+    denominatorKind === 'deals'
+      ? 'Cost per Deal'
+      : denominatorKind === 'appointments'
+        ? 'Cost per Afspraak'
+        : 'Cost per Confirmed';
   const title = escapeHtml(resolveSectionText(section?.title, 'Source Breakdown'));
   const description = resolveSectionText(
     section?.description,
-    'Prestaties per leadgenerator - Leads = opportunities in periode - extra kolom = afspraken zonder lead in periode'
+    dealsMode
+      ? 'Prestaties per leadgenerator'
+      : 'Prestaties per leadgenerator - Leads = opportunities in periode - extra kolom = afspraken zonder lead in periode'
   );
   const descriptionMarkup = description ? `<p class="text-sm text-gray-500 mb-4">${escapeHtml(description)}</p>` : '';
 
@@ -6590,10 +11685,21 @@ const renderSourceBreakdownSection = (section, metrics) => {
                 <th class="h-12 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0">Bron</th>
                 <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Leads</th>
                 <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Appointments</th>
+                ${
+                  dealsMode
+                    ? `
+                <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Inplan %</th>
+                <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Deals</th>
+                <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">% naar Deals</th>
+                <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">${escapeHtml(costLabel)}</th>
+                `
+                    : `
                 <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Confirmed</th>
                 <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Afspraken zonder lead in periode</th>
                 <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Inplan %</th>
-                <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Cost per Afspraak</th>
+                <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">${escapeHtml(costLabel)}</th>
+                `
+                }
               </tr>
             </thead>
             <tbody class="[&_tr:last-child]:border-0">
@@ -6679,16 +11785,17 @@ const renderLostReasonsSection = (section, metrics) => {
   `;
 };
 
-const renderDashboardSections = (layoutOverride, metrics) => {
+const renderDashboardSections = (layoutOverride, metrics, options = {}) => {
+  const animateKpis = options.animateKpis !== false;
   const sections = resolveLayoutSections(layoutOverride);
   return sections
     .filter(isSectionEnabled)
     .map((section) => {
       const kind = String(section?.kind || section?.type || '').trim();
       if (!kind) return '';
-      if (kind === 'funnel_metrics') return renderFunnelSection(section, metrics);
+      if (kind === 'funnel_metrics') return renderFunnelSection(section, metrics, { animateKpis });
       if (kind === 'source_breakdown') return renderSourceBreakdownSection(section, metrics);
-      if (kind === 'finance_metrics') return renderFinanceSection(section, metrics);
+      if (kind === 'finance_metrics') return renderFinanceSection(section, metrics, { animateKpis });
       if (kind === 'hook_performance') return renderHookPerformanceSection(section, metrics);
       if (kind === 'lost_reasons') return renderLostReasonsSection(section, metrics);
       return '';
@@ -6720,6 +11827,12 @@ const getRequiredLiveData = (layoutOverride) => {
       required.spendBySource = true;
     } else if (kind === 'finance_metrics') {
       required.finance = true;
+      const cplConfig = isMetricsDebugModeEnabled()
+        ? {}
+        : sanitizeCostPerLeadBySource(configState.costPerLeadBySource) || {};
+      if (Object.keys(cplConfig).length) {
+        required.sourceBreakdown = true;
+      }
     } else if (kind === 'hook_performance') {
       required.hookPerformance = true;
       required.spendBySource = true;
@@ -6731,7 +11844,23 @@ const getRequiredLiveData = (layoutOverride) => {
   return required;
 };
 
+const isLiveStateDoneForKey = (state, rangeKey) =>
+  state?.rangeKey === rangeKey && (state?.status === 'ready' || state?.status === 'error');
+
+const isLeadCoreLiveReadyForKey = (requiredLive, rangeKey) =>
+  (!requiredLive.opportunities || isLiveStateDoneForKey(liveState.opportunities, rangeKey)) &&
+  (!requiredLive.appointments || isLiveStateDoneForKey(liveState.appointments, rangeKey));
+
 const root = document.getElementById('root');
+
+const buildBootMarkup = () => `
+  <div class="min-h-screen w-full bg-background flex items-center justify-center">
+    <div class="flex flex-col items-center gap-3 px-6 py-4 rounded-2xl border border-border/60 bg-card/80 shadow-sm">
+      <div class="h-10 w-10 rounded-full border-4 border-muted-foreground/20 border-t-primary animate-spin"></div>
+      <p class="text-sm font-semibold text-muted-foreground">Dashboard laden...</p>
+    </div>
+  </div>
+`;
 
 const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = ALL_DASHBOARD_TABS) => {
   const metrics = applyLiveOverrides(computeMetrics(range), range);
@@ -6739,27 +11868,51 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
   const layout = resolveLayoutSections(layoutOverride);
   const requiredLive = getRequiredLiveData(layout);
   const branding = resolveBranding();
+  const sidebarBranding = resolveSidebarBranding();
   const sidebarFooter = configState.dashboardTitle ? `${branding.title} Dashboard` : 'Dashboard Template';
   const activeRoute = routeId || 'lead';
+  const selectedLeadPipelineId = resolveLeadOpportunityPipelineId();
+  const leadPipelineOptionsBase = Array.isArray(leadPipelineFilterState.options)
+    ? leadPipelineFilterState.options
+    : [];
+  const hasSelectedLeadPipelineOption = leadPipelineOptionsBase.some(
+    (option) => normalizePipelineId(option?.id) === selectedLeadPipelineId
+  );
+  const leadPipelineOptions =
+    selectedLeadPipelineId && !hasSelectedLeadPipelineOption
+      ? [{ id: selectedLeadPipelineId, name: selectedLeadPipelineId, count: 0 }, ...leadPipelineOptionsBase]
+      : leadPipelineOptionsBase;
+  const leadPipelineSelectOptionsMarkup = [
+    `<option value=""${selectedLeadPipelineId ? '' : ' selected'}>Alle pipelines</option>`,
+    ...leadPipelineOptions
+      .map((option) => {
+        const id = normalizePipelineId(option?.id);
+        if (!id) return '';
+        const name = toTrimmedText(option?.name) || id;
+        const label = name === id ? id : name;
+        const selected = id === selectedLeadPipelineId ? ' selected' : '';
+        return `<option value="${escapeHtml(id)}"${selected}>${escapeHtml(label)}</option>`;
+      })
+      .filter(Boolean)
+  ].join('');
+  const leadPipelineLoading =
+    leadPipelineFilterState.status === 'loading' || leadPipelineFilterState.status === 'idle';
+  const leadPipelineDisabled =
+    !supabase || configState.status !== 'ready' || !configState.locationId || leadPipelineLoading;
+  const leadPipelineStatusMarkup =
+    leadPipelineFilterState.status === 'error'
+      ? '<div class="text-xs text-amber-600">Pipeline lijst tijdelijk niet beschikbaar.</div>'
+      : leadPipelineLoading
+        ? '<div class="text-xs text-muted-foreground">Pipelines laden...</div>'
+        : '';
 
   const rangeKey = buildRangeKey(range);
-  const isDoneForKey = (state) =>
-    state?.rangeKey === rangeKey && (state?.status === 'ready' || state?.status === 'error');
+  const coreLiveDone = isLeadCoreLiveReadyForKey(requiredLive, rangeKey);
 
-  const wantsHookPerformance =
-    requiredLive.hookPerformance && Boolean(configState.hookFieldId || configState.campaignFieldId);
-
-  const liveDone =
-    (!requiredLive.opportunities || isDoneForKey(liveState.opportunities)) &&
-    (!requiredLive.appointments || isDoneForKey(liveState.appointments)) &&
-    (!requiredLive.sourceBreakdown || isDoneForKey(liveState.sourceBreakdown)) &&
-    (!requiredLive.finance || isDoneForKey(liveState.finance)) &&
-    (!requiredLive.spendBySource || isDoneForKey(liveState.spendBySource)) &&
-    (!wantsHookPerformance || isDoneForKey(liveState.hookPerformance)) &&
-    (!requiredLive.lostReasons || isDoneForKey(liveState.lostReasons));
-
-  // Prevent a flash of placeholder/mock values: show a loader overlay until required live data is ready (or errored).
-  const showLoadingOverlay = Boolean(supabase) && configState.status !== 'error' && (!liveDone || configState.status !== 'ready');
+  // Keep the blocking loader focused on core funnel cards.
+  // Heavy drilldown sections continue to load in the background.
+  const showLoadingOverlay =
+    Boolean(supabase) && configState.status !== 'error' && (!coreLiveDone || configState.status !== 'ready');
   const loadingOverlayMarkup = showLoadingOverlay
     ? `
       <div class="absolute inset-0 z-20 bg-background/95 backdrop-blur-sm flex items-start justify-center">
@@ -6770,6 +11923,13 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
       </div>
     `
     : '';
+
+  const kpiAnimationKey = `${activeRoute}:${rangeKey}`;
+  const contentVisible = !showLoadingOverlay;
+  const animateKpis = contentVisible && lastVisibleKpiAnimationKey !== kpiAnimationKey;
+  if (contentVisible) {
+    lastVisibleKpiAnimationKey = kpiAnimationKey;
+  }
 
   return `
     <div role="region" aria-label="Notifications (F8)" tabindex="-1" style="pointer-events: none;">
@@ -6782,7 +11942,7 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
         <div class="h-14 flex items-center justify-between px-4 border-b border-sidebar-border">
           <div class="flex items-center gap-3">
             <div class="flex items-center rounded-lg bg-white/90 px-3 py-1.5 shadow-sm ring-1 ring-black/5">
-              <img src="${branding.logoUrl}" alt="${branding.logoAlt}" class="h-9 w-auto object-contain" />
+              <img src="${sidebarBranding.logoUrl}" alt="${sidebarBranding.logoAlt}" class="h-9 w-auto object-contain" />
             </div>
           </div>
           <button class="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground hidden lg:flex" data-sidebar-toggle>
@@ -6802,7 +11962,7 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
         </div>
       </aside>
       <div class="flex-1 flex flex-col min-w-0">
-        <header class="h-16 border-b border-border bg-card shadow-sm flex items-center justify-between px-6 sticky top-0 z-40">
+        <header class="h-14 border-b border-border bg-card/50 backdrop-blur-sm flex items-center justify-between px-6 sticky top-0 z-40">
           <div class="flex items-center gap-4">
             <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 lg:hidden hover:bg-accent" aria-label="Sluit menu" data-sidebar-toggle>
               ${icons.menu('lucide lucide-menu h-5 w-5')}
@@ -6818,21 +11978,7 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
             </div>
           </div>
           <div class="flex items-center gap-4">
-            <div class="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-secondary/10 border border-secondary/20">
-              <div class="w-2 h-2 rounded-full bg-secondary animate-pulse"></div>
-              <div class="flex flex-col leading-tight">
-                <span class="text-xs font-semibold text-secondary">Live Data</span>
-                <span class="text-[10px] text-muted-foreground">
-                  ${
-                    liveState.sync.status === 'loading'
-                      ? 'Laatste sync: laden...'
-                      : liveState.sync.status === 'ready'
-                        ? formatSyncTimestamp(liveState.sync.timestamp)
-                        : 'Laatste sync: onbekend'
-                  }
-                </span>
-              </div>
-            </div>
+            ${renderLatestSyncBadge('hidden sm:flex')}
             ${
               settingsEnabled
                 ? `<button class="admin-trigger" type="button" data-admin-open>${settingsButtonLabel}</button>`
@@ -6849,17 +11995,27 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
               <h1 class="text-2xl font-bold text-foreground tracking-tight">${branding.title}</h1>
               <p class="text-sm text-muted-foreground">${branding.pageSubtitle}</p>
             </div>
-            <div class="date-picker relative flex items-center gap-2 flex-wrap">
-              <button class="date-trigger${pickerState.selecting === 'start' && pickerState.open ? ' active' : ''}" type="button" data-date-trigger="start">
-                ${icons.calendar('lucide lucide-calendar h-4 w-4')}
-                ${formatDisplayDate(range.start)}
-              </button>
-              <span class="text-muted-foreground">-></span>
-              <button class="date-trigger${pickerState.selecting === 'end' && pickerState.open ? ' active' : ''}" type="button" data-date-trigger="end">
-                ${icons.calendar('lucide lucide-calendar h-4 w-4')}
-                ${formatDisplayDate(range.end)}
-              </button>
-              ${renderDatePicker(range)}
+            <div class="flex items-end gap-3 flex-wrap justify-end">
+              <div class="flex flex-col gap-1 min-w-[15rem]">
+                <span class="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Pipeline</span>
+                <select class="admin-input" data-lead-pipeline-filter ${leadPipelineDisabled ? 'disabled' : ''}>
+                  ${leadPipelineSelectOptionsMarkup}
+                </select>
+                ${leadPipelineStatusMarkup}
+              </div>
+              <div class="date-picker relative flex items-center gap-2 flex-wrap">
+                <button class="date-trigger${pickerState.selecting === 'start' && pickerState.open ? ' active' : ''}" type="button" data-date-trigger="start">
+                  ${icons.calendar('lucide lucide-calendar h-4 w-4')}
+                  ${formatDisplayDate(range.start)}
+                </button>
+                <span class="text-muted-foreground">-></span>
+                <button class="date-trigger${pickerState.selecting === 'end' && pickerState.open ? ' active' : ''}" type="button" data-date-trigger="end">
+                  ${icons.calendar('lucide lucide-calendar h-4 w-4')}
+                  ${formatDisplayDate(range.end)}
+                </button>
+                ${renderQuickRangeButtonsMarkup(range)}
+                ${renderDatePicker(range)}
+              </div>
             </div>
           </div>
           ${
@@ -6877,7 +12033,7 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
            <div class="mt-6 relative">
              ${loadingOverlayMarkup}
             <div class="space-y-8${showLoadingOverlay ? ' opacity-0 pointer-events-none select-none' : ''}">
-              ${renderDashboardSections(layout, metrics)}
+              ${renderDashboardSections(layout, metrics, { animateKpis })}
             </div>
            </div>
          </main>
@@ -6893,9 +12049,17 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
 
 const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
   const branding = resolveBranding();
+  const sidebarBranding = resolveSidebarBranding();
   const sidebarFooter = configState.dashboardTitle ? `${branding.title} Dashboard` : 'Dashboard Template';
   const salesKey = buildRangeKey(dateRange);
   const showLoadingOverlay = Boolean(supabase) && (salesState.status !== 'ready' || salesState.rangeKey !== salesKey);
+  const salesAnimationKey = `sales:${salesKey}`;
+  const salesContentVisible = !showLoadingOverlay;
+  const animateKpis = salesContentVisible && lastVisibleKpiAnimationKey !== salesAnimationKey;
+  if (salesContentVisible) {
+    lastVisibleKpiAnimationKey = salesAnimationKey;
+  }
+  const salesMainMarkup = animateKpis ? SALES_MAIN_MARKUP : SALES_MAIN_MARKUP.replaceAll(' animate-slide-up', '');
   const initialDealCount = salesState?.data?.totals?.deals;
   const salesStatus = MOCK_ENABLED
     ? {
@@ -6911,7 +12075,7 @@ const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
         }
       : initialDealCount > 0
         ? {
-            label: 'Live data',
+            label: 'Sales sync OK',
             className: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-700',
             dotClass: 'bg-emerald-500'
           }
@@ -6931,7 +12095,9 @@ const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
       <aside class="fixed lg:sticky lg:top-0 z-50 h-screen bg-sidebar border-r border-sidebar-border transition-all duration-300 flex flex-col overflow-hidden w-64 translate-x-0 sidebar-panel">
         <div class="h-14 flex items-center justify-between px-4 border-b border-sidebar-border">
           <div class="flex items-center gap-3">
-            <img src="${branding.logoUrl}" alt="${branding.logoAlt}" class="h-8 w-auto" />
+            <div class="flex items-center rounded-lg bg-white/90 px-3 py-1.5 shadow-sm ring-1 ring-black/5">
+              <img src="${sidebarBranding.logoUrl}" alt="${sidebarBranding.logoAlt}" class="h-9 w-auto object-contain" />
+            </div>
           </div>
           <button class="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground hidden lg:flex" data-sidebar-toggle>
             ${icons.chevronLeft('lucide lucide-chevron-left w-4 h-4 transition-transform')}
@@ -6946,34 +12112,33 @@ const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
           </div>
         </nav>
         <div class="p-4 border-t border-sidebar-border">
-          <p class="text-xs text-muted-foreground text-center">${sidebarFooter}</p>
+          <p class="text-xs text-sidebar-foreground/60 text-center">${sidebarFooter}</p>
         </div>
       </aside>
       <div class="flex-1 flex flex-col min-w-0">
-        <header class="h-16 border-b border-border bg-gradient-to-r from-card via-card to-card/80 backdrop-blur-sm flex items-center justify-between px-6 sticky top-0 z-40">
+        <header class="h-14 border-b border-border bg-card/50 backdrop-blur-sm flex items-center justify-between px-6 sticky top-0 z-40">
           <div class="flex items-center gap-4">
-            <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 lg:hidden hover:bg-secondary" aria-label="Sluit menu" data-sidebar-toggle>
+            <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 lg:hidden hover:bg-accent" aria-label="Sluit menu" data-sidebar-toggle>
               ${icons.menu('lucide lucide-menu h-5 w-5')}
             </button>
             <div class="flex items-center gap-3">
-              <img src="${branding.logoUrl}" alt="${branding.logoAlt}" class="h-10 w-auto object-contain" />
+              <div class="flex items-center rounded-xl bg-white/80 px-3.5 py-2 shadow-sm ring-1 ring-black/5">
+                <img src="${branding.logoUrl}" alt="${branding.logoAlt}" class="h-10 w-auto object-contain" />
+              </div>
               <div class="hidden sm:block">
-                <div class="text-lg font-bold text-foreground tracking-tight">${branding.title}</div>
+                <div class="text-lg font-bold text-primary tracking-tight">${branding.title}</div>
                 <p class="text-xs text-muted-foreground -mt-0.5">${branding.headerSubtitle}</p>
               </div>
             </div>
           </div>
           <div class="flex items-center gap-4">
-            <div class="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full border ${salesStatus.className}" data-sales-status>
-              <div class="w-2 h-2 rounded-full ${salesStatus.dotClass}" data-sales-status-dot></div>
-              <span class="text-xs font-medium" data-sales-status-label>${salesStatus.label}</span>
-            </div>
+            ${renderLatestSyncBadge('hidden lg:flex')}
             ${
               settingsEnabled
                 ? `<button class="admin-trigger" type="button" data-admin-open>${settingsButtonLabel}</button>`
                 : ''
             }
-            <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 hover:bg-secondary" title="Herlaad pagina" data-action="refresh">
+            <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 hover:bg-accent" title="Herlaad pagina" data-action="refresh">
               ${icons.refresh('lucide lucide-refresh-cw h-4 w-4')}
             </button>
           </div>
@@ -6988,7 +12153,7 @@ const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
             </div>
           </div>
           <div class="${showLoadingOverlay ? 'opacity-0 pointer-events-none select-none' : ''}" data-sales-loading-content>
-            ${SALES_MAIN_MARKUP}
+            ${salesMainMarkup}
           </div>
         </main>
         <footer class="h-12 border-t border-border bg-card/30 flex items-center justify-center px-6">
@@ -7003,6 +12168,7 @@ const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
 
 const buildCallCenterMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
   const branding = resolveBranding();
+  const sidebarBranding = resolveSidebarBranding();
   const sidebarFooter = configState.dashboardTitle ? `${branding.title} Dashboard` : 'Dashboard Template';
 
   return `
@@ -7016,7 +12182,7 @@ const buildCallCenterMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
         <div class="h-14 flex items-center justify-between px-4 border-b border-sidebar-border">
           <div class="flex items-center gap-3">
             <div class="flex items-center rounded-lg bg-white/90 px-3 py-1.5 shadow-sm ring-1 ring-black/5">
-              <img src="${branding.logoUrl}" alt="${branding.logoAlt}" class="h-9 w-auto object-contain" />
+              <img src="${sidebarBranding.logoUrl}" alt="${sidebarBranding.logoAlt}" class="h-9 w-auto object-contain" />
             </div>
           </div>
           <button class="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground hidden lg:flex" data-sidebar-toggle>
@@ -7036,7 +12202,7 @@ const buildCallCenterMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
         </div>
       </aside>
       <div class="flex-1 flex flex-col min-w-0">
-        <header class="h-16 border-b border-border bg-card shadow-sm flex items-center justify-between px-6 sticky top-0 z-40">
+        <header class="h-14 border-b border-border bg-card/50 backdrop-blur-sm flex items-center justify-between px-6 sticky top-0 z-40">
           <div class="flex items-center gap-4">
             <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 lg:hidden hover:bg-accent" aria-label="Sluit menu" data-sidebar-toggle>
               ${icons.menu('lucide lucide-menu h-5 w-5')}
@@ -7052,21 +12218,7 @@ const buildCallCenterMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
             </div>
           </div>
           <div class="flex items-center gap-4">
-            <div class="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-secondary/10 border border-secondary/20">
-              <div class="w-2 h-2 rounded-full bg-secondary animate-pulse"></div>
-              <div class="flex flex-col leading-tight">
-                <span class="text-xs font-semibold text-secondary">Live Data</span>
-                <span class="text-[10px] text-muted-foreground">
-                  ${
-                    liveState.sync.status === 'loading'
-                      ? 'Laatste sync: laden...'
-                      : liveState.sync.status === 'ready'
-                        ? formatSyncTimestamp(liveState.sync.timestamp)
-                        : 'Laatste sync: onbekend'
-                  }
-                </span>
-              </div>
-            </div>
+            ${renderLatestSyncBadge('hidden sm:flex')}
             ${
               settingsEnabled
                 ? `<button class="admin-trigger" type="button" data-admin-open>${settingsButtonLabel}</button>`
@@ -7102,7 +12254,24 @@ const buildCallCenterMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
 
 const renderApp = () => {
   if (!root) return;
-  applyDocumentBranding();
+  applyBrandTheme();
+  applyBrandColors();
+
+  // Avoid flashing template branding/layout while the per-customer config is still loading.
+  if (
+    Boolean(supabase) &&
+    configState.status !== 'error' &&
+    configState.status !== 'ready'
+  ) {
+    if (configState.status === 'idle') {
+      loadLocationConfig();
+    }
+    root.innerHTML = buildBootMarkup();
+    return;
+  }
+
+  const branding = resolveBranding();
+  applyDocumentBranding(branding.raw);
   const dashboardTabs = resolveDashboardTabs();
   const routeId = getRouteId(dashboardTabs);
   if (routeId === 'sales') {
@@ -7110,6 +12279,7 @@ const renderApp = () => {
     renderSalesDateControls();
     bindInteractions();
     bindSalesClicks();
+    ensureLatestSync();
     ensureSalesData();
     return;
   }
@@ -7122,16 +12292,21 @@ const renderApp = () => {
 
   const layout = resolveLayoutSections();
   const required = getRequiredLiveData(layout);
+  const rangeKey = buildRangeKey(dateRange);
+  const coreLiveDone = isLeadCoreLiveReadyForKey(required, rangeKey);
   root.innerHTML = buildMarkup(dateRange, layout, routeId, dashboardTabs);
   bindInteractions();
+  ensureLeadPipelineFilterOptions();
   if (required.opportunities) ensureOpportunityCount(dateRange);
   if (required.appointments) ensureAppointmentCounts(dateRange);
   ensureLatestSync();
-  if (required.sourceBreakdown) ensureSourceBreakdown(dateRange);
-  if (required.hookPerformance) ensureHookPerformance(dateRange);
-  if (required.finance) ensureFinanceSummary(dateRange);
-  if (required.spendBySource) ensureSpendBySource(dateRange);
-  if (required.lostReasons) ensureLostReasons(dateRange);
+  if (coreLiveDone) {
+    if (required.sourceBreakdown) ensureSourceBreakdown(dateRange);
+    if (required.hookPerformance) ensureHookPerformance(dateRange);
+    if (required.finance) ensureFinanceSummary(dateRange);
+    if (required.spendBySource) ensureSpendBySource(dateRange);
+    if (required.lostReasons) ensureLostReasons(dateRange);
+  }
 };
 
 const isDesktop = () => window.matchMedia('(min-width: 1024px)').matches;
@@ -7167,6 +12342,34 @@ const bindInteractions = () => {
     refresh.addEventListener('click', () => window.location.reload());
   }
 
+  document.querySelectorAll('[data-quick-range-days]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const daysRaw = button.getAttribute('data-quick-range-days');
+      const days = Number(daysRaw);
+      if (!Number.isFinite(days) || days <= 0) return;
+
+      const { start, end } = buildLastNDaysRange(days);
+      dateRange = normalizeRange(start, end);
+      pickerState.open = false;
+      pickerState.selecting = 'start';
+      pickerState.viewMonth = dateRange.start.slice(0, 7);
+      renderApp();
+    });
+  });
+
+  const leadPipelineFilter = document.querySelector('[data-lead-pipeline-filter]');
+  if (leadPipelineFilter) {
+    leadPipelineFilter.addEventListener('change', (event) => {
+      const nextPipelineId = normalizePipelineId(event?.target?.value);
+      const currentPipelineId = resolveLeadOpportunityPipelineId();
+      if (nextPipelineId === currentPipelineId) return;
+
+      leadPipelineFilterState.overrideId = nextPipelineId;
+      resetLeadPipelineDependentLiveState();
+      renderApp();
+    });
+  }
+
   document.querySelectorAll('[data-drill-kind]').forEach((button) => {
     button.addEventListener('click', () => {
       if (button.disabled) return;
@@ -7177,9 +12380,45 @@ const bindInteractions = () => {
     });
   });
 
+  applyMetricInfoTooltips();
+
   document.querySelectorAll('[data-drilldown-close]').forEach((button) => {
     button.addEventListener('click', () => {
       closeDrilldown();
+      renderApp();
+    });
+  });
+
+  document.querySelectorAll('[data-finance-view]').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const view = button.getAttribute('data-finance-view');
+      if (!view || drilldownState.financeView === view) return;
+      if (!isFinanceDrilldown(drilldownState.kind)) return;
+      if (!drilldownState.range) return;
+      drilldownState.financeView = view;
+      drilldownState.status = 'loading';
+      drilldownState.errorMessage = '';
+      drilldownState.rows = [];
+      renderApp();
+
+      try {
+        const rows = await withTimeout(
+          fetchDrilldownRecords({
+            kind: drilldownState.kind,
+            source: drilldownState.source,
+            range: drilldownState.range,
+            view: drilldownState.financeView
+          }),
+          DRILLDOWN_FETCH_TIMEOUT_MS,
+          'Drilldown duurt te lang. Probeer een kleinere periode.'
+        );
+        drilldownState.status = 'ready';
+        drilldownState.rows = Array.isArray(rows) ? rows : [];
+      } catch (error) {
+        drilldownState.status = 'error';
+        drilldownState.errorMessage = error instanceof Error ? error.message : 'Onbekende fout';
+      }
+
       renderApp();
     });
   });
@@ -7192,17 +12431,27 @@ const bindInteractions = () => {
         adminState.message = '';
         adminState.auth.message = '';
         adminState.auth.status = 'idle';
+        adminState.auth.requested = false;
         adminState.loading = false;
         adminState.kpi.message = '';
+        adminState.lostReasons.message = '';
+        adminState.sources.message = '';
+        adminState.leadCost.message = '';
         renderApp();
         if (authSession) {
-          if (adminModeEnabled) {
+          if (isAdminAccessEnabled()) {
             loadAdminIntegration();
             loadSpendMapping();
           }
           loadKpiSettings();
-        } else if (settingsModeEnabled && !adminModeEnabled) {
+          loadLostReasonMappings(dateRange);
+          loadSourceNormalizationSettings();
+          loadLeadCostSettings();
+        } else if (settingsModeEnabled && !isAdminAccessEnabled()) {
           loadKpiSettings();
+          loadLostReasonMappings(dateRange);
+          loadSourceNormalizationSettings();
+          loadLeadCostSettings();
         }
       });
     });
@@ -7211,6 +12460,29 @@ const bindInteractions = () => {
       button.addEventListener('click', () => {
         adminState.open = false;
         adminState.loading = false;
+        adminState.auth.requested = false;
+        renderApp();
+      });
+    });
+
+    document.querySelectorAll('[data-admin-login-toggle]').forEach((button) => {
+      button.addEventListener('click', () => {
+        adminState.auth.requested = true;
+        adminState.auth.status = 'idle';
+        adminState.auth.message = '';
+        renderApp();
+        if (authSession) {
+          loadAdminIntegration();
+          loadSpendMapping();
+        }
+      });
+    });
+
+    document.querySelectorAll('[data-admin-login-cancel]').forEach((button) => {
+      button.addEventListener('click', () => {
+        adminState.auth.requested = false;
+        adminState.auth.status = 'idle';
+        adminState.auth.message = '';
         renderApp();
       });
     });
@@ -7367,7 +12639,44 @@ const bindInteractions = () => {
         adminState.loading = false;
         resetMappingState();
         resetKpiState();
+        resetLostReasonsState();
+        resetSourceNormalizationState();
+        resetLeadCostState();
         resetBillingState();
+        renderApp();
+      });
+    }
+
+    const metricsDebugModeToggle = document.querySelector('[data-metrics-debug-mode]');
+    if (metricsDebugModeToggle) {
+      metricsDebugModeToggle.addEventListener('change', (event) => {
+        const enabled = Boolean(event?.target?.checked);
+        if (enabled === metricsDebugModeEnabled) return;
+
+        metricsDebugModeEnabled = enabled;
+        writeCachedMetricsDebugMode(enabled);
+        bumpMetricsComputationVersion();
+        resetRuleDrivenMetricsState();
+        liveState.opportunities = {
+          status: 'idle',
+          count: null,
+          rangeKey: '',
+          errorMessage: '',
+          inFlight: false
+        };
+        liveState.lostReasons = {
+          status: 'idle',
+          rows: null,
+          rangeKey: '',
+          errorMessage: '',
+          inFlight: false
+        };
+
+        adminState.kpi.status = 'success';
+        adminState.kpi.message = enabled
+          ? 'Debug modus actief: regels die cijfers beïnvloeden zijn uitgeschakeld.'
+          : 'Debug modus uit: regels zijn opnieuw actief.';
+
         renderApp();
       });
     }
@@ -7399,6 +12708,60 @@ const bindInteractions = () => {
       kpiQuotesFromPhase.addEventListener('change', (event) => {
         adminState.kpi.quotesFromPhaseId = event.target.value;
         adminState.kpi.hasChanges = true;
+      });
+    }
+
+    const kpiLeadOpportunityPipeline = document.querySelector('[data-kpi-lead-opportunity-pipeline]');
+    if (kpiLeadOpportunityPipeline) {
+      kpiLeadOpportunityPipeline.addEventListener('change', (event) => {
+        adminState.kpi.leadOpportunityPipelineId = event.target.value;
+        adminState.kpi.hasChanges = true;
+      });
+    }
+
+    const kpiLostReasonField = document.querySelector('[data-kpi-lost-reason-field]');
+    if (kpiLostReasonField) {
+      kpiLostReasonField.addEventListener('input', (event) => {
+        adminState.kpi.lostReasonFieldId = event.target.value;
+        adminState.kpi.hasChanges = true;
+      });
+    }
+
+    const kpiExcludedDealKeywords = document.querySelector('[data-kpi-excluded-deal-keywords]');
+    if (kpiExcludedDealKeywords) {
+      kpiExcludedDealKeywords.addEventListener('input', (event) => {
+        adminState.kpi.excludedDealKeywordsText = event.target.value;
+        adminState.kpi.hasChanges = true;
+      });
+    }
+
+    const kpiFillMatthias = document.querySelector('[data-kpi-fill-matthias]');
+    if (kpiFillMatthias) {
+      kpiFillMatthias.addEventListener('click', async () => {
+        const locationId = (configState.locationId || ghlLocationId || adminState.form.locationId || '').trim();
+        if (!locationId) {
+          adminState.kpi.status = 'error';
+          adminState.kpi.message = 'Location ID ontbreekt. Sla eerst de integratie op.';
+          renderApp();
+          return;
+        }
+
+        if (!Array.isArray(adminState.kpi.matthiasDealKeywords) || adminState.kpi.matthiasDealKeywords.length === 0) {
+          adminState.kpi.matthiasDealKeywordsLoading = true;
+          renderApp();
+          adminState.kpi.matthiasDealKeywords = await fetchMatthiasRosseelDealKeywords(locationId);
+          adminState.kpi.matthiasDealKeywordsLoading = false;
+        }
+
+        const currentKeywords = sanitizeSalesExcludedDealKeywords(adminState.kpi.excludedDealKeywordsText);
+        const mergedKeywords = mergeSalesExcludedDealKeywords(currentKeywords, adminState.kpi.matthiasDealKeywords);
+        adminState.kpi.excludedDealKeywordsText = formatSalesExcludedDealKeywordsText(mergedKeywords);
+        adminState.kpi.hasChanges = true;
+        adminState.kpi.status = 'success';
+        adminState.kpi.message = `${formatNumber(
+          mergedKeywords.length
+        )} uitsluitwoorden ingesteld. Klik op Opslaan om te bewaren.`;
+        renderApp();
       });
     }
 
@@ -7444,9 +12807,148 @@ const bindInteractions = () => {
       });
     }
 
+    const lostReasonsRefresh = document.querySelector('[data-lost-reasons-refresh]');
+    if (lostReasonsRefresh) {
+      lostReasonsRefresh.addEventListener('click', () => {
+        loadLostReasonMappings(dateRange);
+      });
+    }
+
+    const lostReasonsSync = document.querySelector('[data-lost-reasons-sync]');
+    if (lostReasonsSync) {
+      lostReasonsSync.addEventListener('click', () => {
+        syncLostReasonLookupFromGhl();
+      });
+    }
+
+    const lostReasonsSave = document.querySelector('[data-lost-reasons-save]');
+    if (lostReasonsSave) {
+      lostReasonsSave.addEventListener('click', () => {
+        saveLostReasonMappings();
+      });
+    }
+
+    document.querySelectorAll('[data-lost-reason-id]').forEach((input) => {
+      input.addEventListener('input', (event) => {
+        const id = toTrimmedText(input.getAttribute('data-lost-reason-id'));
+        if (!id) return;
+        const value = String(event.target.value ?? '');
+        if (!Array.isArray(adminState.lostReasons.entries)) adminState.lostReasons.entries = [];
+        const idx = adminState.lostReasons.entries.findIndex((entry) => toTrimmedText(entry?.id) === id);
+        if (idx < 0) return;
+        adminState.lostReasons.entries[idx] = {
+          ...adminState.lostReasons.entries[idx],
+          name: value
+        };
+        adminState.lostReasons.hasChanges = true;
+      });
+    });
+
     document.querySelectorAll('[data-map-key]').forEach((input) => {
       input.addEventListener('input', (event) => {
         setMappingValue(input.getAttribute('data-map-key'), event.target.value);
+      });
+    });
+
+    const sourceRulesAdd = document.querySelector('[data-source-rules-add]');
+    if (sourceRulesAdd) {
+      sourceRulesAdd.addEventListener('click', () => {
+        if (!Array.isArray(adminState.sources.rules)) adminState.sources.rules = [];
+        adminState.sources.rules = [...adminState.sources.rules, { bucket: '', patterns: [] }];
+        adminState.sources.hasChanges = true;
+        renderApp();
+      });
+    }
+
+    const sourceRulesSave = document.querySelector('[data-source-rules-save]');
+    if (sourceRulesSave) {
+      sourceRulesSave.addEventListener('click', () => {
+        saveSourceNormalizationSettings();
+      });
+    }
+
+    const sourceSamplesRefresh = document.querySelector('[data-source-samples-refresh]');
+    if (sourceSamplesRefresh) {
+      sourceSamplesRefresh.addEventListener('click', () => {
+        loadSourceNormalizationSamples();
+      });
+    }
+
+    document.querySelectorAll('[data-source-rule-bucket]').forEach((input) => {
+      input.addEventListener('input', (event) => {
+        const index = Number(input.getAttribute('data-source-rule-bucket'));
+        if (!Number.isFinite(index)) return;
+        if (!Array.isArray(adminState.sources.rules)) adminState.sources.rules = [];
+        const existing = adminState.sources.rules[index] ?? { bucket: '', patterns: [] };
+        adminState.sources.rules[index] = {
+          ...existing,
+          bucket: event.target.value
+        };
+        adminState.sources.hasChanges = true;
+      });
+    });
+
+    document.querySelectorAll('[data-source-rule-patterns]').forEach((input) => {
+      input.addEventListener('input', (event) => {
+        const index = Number(input.getAttribute('data-source-rule-patterns'));
+        if (!Number.isFinite(index)) return;
+        if (!Array.isArray(adminState.sources.rules)) adminState.sources.rules = [];
+        const existing = adminState.sources.rules[index] ?? { bucket: '', patterns: [] };
+        const raw = String(event.target.value ?? '');
+        const patterns = raw
+          .split(',')
+          .map((token) => token.trim())
+          .filter(Boolean);
+        adminState.sources.rules[index] = {
+          ...existing,
+          patterns
+        };
+        adminState.sources.hasChanges = true;
+      });
+    });
+
+    const leadCostAdd = document.querySelector('[data-lead-cost-add]');
+    if (leadCostAdd) {
+      leadCostAdd.addEventListener('click', () => {
+        if (!Array.isArray(adminState.leadCost.rows)) adminState.leadCost.rows = [];
+        adminState.leadCost.rows = [...adminState.leadCost.rows, { source: '', cpl: '' }];
+        adminState.leadCost.hasChanges = true;
+        renderApp();
+      });
+    }
+
+    const leadCostSave = document.querySelector('[data-lead-cost-save]');
+    if (leadCostSave) {
+      leadCostSave.addEventListener('click', () => {
+        saveLeadCostSettings();
+      });
+    }
+
+    document.querySelectorAll('[data-lead-cost-source]').forEach((input) => {
+      input.addEventListener('input', (event) => {
+        const index = Number(input.getAttribute('data-lead-cost-source'));
+        if (!Number.isFinite(index)) return;
+        if (!Array.isArray(adminState.leadCost.rows)) adminState.leadCost.rows = [];
+        const existing = adminState.leadCost.rows[index] ?? { source: '', cpl: '' };
+        adminState.leadCost.rows[index] = {
+          ...existing,
+          source: event.target.value
+        };
+        adminState.leadCost.hasChanges = true;
+      });
+    });
+
+    document.querySelectorAll('[data-lead-cost-cpl]').forEach((input) => {
+      input.addEventListener('input', (event) => {
+        const index = Number(input.getAttribute('data-lead-cost-cpl'));
+        if (!Number.isFinite(index)) return;
+        if (!Array.isArray(adminState.leadCost.rows)) adminState.leadCost.rows = [];
+        const existing = adminState.leadCost.rows[index] ?? { source: '', cpl: '' };
+        adminState.leadCost.rows[index] = {
+          ...existing,
+          cpl: event.target.value
+        };
+        adminState.leadCost.hasChanges = true;
       });
     });
   }
@@ -7551,7 +13053,6 @@ const bindInteractions = () => {
   }
 
   bindLostReasonCharts();
-  bindSalesTrendCharts();
 };
 
 dateRange = normalizeRange(dateRange.start, dateRange.end);

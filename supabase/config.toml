@@ -19,5 +19,5 @@ verify_jwt = false
 [functions.teamleader-sync]
 verify_jwt = false
 
-[functions.stripe-webhook]
+[functions.stripe-seats-billing]
 verify_jwt = false

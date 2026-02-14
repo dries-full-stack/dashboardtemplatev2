@@ -1,7 +1,11 @@
 [build]
-  base = "dashboard"
-  command = "npm run build"
-  publish = "dist"
+  # Netlify installs dependencies from the repo root by default. Our Vite app
+  # lives in ./dashboard, so we install + build from that package explicitly.
+  command = "npm --prefix dashboard ci && npm --prefix dashboard run build"
+  publish = "dashboard/dist"
+
+[functions]
+  directory = "netlify/functions"
 
 [[redirects]]
   from = "/*"

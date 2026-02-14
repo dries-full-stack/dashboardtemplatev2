@@ -26,7 +26,6 @@ create table if not exists public.billing_customers (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
-
 alter table public.billing_customers
   add column if not exists company text,
   add column if not exists contact_email text,
@@ -49,31 +48,26 @@ alter table public.billing_customers
   add column if not exists last_event_at timestamptz,
   add column if not exists metadata jsonb not null default '{}'::jsonb,
   add column if not exists updated_at timestamptz not null default now();
-
 create unique index if not exists billing_customers_slug_idx on public.billing_customers (slug);
 create unique index if not exists billing_customers_payment_link_idx on public.billing_customers (stripe_payment_link_id);
 create unique index if not exists billing_customers_customer_idx on public.billing_customers (stripe_customer_id);
 create unique index if not exists billing_customers_subscription_idx on public.billing_customers (stripe_subscription_id);
 create index if not exists billing_customers_status_idx on public.billing_customers (subscription_status);
 create index if not exists billing_customers_updated_idx on public.billing_customers (updated_at desc);
-
 alter table public.billing_customers enable row level security;
 revoke all on table public.billing_customers from anon;
 grant select, insert, update on table public.billing_customers to authenticated;
-
 drop policy if exists "Authenticated read billing customers" on public.billing_customers;
 create policy "Authenticated read billing customers"
   on public.billing_customers
   for select
   using (auth.role() = 'authenticated');
-
 drop policy if exists "Authenticated write billing customers" on public.billing_customers;
 create policy "Authenticated write billing customers"
   on public.billing_customers
   for all
   using (auth.role() = 'authenticated')
   with check (auth.role() = 'authenticated');
-
 create table if not exists public.billing_webhook_events (
   event_id text primary key,
   event_type text not null,
@@ -89,7 +83,6 @@ create table if not exists public.billing_webhook_events (
   payload jsonb not null,
   received_at timestamptz not null default now()
 );
-
 alter table public.billing_webhook_events
   add column if not exists event_type text,
   add column if not exists livemode boolean,
@@ -103,17 +96,14 @@ alter table public.billing_webhook_events
   add column if not exists customer_slug text,
   add column if not exists payload jsonb,
   add column if not exists received_at timestamptz not null default now();
-
 create index if not exists billing_webhook_events_type_idx on public.billing_webhook_events (event_type);
 create index if not exists billing_webhook_events_customer_idx on public.billing_webhook_events (customer_id);
 create index if not exists billing_webhook_events_subscription_idx on public.billing_webhook_events (subscription_id);
 create index if not exists billing_webhook_events_slug_idx on public.billing_webhook_events (customer_slug);
 create index if not exists billing_webhook_events_received_idx on public.billing_webhook_events (received_at desc);
-
 alter table public.billing_webhook_events enable row level security;
 revoke all on table public.billing_webhook_events from anon;
 grant select on table public.billing_webhook_events to authenticated;
-
 drop policy if exists "Authenticated read billing webhook events" on public.billing_webhook_events;
 create policy "Authenticated read billing webhook events"
   on public.billing_webhook_events

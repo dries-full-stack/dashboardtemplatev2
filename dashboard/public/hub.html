@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Profit Pulse Hub</title>
+    <meta
+      name="description"
+      content="Interne hub voor abonnementenbeheer en onboarding van nieuwe dashboard-klanten."
+    />
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@500&display=swap');
+
+      :root {
+        --bg: #0c1424;
+        --bg-soft: #101c31;
+        --card: #142541;
+        --line: #2a3e63;
+        --ink: #f2f7ff;
+        --muted: #9cb4d8;
+        --primary: #18b6ac;
+        --primary-ink: #083330;
+        --accent: #7dcfff;
+        --shadow: 0 24px 52px rgba(0, 0, 0, 0.35);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 12% 8%, rgba(24, 182, 172, 0.16), transparent 32%),
+          radial-gradient(circle at 82% 14%, rgba(125, 207, 255, 0.12), transparent 30%),
+          linear-gradient(160deg, var(--bg) 0%, #09101d 100%);
+        padding: 24px;
+      }
+
+      .shell {
+        width: min(1200px, 100%);
+        margin: 0 auto;
+        display: grid;
+        gap: 14px;
+      }
+
+      .hero {
+        border: 1px solid var(--line);
+        background: linear-gradient(180deg, #172b4b, var(--card));
+        border-radius: 20px;
+        box-shadow: var(--shadow);
+        padding: 24px;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        border: 1px solid #2ad4c8;
+        background: rgba(24, 182, 172, 0.16);
+        color: #86efe7;
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        padding: 8px 12px;
+      }
+
+      h1 {
+        margin: 14px 0 8px;
+        font-size: clamp(28px, 5vw, 40px);
+        letter-spacing: -0.02em;
+      }
+
+      p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.6;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 1.2fr 1fr;
+        gap: 14px;
+      }
+
+      .card {
+        border: 1px solid var(--line);
+        background: linear-gradient(180deg, #13233e, #101d35);
+        border-radius: 16px;
+        padding: 18px;
+      }
+
+      .card h2 {
+        margin: 0 0 8px;
+        font-size: 20px;
+        letter-spacing: -0.01em;
+      }
+
+      .muted {
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .actions {
+        margin-top: 14px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .btn {
+        height: 42px;
+        border-radius: 12px;
+        border: 1px solid var(--line);
+        padding: 0 14px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 13px;
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      .btn.primary {
+        background: linear-gradient(90deg, #19b8ae, #33d2c8);
+        border-color: #37d3c9;
+        color: var(--primary-ink);
+      }
+
+      .btn.secondary {
+        background: #0d1a31;
+        color: var(--ink);
+      }
+
+      .stack {
+        margin-top: 14px;
+        display: grid;
+        gap: 10px;
+      }
+
+      .item {
+        border: 1px solid #2a3d60;
+        background: #0f1b31;
+        border-radius: 12px;
+        padding: 12px;
+      }
+
+      .item-title {
+        font-size: 14px;
+        font-weight: 700;
+        color: #d7e6ff;
+      }
+
+      .item-sub {
+        margin-top: 4px;
+        font-size: 13px;
+        color: #9cb4d8;
+      }
+
+      .code {
+        margin-top: 12px;
+        border: 1px solid #33496f;
+        background: #0a1427;
+        color: #d2e1fb;
+        border-radius: 12px;
+        padding: 12px;
+        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+        line-height: 1.5;
+        overflow: auto;
+      }
+
+      .small {
+        margin-top: 10px;
+        font-size: 12px;
+        color: #87a0c4;
+      }
+
+      @media (max-width: 980px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <div class="badge">Profit Pulse Internal Hub</div>
+        <h1>Abonnementen & Onboarding</h1>
+        <p>
+          Deze omgeving is intern voor billing operations en het opzetten van nieuwe dashboard-klanten.
+          Klantverkeer blijft op het respectieve klantsubdomein.
+        </p>
+      </section>
+
+      <section class="grid">
+        <article class="card">
+          <h2>Abonnementenbeheer</h2>
+          <p class="muted">Beheer seats en abonnementswijzigingen rechtstreeks in Stripe Dashboard.</p>
+          <div class="actions">
+            <a class="btn primary" href="/billing-overview-admin.html">Open Billing Overzicht</a>
+            <a class="btn secondary" href="https://dashboard.stripe.com/subscriptions" target="_blank" rel="noopener noreferrer"
+              >Open Stripe Subscriptions</a
+            >
+          </div>
+
+          <div class="stack">
+            <div class="item">
+              <div class="item-title">Belivert customer-facing flow</div>
+              <div class="item-sub">Publieke betaalflow voor klanten (zonder interne controls).</div>
+              <div class="actions">
+                <a class="btn secondary" href="/billing-belivert.html">Open Belivert Billing</a>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="card">
+          <h2>Nieuwe Dashboard Onboarding</h2>
+          <p class="muted">Gebruik de gehoste onboarding wizard voor een compleet onboarding-pakket.</p>
+          <div class="actions">
+            <a class="btn primary" href="/onboarding-hub.html">Open Hosted Onboarding</a>
+            <a class="btn secondary" href="https://belivert.profitpulse.be" target="_blank" rel="noopener noreferrer"
+              >Open Klantdashboard</a
+            >
+          </div>
+          <div class="code"># Fallback (lokaal) als je scripting nodig hebt
+cd /home/dries/code/dashboardtemplatev2
+npm run onboard
+# open daarna http://localhost:8787</div>
+          <div class="small">
+            Tip: gebruik eerst de onboarding wizard om config, secrets en Netlify setup te bootstrappen,
+            daarna valideren via billing-overview en klantsubdomein.
+          </div>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>
