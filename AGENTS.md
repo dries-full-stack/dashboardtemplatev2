@@ -40,6 +40,7 @@ Ports:
 - `.env` (repo root) is voor de lokale sync scripts in `src/` (tsx). Gebruik `.env.example` als template.
 - `dashboard/.env` is voor de Vite dashboard app (local dev en eventueel Netlify env). Wizard kan dit bestand schrijven.
 - `clients/<slug>/env.*.example` zijn de per-klant templates die onboarding/bootstrapping genereert.
+- `VITE_REQUIRE_AUTH` (dashboard): default `true`. Als `true` toont de dashboard UI eerst een login scherm (magic link) en verwacht je RLS "authenticated-only" policies in Supabase.
 
 ## Onboarding Wizard (Local)
 
@@ -71,6 +72,10 @@ Outputs:
 - `clients/<slug>/schedule.sql`
 - Optioneel: `dashboard/.env` voor lokaal draaien van de Vite app.
 
+Security defaults:
+- Onboarding server bindt standaard op `127.0.0.1` en weigert non-loopback requests.
+- Wil je het onboarding scherm toch op je netwerk openzetten: zet `ONBOARDING_ALLOW_NETWORK=1` en (optioneel) `ONBOARDING_HOST=0.0.0.0`.
+
 ## Hosted Hub + Billing + Provisioning (Static)
 
 Pages:
@@ -93,6 +98,8 @@ Migrations:
 - Base schema: `supabase/migrations/20260204160000_base.sql` (o.a. `dashboard_config` singleton row `id=1`).
 - Billing tables: `supabase/migrations/20260207170000_billing_subscription_tracking.sql` (o.a. `billing_customers`).
 - Cron RPC's: `supabase/migrations/20260209153000_cron_jobs_rpc.sql` (RPC `setup_cron_jobs`, `cron_health`).
+- Security hardening (RLS/auth): `supabase/migrations/20260215170000_security_hardening_auth_rls.sql` (verwijdert anon "customer mode", vereist dashboard login).
+- Dashboard access allowlist (RLS): `supabase/migrations/20260215180000_dashboard_access_allowlist.sql` (voegt allowlist toe zodat "authenticated" niet genoeg is als signups aan staan).
 
 Preflight warnings betekenis:
 - `dashboard_config ontbreekt`: schema nog niet gepusht naar het Supabase project. Oplossing: `supabase db push`.
@@ -162,6 +169,8 @@ Layout/branding aanpassen (zonder code changes):
 - `pwsh ENOENT` / "PowerShell starten faalde": installeer PowerShell (`pwsh`), zet `ONBOARDING_POWERSHELL_BIN`, of forceer Node runner met `ONBOARDING_FORCE_NODE_BOOTSTRAP=1`.
 - `ERR_CONNECTION_REFUSED` op `http://localhost:8787/...`: onboarding server draait niet of crashte. Start met `npm run onboard` (of `npm run dev`).
 - Console errors `bootstrap-autofill-overlay.js`: komt van browser password-manager/autofill extensies, geen repo bug.
+- Dashboard login geeft error "User not found" of er komt geen sessie: `VITE_REQUIRE_AUTH=true` gebruikt invite-only magic links (`shouldCreateUser=false`). Oplossing: maak/invite de user in Supabase Auth (of zet `VITE_REQUIRE_AUTH=false` + public policies, niet aanbevolen).
+- Dashboard login lukt maar je krijgt 401/403 bij data calls: check of de user in `public.dashboard_access` staat (allowlist). Oplossing: voeg email toe aan `public.dashboard_access` (of draai migratie `20260215180000_dashboard_access_allowlist.sql` opnieuw om bestaande auth users te seeden).
 
 ## Timezones / Off-by-One
 

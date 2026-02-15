@@ -416,17 +416,24 @@ const isOpportunityField = (field: CustomFieldRecord): boolean => {
 };
 
 const extractOptionList = (field: CustomFieldRecord): unknown[] => {
+  const record = field as Record<string, unknown>;
+  const meta = record.meta;
+  const metaOptions =
+    meta && typeof meta === 'object' && meta !== null && 'options' in (meta as Record<string, unknown>)
+      ? (meta as Record<string, unknown>).options
+      : undefined;
+
   const candidates = [
     field.options,
-    (field as Record<string, unknown>)?.choices,
-    (field as Record<string, unknown>)?.allowedValues,
-    (field as Record<string, unknown>)?.values,
-    (field as Record<string, unknown>)?.items,
-    (field as Record<string, unknown>)?.enum,
-    (field as Record<string, unknown>)?.picklistOptions,
-    (field as Record<string, unknown>)?.selectOptions,
-    (field as Record<string, unknown>)?.textBoxListOptions,
-    (field as Record<string, unknown>)?.meta && (field as Record<string, unknown>).meta?.options
+    record.choices,
+    record.allowedValues,
+    record.values,
+    record.items,
+    record.enum,
+    record.picklistOptions,
+    record.selectOptions,
+    record.textBoxListOptions,
+    metaOptions
   ];
 
   for (const candidate of candidates) {

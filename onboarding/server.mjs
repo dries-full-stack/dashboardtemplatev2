@@ -1,9 +1,8 @@
 import { createServer } from 'http';
 import { readFile, writeFile, rename, stat, mkdir } from 'fs/promises';
 import { spawn } from 'child_process';
-import { extname, join } from 'path';
+import { dirname, extname, join, resolve, sep } from 'path';
 import { fileURLToPath } from 'url';
-import { dirname } from 'path';
 import dotenv from 'dotenv';
 import os from 'os';
 
@@ -68,7 +67,7 @@ const runCommand = (command, args, cwd, options = {}) =>
   new Promise((resolve) => {
     const child = spawn(command, args, {
       cwd,
-      shell: true,
+      shell: false,
       env: options.env || process.env
     });
     let stdout = '';
@@ -124,10 +123,52 @@ const sanitizeString = (value) => {
   return value.trim();
 };
 
+const sanitizeSlug = (value) =>
+  sanitizeString(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+
 const resolvePowerShellCommand = () => {
   const explicit = sanitizeString(process.env.ONBOARDING_POWERSHELL_BIN);
   if (explicit) return explicit;
   return process.platform === 'win32' ? 'powershell' : 'pwsh';
+};
+
+const isLoopbackAddress = (address) => {
+  const value = sanitizeString(address);
+  if (!value) return false;
+  if (value === '127.0.0.1' || value === '::1') return true;
+  // Node can report IPv4-mapped IPv6 addresses (e.g. ::ffff:127.0.0.1).
+  return value.startsWith('::ffff:127.');
+};
+
+const allowNetworkRequests = () => sanitizeString(process.env.ONBOARDING_ALLOW_NETWORK) === '1';
+
+const resolveStaticRequestPath = (reqUrl) => {
+  let pathname = '/';
+  try {
+    pathname = new URL(reqUrl, 'http://localhost').pathname || '/';
+  } catch {
+    return null;
+  }
+
+  let decoded = pathname;
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {
+    return null;
+  }
+
+  if (decoded.includes('\0')) return null;
+
+  const cleaned = decoded.replace(/\\/g, '/');
+  const urlPath = cleaned === '/' ? '/index.html' : cleaned;
+  const baseDir = resolve(publicDir);
+  const filePath = resolve(baseDir, `.${urlPath}`);
+  if (filePath !== baseDir && !filePath.startsWith(baseDir + sep)) return null;
+  return filePath;
 };
 
 const applyEnvDefaults = (payload) => {
@@ -186,6 +227,7 @@ const writeDashboardEnvFile = async (payload) => {
     `VITE_SUPABASE_URL=${supabaseUrl}`,
     `VITE_SUPABASE_PUBLISHABLE_KEY=${publishableKey}`,
     `VITE_GHL_LOCATION_ID=${locationId}`,
+    'VITE_REQUIRE_AUTH=true',
     'VITE_ENABLE_MOCK_DATA=false'
   ];
 
@@ -224,7 +266,10 @@ const startDashboardDevServer = async () => {
     }
   }
 
-  const child = spawn('npm', ['run', 'dev', '--', '--host'], { cwd: dashboardDir, shell: true });
+  // Avoid `shell: true` here to prevent accidental command injection (even though args are static),
+  // and to keep behavior consistent with our other subprocess calls.
+  const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const child = spawn(npmCmd, ['run', 'dev', '--', '--host'], { cwd: dashboardDir, shell: false });
   dashboardProcess = child;
   dashboardOutput = '';
 
@@ -868,6 +913,7 @@ const writeClientScaffold = async (payload) => {
     `VITE_SUPABASE_URL=${payload.supabaseUrl}`,
     `VITE_SUPABASE_PUBLISHABLE_KEY=${publishableValue}`,
     `VITE_GHL_LOCATION_ID=${payload.locationId}`,
+    'VITE_REQUIRE_AUTH=true',
     `VITE_DASHBOARD_TITLE=${sanitizeString(payload.dashboardTitle)}`,
     `VITE_DASHBOARD_SUBTITLE=${sanitizeString(payload.dashboardSubtitle)}`,
     `VITE_DASHBOARD_LOGO_URL=${sanitizeString(payload.logoUrl)}`,
@@ -1275,6 +1321,14 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // Secure-by-default: the onboarding wizard is intended for local use.
+  // Block non-loopback traffic unless explicitly allowed.
+  if (!allowNetworkRequests() && !isLoopbackAddress(req.socket?.remoteAddress)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Forbidden');
+    return;
+  }
+
   if (req.method === 'POST' && req.url === '/api/source-suggestions') {
     try {
       const rawBody = await readBody(req);
@@ -1595,7 +1649,7 @@ const server = createServer(async (req, res) => {
         }
       }
       const payload = {
-        slug: sanitizeString(data.slug),
+        slug: sanitizeSlug(data.slug),
         supabaseUrl,
         projectRef: derivedRef,
         locationId: sanitizeString(data.locationId),
@@ -2559,13 +2613,19 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  const urlPath = req.url === '/' ? '/index.html' : req.url;
-  const filePath = join(publicDir, urlPath);
+  const filePath = resolveStaticRequestPath(req.url);
+  if (!filePath) {
+    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Not found');
+    return;
+  }
+
   await serveStatic(res, filePath);
 });
 
 const port = process.env.ONBOARDING_PORT ? Number(process.env.ONBOARDING_PORT) : 8787;
-const host = sanitizeString(process.env.ONBOARDING_HOST);
+const explicitHost = sanitizeString(process.env.ONBOARDING_HOST);
+const listenHost = explicitHost || (allowNetworkRequests() ? '0.0.0.0' : '127.0.0.1');
 
 const getNetworkAddresses = () => {
   const nets = os.networkInterfaces();
@@ -2586,15 +2646,11 @@ const onListen = () => {
   console.log('Onboarding app running');
   console.log(`  Local:   http://localhost:${port}`);
 
-  if (!host || host === '0.0.0.0' || host === '::') {
+  if (allowNetworkRequests() && (listenHost === '0.0.0.0' || listenHost === '::')) {
     for (const address of getNetworkAddresses()) {
       console.log(`  Network: http://${address}:${port}`);
     }
   }
 };
 
-if (host) {
-  server.listen(port, host, onListen);
-} else {
-  server.listen(port, onListen);
-}
+server.listen(port, listenHost, onListen);

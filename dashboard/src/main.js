@@ -213,6 +213,11 @@ const adminModeEnabled = import.meta.env.VITE_ADMIN_MODE === 'true';
 const settingsModeValue = readEnvString(import.meta.env.VITE_SETTINGS_MODE).toLowerCase();
 const settingsModeEnabled = settingsModeValue ? settingsModeValue === 'true' : true;
 const settingsEnabled = settingsModeEnabled || adminModeEnabled;
+const requireAuthValue = readEnvString(import.meta.env.VITE_REQUIRE_AUTH).toLowerCase();
+// Secure-by-default: require Supabase Auth unless explicitly disabled.
+const requireAuthEnabled = requireAuthValue ? requireAuthValue === 'true' : true;
+const accessRequestEmail = readEnvString(import.meta.env.VITE_ACCESS_REQUEST_EMAIL);
+const accessRequestLabel = readEnvString(import.meta.env.VITE_ACCESS_REQUEST_LABEL) || 'Toegang aanvragen';
 const settingsButtonLabel = adminModeEnabled ? 'Setup' : 'Instellingen';
 const teamleaderDealUrlTemplate =
   import.meta.env.VITE_TEAMLEADER_DEAL_URL_TEMPLATE || 'https://app.teamleader.eu/deals/{id}';
@@ -1188,16 +1193,80 @@ const drilldownState = {
 };
 
 let authSession = null;
+let authInitialized = false;
+
+const authGateState = {
+  status: 'idle',
+  email: '',
+  message: ''
+};
+
+const resetConfigState = () => {
+  configState.status = ghlLocationId ? 'ready' : 'idle';
+  configState.locationId = ghlLocationId || null;
+  configState.source = ghlLocationId ? 'env' : null;
+  configState.hookFieldId = null;
+  configState.campaignFieldId = null;
+  configState.lostReasonFieldId = null;
+  configState.salesMonthlyDealsTarget = null;
+  configState.salesMonthlyDealsTargets = null;
+  configState.salesQuotesFromPhaseId = null;
+  configState.salesExcludedDealKeywords = null;
+  configState.sourceNormalizationRules = null;
+  configState.costPerLeadBySource = null;
+  configState.billingPortalUrl = null;
+  configState.billingCheckoutUrl = null;
+  configState.billingCheckoutEmbed = false;
+  configState.dashboardTitle = null;
+  configState.dashboardSubtitle = null;
+  configState.dashboardLogoUrl = null;
+  configState.dashboardLayout = null;
+  configState.errorMessage = '';
+};
+
+const resetAuthScopedState = () => {
+  resetLeadPipelineDependentLiveState();
+  resetRuleDrivenMetricsState();
+  liveState.finance = {
+    status: 'idle',
+    totals: null,
+    rangeKey: '',
+    errorMessage: '',
+    inFlight: false
+  };
+  liveState.sync = {
+    status: 'idle',
+    timestamp: null,
+    errorMessage: '',
+    inFlight: false
+  };
+
+  leadPipelineFilterState.status = 'idle';
+  leadPipelineFilterState.options = [];
+  leadPipelineFilterState.errorMessage = '';
+  leadPipelineFilterState.inFlight = false;
+  leadPipelineFilterState.locationId = '';
+  leadPipelineFilterState.overrideId = null;
+  resetConfigState();
+};
 
 const initAuth = async () => {
-  if (!supabase || !settingsEnabled) return;
+  if (!supabase) return;
+
   const { data } = await supabase.auth.getSession();
   authSession = data.session;
+  authInitialized = true;
+  if (authSession || !requireAuthEnabled) {
+    loadLocationConfig();
+  }
   renderApp();
 
   supabase.auth.onAuthStateChange((_event, session) => {
+    const hadSession = Boolean(authSession);
     authSession = session;
     if (!session) {
+      authGateState.status = 'idle';
+      authGateState.message = '';
       adminState.form.token = '';
       adminState.message = '';
       adminState.status = 'idle';
@@ -1210,7 +1279,16 @@ const initAuth = async () => {
       resetSourceNormalizationState();
       resetLeadCostState();
       resetBillingState();
-    } else if (adminState.open) {
+      if (requireAuthEnabled) {
+        resetAuthScopedState();
+      }
+    } else if (!hadSession && requireAuthEnabled) {
+      authGateState.status = 'idle';
+      authGateState.message = '';
+      loadLocationConfig();
+    }
+
+    if (session && adminState.open) {
       if (isAdminAccessEnabled()) {
         loadAdminIntegration();
         loadSpendMapping();
@@ -2105,16 +2183,12 @@ const saveKpiSettings = async () => {
   if (!supabase || !settingsEnabled) return;
   if (adminState.kpi.saving) return;
 
-  const adminAccessEnabled = isAdminAccessEnabled();
-  const kpiOnlyMode = settingsModeEnabled && !adminAccessEnabled;
-  if (adminAccessEnabled) {
-    const token = await getAuthToken();
-    if (!token) {
-      adminState.kpi.status = 'error';
-      adminState.kpi.message = 'Log in om KPI instellingen op te slaan.';
-      renderApp();
-      return;
-    }
+  const token = await getAuthToken();
+  if (!token) {
+    adminState.kpi.status = 'error';
+    adminState.kpi.message = 'Log in om KPI instellingen op te slaan.';
+    renderApp();
+    return;
   }
 
   const rawValue = String(adminState.kpi.monthlyDealsTarget ?? '').trim();
@@ -2169,7 +2243,7 @@ const saveKpiSettings = async () => {
   const excludedDealKeywords = sanitizeSalesExcludedDealKeywords(adminState.kpi.excludedDealKeywordsText);
 
   const locationId = (configState.locationId || ghlLocationId || adminState.form.locationId || '').trim();
-  if (adminAccessEnabled && !locationId) {
+  if (!locationId) {
     adminState.kpi.status = 'error';
     adminState.kpi.message = 'Location ID ontbreekt. Sla eerst de integratie op.';
     renderApp();
@@ -2184,20 +2258,6 @@ const saveKpiSettings = async () => {
   try {
     const now = new Date().toISOString();
     const persistKpiPayload = async (payload) => {
-      if (kpiOnlyMode) {
-        const { data, error } = await supabase
-          .from('dashboard_config')
-          .update(payload)
-          .eq('id', 1)
-          .select('id')
-          .maybeSingle();
-        if (error) throw error;
-        if (!data?.id) {
-          throw new Error('dashboard_config ontbreekt. Contacteer je dashboardbeheerder.');
-        }
-        return;
-      }
-
       const { error } = await supabase
         .from('dashboard_config')
         .upsert(
@@ -2634,16 +2694,12 @@ const saveSourceNormalizationSettings = async () => {
   if (!supabase || !settingsEnabled) return;
   if (adminState.sources.saving) return;
 
-  const adminAccessEnabled = isAdminAccessEnabled();
-  const kpiOnlyMode = settingsModeEnabled && !adminAccessEnabled;
-  if (adminAccessEnabled) {
-    const token = await getAuthToken();
-    if (!token) {
-      adminState.sources.status = 'error';
-      adminState.sources.message = 'Log in om source normalisatie op te slaan.';
-      renderApp();
-      return;
-    }
+  const token = await getAuthToken();
+  if (!token) {
+    adminState.sources.status = 'error';
+    adminState.sources.message = 'Log in om source normalisatie op te slaan.';
+    renderApp();
+    return;
   }
 
   const rules = sanitizeSourceNormalizationRules(adminState.sources.rules);
@@ -2655,7 +2711,7 @@ const saveSourceNormalizationSettings = async () => {
   }
 
   const locationId = (configState.locationId || ghlLocationId || adminState.form.locationId || '').trim();
-  if (adminAccessEnabled && !locationId) {
+  if (!locationId) {
     adminState.sources.status = 'error';
     adminState.sources.message = 'Location ID ontbreekt. Sla eerst de integratie op.';
     renderApp();
@@ -2670,34 +2726,18 @@ const saveSourceNormalizationSettings = async () => {
   try {
     const now = new Date().toISOString();
 
-    if (kpiOnlyMode) {
-      const { data, error } = await supabase
-        .from('dashboard_config')
-        .update({
+    const { error } = await supabase
+      .from('dashboard_config')
+      .upsert(
+        {
+          id: 1,
+          location_id: locationId,
           source_normalization_rules: rules,
           updated_at: now
-        })
-        .eq('id', 1)
-        .select('id')
-        .maybeSingle();
-      if (error) throw error;
-      if (!data?.id) {
-        throw new Error('dashboard_config ontbreekt. Contacteer je dashboardbeheerder.');
-      }
-    } else {
-      const { error } = await supabase
-        .from('dashboard_config')
-        .upsert(
-          {
-            id: 1,
-            location_id: locationId,
-            source_normalization_rules: rules,
-            updated_at: now
-          },
-          { onConflict: 'id' }
-        );
-      if (error) throw error;
-    }
+        },
+        { onConflict: 'id' }
+      );
+    if (error) throw error;
 
     adminState.sources.saving = false;
     adminState.sources.status = 'success';
@@ -2810,16 +2850,12 @@ const saveLeadCostSettings = async () => {
   if (!supabase || !settingsEnabled) return;
   if (adminState.leadCost.saving) return;
 
-  const adminAccessEnabled = isAdminAccessEnabled();
-  const kpiOnlyMode = settingsModeEnabled && !adminAccessEnabled;
-  if (adminAccessEnabled) {
-    const token = await getAuthToken();
-    if (!token) {
-      adminState.leadCost.status = 'error';
-      adminState.leadCost.message = 'Log in om leadkosten op te slaan.';
-      renderApp();
-      return;
-    }
+  const token = await getAuthToken();
+  if (!token) {
+    adminState.leadCost.status = 'error';
+    adminState.leadCost.message = 'Log in om leadkosten op te slaan.';
+    renderApp();
+    return;
   }
 
   const cleaned = {};
@@ -2840,7 +2876,7 @@ const saveLeadCostSettings = async () => {
   }
 
   const locationId = (configState.locationId || ghlLocationId || adminState.form.locationId || '').trim();
-  if (adminAccessEnabled && !locationId) {
+  if (!locationId) {
     adminState.leadCost.status = 'error';
     adminState.leadCost.message = 'Location ID ontbreekt. Sla eerst de integratie op.';
     renderApp();
@@ -2854,34 +2890,18 @@ const saveLeadCostSettings = async () => {
 
   try {
     const now = new Date().toISOString();
-    if (kpiOnlyMode) {
-      const { data, error } = await supabase
-        .from('dashboard_config')
-        .update({
+    const { error } = await supabase
+      .from('dashboard_config')
+      .upsert(
+        {
+          id: 1,
+          location_id: locationId,
           cost_per_lead_by_source: cleaned,
           updated_at: now
-        })
-        .eq('id', 1)
-        .select('id')
-        .maybeSingle();
-      if (error) throw error;
-      if (!data?.id) {
-        throw new Error('dashboard_config ontbreekt. Contacteer je dashboardbeheerder.');
-      }
-    } else {
-      const { error } = await supabase
-        .from('dashboard_config')
-        .upsert(
-          {
-            id: 1,
-            location_id: locationId,
-            cost_per_lead_by_source: cleaned,
-            updated_at: now
-          },
-          { onConflict: 'id' }
-        );
-      if (error) throw error;
-    }
+        },
+        { onConflict: 'id' }
+      );
+    if (error) throw error;
 
     adminState.leadCost.status = 'success';
     adminState.leadCost.message = 'Leadkosten opgeslagen.';
@@ -2914,16 +2934,12 @@ const saveBillingSettings = async () => {
   if (!supabase || !settingsEnabled) return;
   if (adminState.billing.saving) return;
 
-  const adminAccessEnabled = isAdminAccessEnabled();
-  const kpiOnlyMode = settingsModeEnabled && !adminAccessEnabled;
-  if (adminAccessEnabled) {
-    const token = await getAuthToken();
-    if (!token) {
-      adminState.billing.status = 'error';
-      adminState.billing.message = 'Log in om abonnement instellingen op te slaan.';
-      renderApp();
-      return;
-    }
+  const token = await getAuthToken();
+  if (!token) {
+    adminState.billing.status = 'error';
+    adminState.billing.message = 'Log in om abonnement instellingen op te slaan.';
+    renderApp();
+    return;
   }
 
   const rawPortalUrl = String(adminState.billing.portalUrl ?? '').trim();
@@ -2947,7 +2963,7 @@ const saveBillingSettings = async () => {
   }
 
   const locationId = (configState.locationId || ghlLocationId || adminState.form.locationId || '').trim();
-  if (adminAccessEnabled && !locationId) {
+  if (!locationId) {
     adminState.billing.status = 'error';
     adminState.billing.message = 'Location ID ontbreekt. Sla eerst de integratie op.';
     renderApp();
@@ -2961,38 +2977,20 @@ const saveBillingSettings = async () => {
 
   try {
     const now = new Date().toISOString();
-    if (kpiOnlyMode) {
-      const { data, error } = await supabase
-        .from('dashboard_config')
-        .update({
+    const { error } = await supabase
+      .from('dashboard_config')
+      .upsert(
+        {
+          id: 1,
+          location_id: locationId,
           billing_portal_url: portalUrl,
           billing_checkout_url: checkoutUrl,
           billing_checkout_embed: checkoutEmbed,
           updated_at: now
-        })
-        .eq('id', 1)
-        .select('id')
-        .maybeSingle();
-      if (error) throw error;
-      if (!data?.id) {
-        throw new Error('dashboard_config ontbreekt. Contacteer je dashboardbeheerder.');
-      }
-    } else {
-      const { error } = await supabase
-        .from('dashboard_config')
-        .upsert(
-          {
-            id: 1,
-            location_id: locationId,
-            billing_portal_url: portalUrl,
-            billing_checkout_url: checkoutUrl,
-            billing_checkout_embed: checkoutEmbed,
-            updated_at: now
-          },
-          { onConflict: 'id' }
-        );
-      if (error) throw error;
-    }
+        },
+        { onConflict: 'id' }
+      );
+    if (error) throw error;
 
     adminState.billing.status = 'success';
     adminState.billing.message = 'Abonnement instellingen opgeslagen.';
@@ -8764,8 +8762,7 @@ const renderAdminModal = () => {
   const loggedIn = Boolean(authSession);
   const userEmail = authSession?.user?.email || '';
   const adminAccessEnabled = isAdminAccessEnabled();
-  const kpiOnlyMode = settingsModeEnabled && !adminAccessEnabled;
-  const canManageKpi = loggedIn || kpiOnlyMode;
+  const canManageKpi = loggedIn;
   const modalTitle = settingsButtonLabel;
   const modalSubtitle = adminAccessEnabled
     ? 'Beheer GHL integratie, kostattributie en KPI targets.'
@@ -9120,7 +9117,7 @@ const renderAdminModal = () => {
             ? `<div class="admin-meta">${
                 loggedIn
                   ? `Ingelogd als ${escapeHtml(userEmail)}`
-                  : 'Je hoeft niet in te loggen om KPI targets aan te passen.'
+                  : 'Log in om instellingen te beheren.'
               }</div>
                ${
                  adminAccessEnabled && loggedIn && adminState.loading
@@ -9156,7 +9153,7 @@ const renderAdminModal = () => {
                         </label>
                         ${
                           adminState.message
-                            ? `<div class="admin-message ${adminState.status === 'error' ? 'error' : 'success'}">${adminState.message}</div>`
+                            ? `<div class="admin-message ${adminState.status === 'error' ? 'error' : 'success'}">${escapeHtml(adminState.message)}</div>`
                             : ''
                         }
                         <button type="submit" class="admin-submit" ${adminBusy ? 'disabled' : ''}>
@@ -9198,7 +9195,7 @@ const renderAdminModal = () => {
                   </div>
                   ${
                     adminState.kpi.message
-                      ? `<div class="admin-message ${kpiStatusClass}">${adminState.kpi.message}</div>`
+                      ? `<div class="admin-message ${kpiStatusClass}">${escapeHtml(adminState.kpi.message)}</div>`
                       : ''
                   }
                   ${adminState.kpi.loading ? '<div class="admin-meta">KPI wordt geladen...</div>' : ''}
@@ -9456,7 +9453,7 @@ const renderAdminModal = () => {
                         </div>
                         ${
                           adminState.mapping.message
-                            ? `<div class="admin-message ${mappingStatusClass}">${adminState.mapping.message}</div>`
+                            ? `<div class="admin-message ${mappingStatusClass}">${escapeHtml(adminState.mapping.message)}</div>`
                             : ''
                         }
                         ${adminState.mapping.loading ? '<div class="admin-meta">Mapping wordt geladen...</div>' : ''}
@@ -9534,11 +9531,11 @@ const renderAdminModal = () => {
                  </label>
                  ${
                    adminState.auth.message
-                     ? `<div class="admin-message ${adminState.auth.status === 'error' ? 'error' : 'success'}">${adminState.auth.message}</div>`
+                     ? `<div class="admin-message ${adminState.auth.status === 'error' ? 'error' : 'success'}">${escapeHtml(adminState.auth.message)}</div>`
                      : ''
                  }
                  <button type="submit" class="admin-submit" ${adminState.auth.status === 'sending' ? 'disabled' : ''}>
-                   ${adminState.auth.status === 'sending' ? 'Versturen...' : 'Stuur magic link'}
+                   ${adminState.auth.status === 'sending' ? 'Aanvragen...' : 'Login aanvragen'}
                  </button>
                  ${
                    !adminModeEnabled && adminState.auth.requested
@@ -11853,14 +11850,155 @@ const isLeadCoreLiveReadyForKey = (requiredLive, rangeKey) =>
 
 const root = document.getElementById('root');
 
-const buildBootMarkup = () => `
+const buildBootMarkup = (label = 'Dashboard laden...') => `
   <div class="min-h-screen w-full bg-background flex items-center justify-center">
     <div class="flex flex-col items-center gap-3 px-6 py-4 rounded-2xl border border-border/60 bg-card/80 shadow-sm">
       <div class="h-10 w-10 rounded-full border-4 border-muted-foreground/20 border-t-primary animate-spin"></div>
-      <p class="text-sm font-semibold text-muted-foreground">Dashboard laden...</p>
+      <p class="text-sm font-semibold text-muted-foreground">${escapeHtml(label)}</p>
     </div>
   </div>
 `;
+
+const buildAuthGateMarkup = () => {
+  const statusTone =
+    authGateState.status === 'error' ? 'text-rose-600' : authGateState.status === 'success' ? 'text-emerald-600' : '';
+  const buttonDisabled = authGateState.status === 'sending';
+
+  return `
+    <div class="min-h-screen w-full bg-background flex items-center justify-center px-6">
+      <div class="w-full max-w-md rounded-2xl border border-border/60 bg-card/80 shadow-sm p-6">
+        <h1 class="text-xl font-semibold text-foreground">Inloggen vereist</h1>
+        <p class="mt-1 text-sm text-muted-foreground">
+          Dit dashboard is afgeschermd. Log in via een magic link.
+        </p>
+        <form class="mt-5 grid gap-3" data-auth-gate-form>
+          <label class="grid gap-1 text-sm font-medium text-foreground">
+            Email
+            <input
+              type="email"
+              class="h-10 rounded-md border border-border bg-background px-3 text-sm"
+              placeholder="naam@bedrijf.be"
+              autocomplete="email"
+              required
+              value="${escapeHtml(authGateState.email || '')}"
+              data-auth-gate-email
+            />
+          </label>
+          ${
+            authGateState.message
+              ? `<div class="text-sm ${statusTone}">${escapeHtml(authGateState.message)}</div>`
+              : ''
+          }
+          <button
+            type="submit"
+            class="h-10 rounded-md bg-primary text-primary-foreground font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
+            ${buttonDisabled ? 'disabled' : ''}
+          >
+            ${buttonDisabled ? 'Aanvragen...' : 'Login aanvragen'}
+          </button>
+          ${
+            accessRequestEmail
+              ? `
+                <div class="pt-3 mt-1 border-t border-border/60 grid gap-2">
+                  <button
+                    type="button"
+                    class="h-10 rounded-md border border-border bg-background font-semibold text-foreground hover:bg-accent disabled:opacity-60 disabled:cursor-not-allowed"
+                    ${buttonDisabled ? 'disabled' : ''}
+                    data-auth-gate-request-access
+                  >
+                    ${escapeHtml(accessRequestLabel)}
+                  </button>
+                  <p class="text-xs text-muted-foreground">
+                    Nog geen toegang? Vraag toegang aan en we zetten je e-mailadres op de allowlist.
+                  </p>
+                </div>
+              `
+              : ''
+          }
+        </form>
+      </div>
+    </div>
+  `;
+};
+
+const buildAccessRequestMailto = (requesterEmail = '') => {
+  if (!accessRequestEmail) return '';
+  const dashboardLabel = envDashboardTitle || window.location.hostname || 'Dashboard';
+  const subject = encodeURIComponent(`Toegang aanvragen: ${dashboardLabel}`);
+  const body = encodeURIComponent(
+    [
+      'Hallo,',
+      '',
+      'Ik wil graag toegang tot dit dashboard.',
+      `Dashboard: ${window.location.origin}`,
+      requesterEmail ? `Email: ${requesterEmail}` : '',
+      '',
+      'Bedankt!'
+    ]
+      .filter(Boolean)
+      .join('\n')
+  );
+  return `mailto:${accessRequestEmail}?subject=${subject}&body=${body}`;
+};
+
+const bindAuthGateInteractions = () => {
+  const emailInput = document.querySelector('[data-auth-gate-email]');
+  if (emailInput) {
+    emailInput.addEventListener('input', (event) => {
+      authGateState.email = event.target.value;
+    });
+  }
+
+  const accessRequestButton = document.querySelector('[data-auth-gate-request-access]');
+  if (accessRequestButton) {
+    accessRequestButton.addEventListener('click', () => {
+      const mailto = buildAccessRequestMailto(String(authGateState.email || '').trim());
+      if (!mailto) return;
+      window.location.href = mailto;
+    });
+  }
+
+  const form = document.querySelector('[data-auth-gate-form]');
+  if (form) {
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      authGateState.status = 'sending';
+      authGateState.message = '';
+      renderApp();
+
+      if (!supabase) {
+        authGateState.status = 'error';
+        authGateState.message = 'Supabase is niet geconfigureerd.';
+        renderApp();
+        return;
+      }
+
+      const email = String(authGateState.email || '').trim();
+      if (!email) {
+        authGateState.status = 'error';
+        authGateState.message = 'Vul een geldig emailadres in.';
+        renderApp();
+        return;
+      }
+
+      const { error } = await supabase.auth.signInWithOtp({
+        email,
+        // Prevent self-signups: users must be invited/created in Supabase Auth.
+        options: { emailRedirectTo: window.location.origin, shouldCreateUser: false }
+      });
+
+      // Avoid email enumeration and hide auth provider details.
+      if (error) {
+        console.warn('[auth] magic link request failed', error);
+      }
+      authGateState.status = 'success';
+      authGateState.message =
+        'Als dit e-mailadres toegang heeft, ontvang je binnen enkele minuten een magic link. Check ook je spam.';
+
+      renderApp();
+    });
+  }
+};
 
 const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = ALL_DASHBOARD_TABS) => {
   const metrics = applyLiveOverrides(computeMetrics(range), range);
@@ -12257,6 +12395,18 @@ const renderApp = () => {
   applyBrandTheme();
   applyBrandColors();
 
+  if (supabase && requireAuthEnabled) {
+    if (!authInitialized) {
+      root.innerHTML = buildBootMarkup('Sessie controleren...');
+      return;
+    }
+    if (!authSession) {
+      root.innerHTML = buildAuthGateMarkup();
+      bindAuthGateInteractions();
+      return;
+    }
+  }
+
   // Avoid flashing template branding/layout while the per-customer config is still loading.
   if (
     Boolean(supabase) &&
@@ -12447,11 +12597,6 @@ const bindInteractions = () => {
           loadLostReasonMappings(dateRange);
           loadSourceNormalizationSettings();
           loadLeadCostSettings();
-        } else if (settingsModeEnabled && !isAdminAccessEnabled()) {
-          loadKpiSettings();
-          loadLostReasonMappings(dateRange);
-          loadSourceNormalizationSettings();
-          loadLeadCostSettings();
         }
       });
     });
@@ -12540,16 +12685,17 @@ const bindInteractions = () => {
 
         const { error } = await supabase.auth.signInWithOtp({
           email,
-          options: { emailRedirectTo: window.location.origin }
+          // Prevent self-signups: users must be invited/created in Supabase Auth.
+          options: { emailRedirectTo: window.location.origin, shouldCreateUser: false }
         });
 
+        // Avoid email enumeration and hide auth provider details.
         if (error) {
-          adminState.auth.status = 'error';
-          adminState.auth.message = error.message;
-        } else {
-          adminState.auth.status = 'success';
-          adminState.auth.message = 'Check je inbox voor de magic link.';
+          console.warn('[admin-auth] magic link request failed', error);
         }
+        adminState.auth.status = 'success';
+        adminState.auth.message =
+          'Als dit e-mailadres toegang heeft, ontvang je binnen enkele minuten een magic link. Check ook je spam.';
 
         renderApp();
       });
@@ -13057,7 +13203,6 @@ const bindInteractions = () => {
 
 dateRange = normalizeRange(dateRange.start, dateRange.end);
 initAuth();
-loadLocationConfig();
 renderApp();
 
 const desktopQuery = window.matchMedia('(min-width: 1024px)');

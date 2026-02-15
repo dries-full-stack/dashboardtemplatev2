@@ -1,7 +1,12 @@
 {
   "version": "5",
+  "redirects": {
+    "https://esm.sh/@types/papaparse@~5.5.0/index.d.ts": "https://esm.sh/@types/papaparse@5.5.2/index.d.ts"
+  },
   "remote": {
-    "https://esm.sh/@supabase/supabase-js@2.48.1": "b9a3a846ddbe85569795a9a2055336f1353c6eea2f5ca05bd6a6c14284dfe20a"
+    "https://esm.sh/@supabase/supabase-js@2.48.1": "b9a3a846ddbe85569795a9a2055336f1353c6eea2f5ca05bd6a6c14284dfe20a",
+    "https://esm.sh/@supabase/supabase-js@2.49.1": "947c71e163ca8bb5b538eccb5ee86fbc8da6bcb916a861586db5fad1af4701bb",
+    "https://esm.sh/papaparse@5.4.1": "219ba0c48cb54e9dff897b36f769042c63a965083bcde16e0a06e11fbd22c185"
   },
   "workspace": {
     "packageJson": {

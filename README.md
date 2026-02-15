@@ -348,7 +348,8 @@ De functie schrijft naar `public.marketing_spend_daily`. Het dashboard leest via
 Als je niet elke keer lokaal de GHL credentials wilt zetten, kun je ze per klant opslaan in Supabase.
 De tabel `ghl_integrations` heeft **RLS aan** zodat de PIT niet via de anon key uitlekt.  
 Gebruik de SQL editor (of service role) om de rij te inserten. De sync gebruikt service role en kan dit gewoon lezen.
-De tabel `dashboard_config` bevat enkel de **publieke** `location_id` (leesbaar via anon) zodat het dashboard automatisch kan filteren.
+De tabel `dashboard_config` bevat de klant-config voor het dashboard (o.a. `location_id`, branding, layout, KPI settings).
+In secure-by-default mode is deze **niet** publiek leesbaar: het dashboard vereist Supabase Auth (magic link) en leest via de authenticated sessie (RLS).
 Optioneel kun je hier ook custom field IDs bewaren:
 - `hook_field_id` + `campaign_field_id` (hook/campagne performance)
 - `lost_reason_field_id` (verloren lead redenen)
