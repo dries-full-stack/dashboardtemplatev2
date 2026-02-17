@@ -1,10 +1,10 @@
-<div class="space-y-6 p-6">
-<div class="flex items-center justify-between">
+<div class="space-y-6">
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
 <div>
 <h1 class="text-2xl font-bold text-foreground">Sales Resultaten</h1>
 <p class="text-muted-foreground">Volg de belangrijkste sales KPI's en offerte statistieken</p>
 </div>
-<div class="date-picker relative flex items-center gap-2 flex-wrap" data-sales-date-controls>
+<div class="date-picker relative flex items-center gap-2 flex-wrap justify-end w-full sm:w-auto" data-sales-date-controls>
 <button class="date-trigger" type="button" data-date-trigger="start">
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-calendar h-4 w-4" aria-hidden="true">
 <path d="M8 2v4"></path>
@@ -28,7 +28,7 @@
 <button class="sales-date-field-option inline-flex items-center justify-center h-8 px-3 rounded-md text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground" type="button" data-sales-date-field="created_at">Trajectstart</button>
 <button class="sales-date-field-option inline-flex items-center justify-center h-8 px-3 rounded-md text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground" type="button" data-sales-date-field="closed_at">Afsluitdatum</button>
 </div>
-<div class="flex items-center gap-2 flex-wrap" data-quick-range-controls></div>
+<div class="flex items-center gap-2 flex-wrap justify-end" data-quick-range-controls></div>
 <div data-sales-date-picker></div>
 </div>
 </div>
@@ -409,7 +409,7 @@
 <div class="grid gap-6 lg:grid-cols-2">
 <div class="rounded-lg border bg-card text-card-foreground shadow-sm">
 <div class="flex flex-col space-y-1.5 p-6 pb-2">
-<div class="flex items-center justify-between">
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
 <h3 class="tracking-tight text-lg font-semibold flex items-center gap-2">
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-target w-5 h-5 text-primary">
 <circle cx="12" cy="12" r="10">
@@ -637,7 +637,7 @@
 <div class="grid gap-6 lg:grid-cols-2">
 <div class="rounded-lg border bg-card text-card-foreground shadow-sm">
 <div class="flex flex-col space-y-1.5 p-6 pb-2">
-<div class="flex items-center justify-between">
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
 <h3 class="tracking-tight text-lg font-semibold flex items-center gap-2">
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-receipt w-5 h-5 text-primary">
 <path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2z"></path>
@@ -671,7 +671,7 @@
 </div>
 <div class="rounded-lg border bg-card text-card-foreground shadow-sm">
 <div class="flex flex-col space-y-1.5 p-6 pb-2">
-<div class="flex items-center justify-between">
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
 <h3 class="tracking-tight text-lg font-semibold flex items-center gap-2">
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-megaphone w-5 h-5 text-primary">
 <path d="m3 11 18-5v12L3 14v-3z"></path>
@@ -682,7 +682,7 @@
 <p class="text-sm text-muted-foreground">Aangekocht = leads aangemaakt. Retour = pipeline fase die "retour" bevat.</p>
 </div>
 <div class="p-6 pt-0 space-y-6">
-<div class="grid grid-cols-3 gap-4">
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
 <div class="text-center p-3 rounded-lg bg-muted/50">
 <p class="text-2xl font-bold text-foreground" data-sales-kpi="leads_total" data-sales-static="true">--</p>
 <p class="text-xs text-muted-foreground mt-1">Leads</p>
@@ -767,7 +767,7 @@
 <div class="grid gap-6 lg:grid-cols-2">
 <div class="rounded-lg border bg-card text-card-foreground shadow-sm">
 <div class="flex flex-col space-y-1.5 p-6 pb-2">
-<div class="flex items-center justify-between">
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
 <h3 class="tracking-tight text-lg font-semibold flex items-center gap-2">
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-layers w-5 h-5 text-primary">
 <path d="M12.83 2.18a2 2 0 0 0-1.66 0l-7 3.11a2 2 0 0 0 0 3.62l7 3.11a2 2 0 0 0 1.66 0l7-3.11a2 2 0 0 0 0-3.62Z"></path>
@@ -799,7 +799,7 @@
 </div>
 <div class="rounded-lg border bg-card text-card-foreground shadow-sm">
 <div class="flex flex-col space-y-1.5 p-6 pb-2">
-<div class="flex items-center justify-between">
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
 <h3 class="tracking-tight text-lg font-semibold flex items-center gap-2">
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-map-pin w-5 h-5 text-primary">
 <path d="M20 10c0 5-8 12-8 12s-8-7-8-12a8 8 0 0 1 16 0Z"></path>
@@ -899,7 +899,7 @@
 </div>
 <div class="rounded-lg border bg-card text-card-foreground shadow-sm">
 <div class="flex flex-col space-y-1.5 p-6 pb-2">
-<div class="flex items-center justify-between">
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
 <h3 class="tracking-tight text-lg font-semibold flex items-center gap-2">
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-calendar-clock w-5 h-5 text-warning">
 <path d="M21 7.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3.5">
@@ -1093,7 +1093,7 @@
 </div>
 </div>
 </div>
-<div class="grid grid-cols-3 gap-6 mt-8 w-full max-w-2xl">
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-6 mt-8 w-full max-w-2xl">
 <div class="text-center p-4 rounded-lg bg-blue-50 dark:bg-blue-950/30">
 <p class="text-2xl font-bold text-blue-600">48.6%</p>
 <p class="text-xs text-muted-foreground mt-1">Afspraak -> Offerte</p>
@@ -1112,7 +1112,7 @@
 </div>
 <div class="rounded-lg border bg-card text-card-foreground shadow-sm">
 <div class="flex flex-col space-y-1.5 p-6 pb-2">
-<div class="flex items-center justify-between">
+<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
 <h3 class="tracking-tight text-lg font-semibold flex items-center gap-2">
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-circle-user w-5 h-5 text-primary">
 <circle cx="12" cy="12" r="10">
@@ -1155,7 +1155,146 @@
 <p class="text-sm text-muted-foreground">Individuele performance metrics per teamlid</p>
 </div>
 <div class="p-6 pt-0">
-<div class="overflow-x-auto">
+<div class="grid gap-3 sm:hidden" data-sales-seller-cards>
+<div class="rounded-2xl border border-border bg-card/60 p-4 shadow-sm">
+<div class="flex items-start justify-between gap-3">
+<div class="min-w-0 inline-flex items-center gap-3 text-left">
+<span class="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+<span class="text-sm font-semibold text-primary">JvdB</span>
+</span>
+<span class="min-w-0">
+<span class="block text-sm font-semibold text-foreground truncate">Jan van den Berg</span>
+<span class="block text-xs text-muted-foreground">#1</span>
+</span>
+</div>
+<div class="text-right flex-shrink-0">
+<div class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Omzet</div>
+<div class="mt-0.5 text-sm font-semibold text-foreground whitespace-nowrap">EUR 84.500</div>
+</div>
+</div>
+<div class="mt-3 grid grid-cols-2 gap-3">
+<div class="rounded-xl border border-border/60 bg-muted/25 p-3">
+<div class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Afspraken</div>
+<div class="mt-1 text-base font-semibold text-foreground">156</div>
+</div>
+<div class="rounded-xl border border-border/60 bg-muted/25 p-3">
+<div class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Offertes</div>
+<div class="mt-1 text-lg font-bold text-foreground leading-tight">78</div>
+</div>
+<div class="rounded-xl border border-border/60 bg-muted/25 p-3">
+<div class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Deals</div>
+<div class="mt-1 text-lg font-bold text-primary leading-tight">42</div>
+</div>
+<div class="rounded-xl border border-border/60 bg-muted/25 p-3">
+<div class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Conversie</div>
+<div class="mt-1 text-sm font-semibold text-foreground">26.9%</div>
+</div>
+</div>
+<div class="mt-3 grid grid-cols-2 gap-3 text-xs text-muted-foreground">
+<div class="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
+<span>Tot offerte</span>
+<span class="font-semibold text-foreground whitespace-nowrap">14.2 dagen</span>
+</div>
+<div class="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
+<span>Offerte → close</span>
+<span class="font-semibold text-foreground whitespace-nowrap">--</span>
+</div>
+</div>
+</div>
+
+<div class="rounded-2xl border border-border bg-card/60 p-4 shadow-sm">
+<div class="flex items-start justify-between gap-3">
+<div class="min-w-0 inline-flex items-center gap-3 text-left">
+<span class="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+<span class="text-sm font-semibold text-primary">LdV</span>
+</span>
+<span class="min-w-0">
+<span class="block text-sm font-semibold text-foreground truncate">Lisa de Vries</span>
+<span class="block text-xs text-muted-foreground">#2</span>
+</span>
+</div>
+<div class="text-right flex-shrink-0">
+<div class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Omzet</div>
+<div class="mt-0.5 text-sm font-semibold text-foreground whitespace-nowrap">EUR 76.200</div>
+</div>
+</div>
+<div class="mt-3 grid grid-cols-2 gap-3">
+<div class="rounded-xl border border-border/60 bg-muted/25 p-3">
+<div class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Afspraken</div>
+<div class="mt-1 text-base font-semibold text-foreground">142</div>
+</div>
+<div class="rounded-xl border border-border/60 bg-muted/25 p-3">
+<div class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Offertes</div>
+<div class="mt-1 text-lg font-bold text-foreground leading-tight">71</div>
+</div>
+<div class="rounded-xl border border-border/60 bg-muted/25 p-3">
+<div class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Deals</div>
+<div class="mt-1 text-lg font-bold text-primary leading-tight">38</div>
+</div>
+<div class="rounded-xl border border-border/60 bg-muted/25 p-3">
+<div class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Conversie</div>
+<div class="mt-1 text-sm font-semibold text-foreground">26.8%</div>
+</div>
+</div>
+<div class="mt-3 grid grid-cols-2 gap-3 text-xs text-muted-foreground">
+<div class="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
+<span>Tot offerte</span>
+<span class="font-semibold text-foreground whitespace-nowrap">16.5 dagen</span>
+</div>
+<div class="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
+<span>Offerte → close</span>
+<span class="font-semibold text-foreground whitespace-nowrap">--</span>
+</div>
+</div>
+</div>
+
+<div class="rounded-2xl border border-border bg-card/60 p-4 shadow-sm">
+<div class="flex items-start justify-between gap-3">
+<div class="min-w-0 inline-flex items-center gap-3 text-left">
+<span class="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+<span class="text-sm font-semibold text-primary">EV</span>
+</span>
+<span class="min-w-0">
+<span class="block text-sm font-semibold text-foreground truncate">Emma Visser</span>
+<span class="block text-xs text-muted-foreground">#3</span>
+</span>
+</div>
+<div class="text-right flex-shrink-0">
+<div class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Omzet</div>
+<div class="mt-0.5 text-sm font-semibold text-foreground whitespace-nowrap">EUR 48.600</div>
+</div>
+</div>
+<div class="mt-3 grid grid-cols-2 gap-3">
+<div class="rounded-xl border border-border/60 bg-muted/25 p-3">
+<div class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Afspraken</div>
+<div class="mt-1 text-base font-semibold text-foreground">142</div>
+</div>
+<div class="rounded-xl border border-border/60 bg-muted/25 p-3">
+<div class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Offertes</div>
+<div class="mt-1 text-lg font-bold text-foreground leading-tight">64</div>
+</div>
+<div class="rounded-xl border border-border/60 bg-muted/25 p-3">
+<div class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Deals</div>
+<div class="mt-1 text-lg font-bold text-primary leading-tight">24</div>
+</div>
+<div class="rounded-xl border border-border/60 bg-muted/25 p-3">
+<div class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Conversie</div>
+<div class="mt-1 text-sm font-semibold text-foreground">16.9%</div>
+</div>
+</div>
+<div class="mt-3 grid grid-cols-2 gap-3 text-xs text-muted-foreground">
+<div class="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
+<span>Tot offerte</span>
+<span class="font-semibold text-foreground whitespace-nowrap">24.5 dagen</span>
+</div>
+<div class="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
+<span>Offerte → close</span>
+<span class="font-semibold text-foreground whitespace-nowrap">--</span>
+</div>
+</div>
+</div>
+</div>
+<div class="hidden sm:block overflow-x-auto">
 <div class="relative w-full overflow-auto">
 <table class="w-full caption-bottom text-sm">
 <thead class="[&_tr]:border-b">

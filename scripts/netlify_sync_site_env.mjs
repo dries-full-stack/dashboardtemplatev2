@@ -59,14 +59,29 @@ function loadNetlifyToken() {
   const envToken = process.env.NETLIFY_AUTH_TOKEN || process.env.NETLIFY_TOKEN;
   if (envToken) return envToken;
 
-  const configPath = path.join(os.homedir(), '.config', 'netlify', 'config.json');
-  const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-  const userId = cfg.userId;
-  const token = cfg?.users?.[userId]?.auth?.token;
-  if (!token) {
-    throw new Error(`Unable to read Netlify auth token from ${configPath}`);
+  const configPaths = [
+    // Linux defaults.
+    path.join(os.homedir(), '.config', 'netlify', 'config.json'),
+    // Older Netlify CLI installs.
+    path.join(os.homedir(), '.netlify', 'config.json'),
+    // macOS Netlify CLI stores credentials here.
+    path.join(os.homedir(), 'Library', 'Preferences', 'netlify', 'config.json')
+  ];
+
+  for (const configPath of configPaths) {
+    try {
+      const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      const userId = cfg.userId;
+      const token = cfg?.users?.[userId]?.auth?.token;
+      if (token) return token;
+    } catch {
+      // Try next path.
+    }
   }
-  return token;
+
+  throw new Error(
+    `Unable to read Netlify auth token. Set NETLIFY_AUTH_TOKEN, or ensure you're logged in via Netlify CLI.`
+  );
 }
 
 async function apiFetch(url, { token, method = 'GET', body } = {}) {
@@ -171,4 +186,3 @@ main().catch((err) => {
   console.error(err instanceof Error ? err.message : String(err));
   process.exit(1);
 });
-

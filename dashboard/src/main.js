@@ -8119,6 +8119,121 @@ const buildSellerRows = (sellers, options = {}) => {
     })
     .join('');
 };
+
+const buildSellerCards = (sellers, options = {}) => {
+  const appointmentsSupported = options.appointmentsSupported !== false;
+  const sellerRevenueBySellerId =
+    options.sellerRevenueBySellerId && typeof options.sellerRevenueBySellerId === 'object'
+      ? options.sellerRevenueBySellerId
+      : null;
+
+  if (!Array.isArray(sellers) || sellers.length === 0) {
+    return `
+      <div class="rounded-2xl border border-border bg-card/60 p-4 text-sm text-muted-foreground">
+        Geen verkopersdata gevonden.
+      </div>
+    `;
+  }
+
+  return sellers
+    .map((seller, index) => {
+      const conversion = formatPercent(seller.conversion, 1);
+      const avgTimeToQuote = Number.isFinite(seller.avgTimeToQuote) ? formatDays(seller.avgTimeToQuote, 1) : '--';
+      const avgQuoteToClose = Number.isFinite(seller.avgQuoteToClose) ? formatDays(seller.avgQuoteToClose, 1) : '--';
+      const sellerIdRaw = String(seller.id || '');
+      const mappedRevenue = sellerRevenueBySellerId ? Number(sellerRevenueBySellerId[sellerIdRaw]) : Number.NaN;
+      const revenueRaw = Number.isFinite(mappedRevenue) ? mappedRevenue : Number(seller.revenue) || 0;
+      const revenue = revenueRaw ? formatCurrency(revenueRaw, 0) : '--';
+
+      const sellerId = escapeHtml(sellerIdRaw);
+      const sellerName = escapeHtml(seller.name);
+      const sellerAttrs = `data-sales-drill=\"all\" data-sales-seller-id=\"${sellerId}\" data-sales-seller-name=\"${sellerName}\"`;
+
+      const pendingAppointments = Number(seller.appointmentsPending) || 0;
+      const knownAppointments = formatNumber(seller.appointments || 0);
+      const appointmentLabel = pendingAppointments > 0 ? `${knownAppointments}+` : knownAppointments;
+
+      const appointmentsMain = !appointmentsSupported
+        ? `
+            <span class="text-sm text-muted-foreground" title="Afspraken zijn niet beschikbaar omdat teamleader_deals.had_appointment_phase ontbreekt (migratie nog niet gedeployed).">
+              --
+            </span>
+          `
+        : pendingAppointments > 0
+          ? `
+              <div class="inline-flex items-center gap-2" title="Afspraken worden nog berekend voor ${pendingAppointments} deal(s). Teamleader phase history wordt op de achtergrond gesynct.">
+                <span class="text-base font-semibold text-foreground" ${sellerAttrs}>${appointmentLabel}</span>
+                <span class="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                  <span class="inline-block h-4 w-4 rounded-full border-2 border-muted-foreground/20 border-t-primary animate-spin"></span>
+                  <span>nog ${formatNumber(pendingAppointments)}</span>
+                </span>
+              </div>
+            `
+          : `<span class="text-base font-semibold text-foreground" ${sellerAttrs}>${appointmentLabel}</span>`;
+
+      return `
+        <div class="rounded-2xl border border-border bg-card/60 p-4 shadow-sm">
+          <div class="flex items-start justify-between gap-3">
+            <button
+              type="button"
+              class="min-w-0 inline-flex items-center gap-3 text-left rounded-md -mx-1 px-1 py-0.5 hover:bg-secondary/30"
+              data-sales-drill-label="Deals"
+              ${sellerAttrs}
+            >
+              <span class="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                <span class="text-sm font-semibold text-primary">${escapeHtml(seller.initials)}</span>
+              </span>
+              <span class="min-w-0">
+                <span class="block text-sm font-semibold text-foreground truncate">${sellerName}</span>
+                <span class="block text-xs text-muted-foreground">#${escapeHtml(String(index + 1))}</span>
+              </span>
+            </button>
+
+            <div class="text-right flex-shrink-0">
+              <div class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Omzet</div>
+              <div class="mt-0.5 text-sm font-semibold text-foreground whitespace-nowrap" ${sellerAttrs}>${revenue}</div>
+            </div>
+          </div>
+
+          <div class="mt-3 grid grid-cols-2 gap-3">
+            <div class="rounded-xl border border-border/60 bg-muted/25 p-3">
+              <div class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Afspraken</div>
+              <div class="mt-1">${appointmentsMain}</div>
+            </div>
+            <div class="rounded-xl border border-border/60 bg-muted/25 p-3">
+              <div class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Offertes</div>
+              <div class="mt-1 text-lg font-bold text-foreground leading-tight" ${sellerAttrs}>${formatNumber(
+                seller.deals
+              )}</div>
+            </div>
+            <div class="rounded-xl border border-border/60 bg-muted/25 p-3">
+              <div class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Deals</div>
+              <div class="mt-1 text-lg font-bold text-primary leading-tight" ${sellerAttrs}>${formatNumber(
+                seller.won
+              )}</div>
+            </div>
+            <div class="rounded-xl border border-border/60 bg-muted/25 p-3">
+              <div class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Conversie</div>
+              <div class="mt-1 text-sm font-semibold text-foreground" ${sellerAttrs}>${conversion}</div>
+            </div>
+          </div>
+
+          <div class="mt-3 grid grid-cols-2 gap-3 text-xs text-muted-foreground">
+            <div class="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
+              <span>Tot offerte</span>
+              <span class="font-semibold text-foreground whitespace-nowrap" ${sellerAttrs}>${avgTimeToQuote}</span>
+            </div>
+            <div class="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
+              <span>Offerte → close</span>
+              <span class="font-semibold text-foreground whitespace-nowrap" ${sellerAttrs}>${avgQuoteToClose}</span>
+            </div>
+          </div>
+        </div>
+      `;
+    })
+    .join('');
+};
+
 const SALES_DRILLDOWN_CONFIG = {
   quotes_created: { filter: 'all', label: 'Offertes' },
   quotes_subtext: { filter: 'all', label: 'Offertes' },
@@ -8387,6 +8502,13 @@ const applySalesData = (data) => {
       monthsCount: kpiMonths,
       sellerRevenueBySellerId,
       useCurrentMonthKpi: false
+    });
+  }
+  const sellerCards = document.querySelector('[data-sales-seller-cards]');
+  if (sellerCards) {
+    sellerCards.innerHTML = buildSellerCards(data.sellers, {
+      appointmentsSupported: data.appointmentsSupported,
+      sellerRevenueBySellerId
     });
   }
   const sellerCount = Array.isArray(data.sellers) ? data.sellers.length : 0;
@@ -11276,6 +11398,134 @@ const renderSourceRows = (rows, isLive) => {
     .join('');
 };
 
+const renderSourceCards = (rows, isLive) => {
+  const dealsMode = resolveSourceBreakdownVariant() === 'deals';
+  const denominatorKind = resolveSourceBreakdownCostDenominator();
+  const costLabel =
+    denominatorKind === 'deals'
+      ? 'Cost per Deal'
+      : denominatorKind === 'appointments'
+        ? 'Cost per Afspraak'
+        : 'Cost per Confirmed';
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return `
+      <div class="rounded-xl border border-border bg-card/60 p-4 text-sm text-muted-foreground">
+        Geen data beschikbaar.
+      </div>
+    `;
+  }
+
+  return rows
+    .map((row) => {
+      const sourceText = row.source ? escapeHtml(row.source) : 'Onbekend';
+      const leadsValue = renderDrilldownValue({
+        value: row.leads,
+        kind: 'leads',
+        source: row.source,
+        label: 'Leads (opportunities)',
+        enabled: isLive && Number(row.rawLeads) > 0,
+        className: 'text-lg font-bold text-foreground leading-tight',
+        fallbackTag: 'div'
+      });
+      const appointmentsValue = renderDrilldownValue({
+        value: row.appointments,
+        kind: 'appointments',
+        source: row.source,
+        label: 'Afspraken',
+        enabled: isLive && Number(row.rawAppointments) > 0,
+        className: 'text-lg font-bold text-foreground leading-tight',
+        fallbackTag: 'div'
+      });
+
+      const primarySecondary =
+        dealsMode
+          ? {
+              label: 'Deals',
+              value: renderDrilldownValue({
+                value: row.deals,
+                kind: 'deals',
+                source: row.source,
+                label: 'Deals',
+                enabled: isLive && Number(row.rawDeals) > 0,
+                className: 'text-lg font-bold text-foreground leading-tight',
+                fallbackTag: 'div'
+              }),
+              subLabel: '% naar Deals',
+              subValue: escapeHtml(row.dealRate)
+            }
+          : {
+              label: 'Confirmed',
+              value: renderDrilldownValue({
+                value: row.confirmed,
+                kind: 'appointments_confirmed',
+                source: row.source,
+                label: 'Confirmed afspraken',
+                enabled: isLive && Number(row.rawConfirmedAppointments) > 0,
+                className: 'text-lg font-bold text-foreground leading-tight',
+                fallbackTag: 'div'
+              }),
+              subLabel: 'Zonder lead',
+              subValue:
+                Number(row.rawNoLeadInRange) > 0
+                  ? renderDrilldownValue({
+                      value: row.noLeadInRange,
+                      kind: 'appointments_without_lead_in_range',
+                      source: row.source,
+                      label: 'Afspraken zonder lead in periode',
+                      enabled: isLive && Number(row.rawNoLeadInRange) > 0,
+                      className: 'font-semibold text-foreground',
+                      fallbackTag: 'span'
+                    })
+                  : '<span class="text-muted-foreground">0</span>'
+            };
+
+      const planValue = escapeHtml(row.plan);
+      const costValue = escapeHtml(row.cost);
+
+      return `
+        <div class="rounded-2xl border border-border bg-card/60 p-4 shadow-sm">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <div class="text-sm font-semibold text-foreground truncate">${sourceText}</div>
+              <div class="mt-1 text-xs text-muted-foreground">
+                <span class="font-semibold text-foreground">Inplan:</span> ${planValue}
+              </div>
+            </div>
+            <div class="text-right">
+              <div class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">${escapeHtml(costLabel)}</div>
+              <div class="mt-0.5 text-sm font-semibold text-foreground whitespace-nowrap">${costValue}</div>
+            </div>
+          </div>
+
+          <div class="mt-3 grid grid-cols-2 gap-3">
+            <div class="rounded-xl border border-border/60 bg-muted/25 p-3">
+              <div class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Leads</div>
+              <div class="mt-1">${leadsValue}</div>
+            </div>
+            <div class="rounded-xl border border-border/60 bg-muted/25 p-3">
+              <div class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Afspraken</div>
+              <div class="mt-1">${appointmentsValue}</div>
+            </div>
+            <div class="rounded-xl border border-border/60 bg-muted/25 p-3">
+              <div class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">${escapeHtml(
+                primarySecondary.label
+              )}</div>
+              <div class="mt-1">${primarySecondary.value}</div>
+            </div>
+            <div class="rounded-xl border border-border/60 bg-muted/25 p-3">
+              <div class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">${escapeHtml(
+                primarySecondary.subLabel
+              )}</div>
+              <div class="mt-1 text-sm font-semibold text-foreground">${primarySecondary.subValue}</div>
+            </div>
+          </div>
+        </div>
+      `;
+    })
+    .join('');
+};
+
 const hasDrilldownFieldValue = (rows, field) =>
   Array.isArray(rows) &&
   rows.some((row) => {
@@ -11725,23 +11975,23 @@ const renderLostReasons = (reasons, isLive) =>
         source: reason.label,
         label: 'Verloren leads',
         enabled: isLive && Number(reason.count) > 0,
-        className: 'text-sm font-medium text-foreground w-16 text-right inline-block',
+        className: 'text-sm font-medium text-foreground w-16 text-right inline-block flex-shrink-0',
         fallbackTag: 'span'
       });
       const displayLabel = formatLostReasonDisplayLabel(reason.label);
 
-      return `<div class="flex items-center justify-between p-3 bg-secondary/30 rounded-lg">
-          <div class="flex items-center gap-3">
-            <div class="w-3 h-3 rounded-full" style="background-color: ${reason.color};"></div>
-            <span class="text-sm text-foreground">${escapeHtml(displayLabel)}</span>
+      return `<div class="flex flex-col gap-2 p-3 bg-secondary/30 rounded-lg sm:flex-row sm:items-center sm:justify-between">
+          <div class="flex flex-wrap items-center gap-2 min-w-0">
+            <div class="w-3 h-3 rounded-full flex-shrink-0" style="background-color: ${reason.color};"></div>
+            <span class="text-sm text-foreground min-w-0 break-words">${escapeHtml(displayLabel)}</span>
             ${
               reason.highlight
                 ? '<div class="inline-flex items-center rounded-full border px-2.5 py-0.5 font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-destructive text-destructive-foreground hover:bg-destructive/80 text-xs">Top reden</div>'
                 : ''
             }
           </div>
-          <div class="flex items-center gap-4">
-            <div class="w-24 h-2 bg-secondary rounded-full overflow-hidden">
+          <div class="flex items-center gap-3 sm:gap-4 justify-between sm:justify-end">
+            <div class="flex-1 sm:flex-none sm:w-24 h-2 bg-secondary rounded-full overflow-hidden min-w-0">
               <div class="h-full rounded-full" style="width: ${reason.width}; background-color: ${reason.color};"></div>
             </div>
             ${valueMarkup}
@@ -11876,8 +12126,10 @@ const bindLostReasonCharts = () => {
       if (donut) {
         const color = item.getAttribute('data-color');
         if (color) {
-          donut.style.boxShadow = `0 0 0 6px ${toRgba(color, 0.2)}`;
-          donut.style.transform = 'scale(1.01)';
+          // In Safari/iOS a tiny scale or outer shadow can introduce 1px horizontal overflow.
+          // Keep the highlight ring inside the donut to avoid scrollbars on small viewports.
+          donut.style.boxShadow = `inset 0 0 0 6px ${toRgba(color, 0.2)}`;
+          donut.style.transform = '';
         } else {
           donut.style.boxShadow = '';
           donut.style.transform = '';
@@ -12579,7 +12831,10 @@ const renderSourceBreakdownSection = (section, metrics) => {
         ${metrics.sourceRowsLive ? '' : mockBadge}
       </h2>
       ${descriptionMarkup}
-      <div class="overflow-x-auto">
+      <div class="grid gap-3 sm:hidden">
+        ${renderSourceCards(metrics.sourceRows, metrics.sourceRowsLive)}
+      </div>
+      <div class="hidden sm:block overflow-x-auto">
         <div class="relative w-full overflow-auto">
           <table class="w-full caption-bottom text-sm">
             <thead class="[&_tr]:border-b">
@@ -12677,7 +12932,7 @@ const renderLostReasonsSection = (section, metrics) => {
             </h3>
           </div>
           <div class="p-4 sm:p-6 pt-0">
-            <div class="h-64 flex items-center justify-center">
+            <div class="min-h-64 flex items-center justify-center">
               ${renderLostReasonsChart(metrics.lostReasons)}
             </div>
           </div>

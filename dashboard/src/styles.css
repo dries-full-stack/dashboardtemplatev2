@@ -1162,6 +1162,14 @@ body:not([data-sidebar='open']) .sidebar-panel {
   transform: translateX(-100%);
 }
 
+body[data-scroll-locked='true'] {
+  overflow: hidden;
+}
+
+body[data-scroll-locked='true'] main {
+  overflow: hidden !important;
+}
+
 @media (min-width: 1024px) {
   .sidebar-overlay {
     display: none;
@@ -1224,7 +1232,9 @@ body:not([data-sidebar='open']) .sidebar-panel {
 
 .lost-reason-donut {
   width: 14rem;
-  height: 14rem;
+  max-width: 100%;
+  aspect-ratio: 1 / 1;
+  height: auto;
   border-radius: 999px;
   position: relative;
   display: flex;
@@ -1279,7 +1289,7 @@ body:not([data-sidebar='open']) .sidebar-panel {
 
 .lost-reason-legend-item {
   display: grid;
-  grid-template-columns: 0.75rem 1fr auto;
+  grid-template-columns: 0.75rem minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.6rem;
   padding: 0.4rem 0.6rem;
@@ -1290,6 +1300,7 @@ body:not([data-sidebar='open']) .sidebar-panel {
   cursor: pointer;
   text-align: left;
   transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+  min-width: 0;
 }
 
 .lost-reason-legend-item:hover,
@@ -1313,6 +1324,8 @@ body:not([data-sidebar='open']) .sidebar-panel {
 .lost-reason-name {
   font-size: 0.82rem;
   font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .lost-reason-meta {
