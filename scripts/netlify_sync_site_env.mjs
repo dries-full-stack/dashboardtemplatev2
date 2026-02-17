@@ -20,6 +20,7 @@ import path from 'node:path';
 
 const NETLIFY_API_BASE = 'https://api.netlify.com/api/v1';
 const DEFAULT_SCOPES = ['builds', 'functions', 'post_processing', 'runtime'];
+const TARGET_CONTEXTS = ['production', 'deploy-preview', 'branch-deploy', 'dev'];
 
 function parseArgs(argv) {
   const args = { siteId: null, envFile: null };
@@ -135,23 +136,29 @@ async function main() {
   const toCreate = [];
   const toUpdate = [];
 
+  const getValueForContext = (item, context) => {
+    if (!item || !Array.isArray(item.values)) return null;
+    const direct = item.values.find((value) => value?.context === context && !value?.role);
+    if (direct && direct.value != null) return direct.value;
+    const fallback = item.values.find((value) => value?.context === 'all' && !value?.role);
+    return fallback?.value ?? null;
+  };
+
   for (const [key, value] of desired.entries()) {
     const existing = currentByKey.get(key);
     if (!existing) {
       toCreate.push({ key, value });
       continue;
     }
-    const existingValue = existing?.values?.find((v) => v?.context === 'all')?.value ?? null;
-    if (existingValue !== value) {
-      toUpdate.push({ key, value });
-    }
+    const contextsToUpdate = TARGET_CONTEXTS.filter((context) => getValueForContext(existing, context) !== value);
+    if (contextsToUpdate.length) toUpdate.push({ key, value, contexts: contextsToUpdate });
   }
 
   if (toCreate.length) {
     const payload = toCreate.map(({ key, value }) => ({
       key,
       scopes: DEFAULT_SCOPES,
-      values: [{ context: 'all', value: value ?? '' }],
+      values: TARGET_CONTEXTS.map((context) => ({ context, value: value ?? '' })),
       is_secret: false
     }));
     await apiFetch(
@@ -160,11 +167,13 @@ async function main() {
     );
   }
 
-  for (const { key, value } of toUpdate) {
-    await apiFetch(
-      `${NETLIFY_API_BASE}/accounts/${encodeURIComponent(accountId)}/env/${encodeURIComponent(key)}?site_id=${encodeURIComponent(siteId)}`,
-      { token, method: 'PATCH', body: { context: 'all', value: value ?? '' } }
-    );
+  for (const { key, value, contexts } of toUpdate) {
+    for (const context of contexts) {
+      await apiFetch(
+        `${NETLIFY_API_BASE}/accounts/${encodeURIComponent(accountId)}/env/${encodeURIComponent(key)}?site_id=${encodeURIComponent(siteId)}`,
+        { token, method: 'PATCH', body: { context, value: value ?? '' } }
+      );
+    }
   }
 
   console.log(

@@ -8467,7 +8467,10 @@ const applySalesData = (data) => {
 
   const progress = document.querySelector('[data-sales-kpi="deals_target_progress"]');
   if (progress) {
-    progress.style.transform = `translateX(-${formatNumber(data.target.remainingPercent * 100, 0)}%)`;
+    const percent = Number(data.target?.percent ?? 0);
+    const clamped = Number.isFinite(percent) ? Math.max(0, Math.min(1, percent)) : 0;
+    progress.style.width = `${formatNumber(clamped * 100, 0)}%`;
+    progress.style.transform = '';
   }
 
   const trend = document.querySelector('[data-sales-trend]');
