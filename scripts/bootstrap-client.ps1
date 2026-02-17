@@ -166,6 +166,10 @@ function Invoke-NetlifyPut($path, $headers, $body) {
   return Invoke-RestMethod -Method Put -Uri ("https://api.netlify.com/api/v1" + $path) -Headers $headers -Body ($body | ConvertTo-Json -Depth 10)
 }
 
+function Invoke-NetlifyPatch($path, $headers, $body) {
+  return Invoke-RestMethod -Method Patch -Uri ("https://api.netlify.com/api/v1" + $path) -Headers $headers -Body ($body | ConvertTo-Json -Depth 10)
+}
+
 function Get-GitHubHeaders($token) {
   if ([string]::IsNullOrWhiteSpace($token)) { return $null }
   return @{
@@ -786,7 +790,8 @@ if ([string]::IsNullOrWhiteSpace($NetlifyRepoProvider)) {
   $NetlifyRepoProvider = 'github'
 }
 if ([string]::IsNullOrWhiteSpace($NetlifyRepoBranch)) {
-  $NetlifyRepoBranch = $BranchName
+  # Avoid per-client branches; production deploys should come from main.
+  $NetlifyRepoBranch = 'main'
 }
 if ([string]::IsNullOrWhiteSpace($NetlifyBuildCommand)) {
   $NetlifyBuildCommand = 'npm run build'
@@ -863,33 +868,18 @@ if ($NetlifySetProdBranch -and -not [string]::IsNullOrWhiteSpace($NetlifySiteId)
   if (-not $authHeader) {
     Write-Host 'Skip Netlify production branch: Netlify auth token ontbreekt.'
   } else {
-    if ([string]::IsNullOrWhiteSpace($resolvedRepo)) {
-      Write-Host 'Skip Netlify production branch: repo niet gevonden.'
-    } else {
-      $repoBody = @{
-        provider = $NetlifyRepoProvider
-        repo = $resolvedRepo
+    # Only patch build settings; touching .repo here can wipe build_settings.installation_id and break GitHub access.
+    $updateBody = @{
+      build_settings = @{
+        allowed_branches = @($NetlifyRepoBranch)
         repo_branch = $NetlifyRepoBranch
       }
-      if ($repoId) { $repoBody.repo_id = $repoId }
-      if ($deployKeyId) { $repoBody.deploy_key_id = $deployKeyId }
-
-      $updateBody = @{
-        repo = $repoBody
-        build_settings = @{
-          cmd = $NetlifyBuildCommand
-          dir = $NetlifyPublishDir
-          base = $NetlifyBaseDir
-          allowed_branches = @($NetlifyRepoBranch)
-          repo_branch = $NetlifyRepoBranch
-        }
-      }
-      try {
-        Invoke-NetlifyPut -path "/sites/$NetlifySiteId" -headers $authHeader -body $updateBody | Out-Null
-        Write-Host "Netlify production branch gezet op $NetlifyRepoBranch"
-      } catch {
-        Write-Host "Netlify production branch update failed: $($_.Exception.Message)"
-      }
+    }
+    try {
+      Invoke-NetlifyPatch -path "/sites/$NetlifySiteId" -headers $authHeader -body $updateBody | Out-Null
+      Write-Host "Netlify production branch gezet op $NetlifyRepoBranch"
+    } catch {
+      Write-Host "Netlify production branch update failed: $($_.Exception.Message)"
     }
   }
 }
@@ -909,7 +899,7 @@ if (-not [string]::IsNullOrWhiteSpace($NetlifyCustomDomain) -and -not [string]::
     }
 
     try {
-      Invoke-NetlifyPut -path "/sites/$NetlifySiteId" -headers $authHeader -body $domainBody | Out-Null
+      Invoke-NetlifyPatch -path "/sites/$NetlifySiteId" -headers $authHeader -body $domainBody | Out-Null
       Write-Host "Netlify custom domain gezet: $NetlifyCustomDomain"
     } catch {
       Write-Host "Netlify custom domain update failed: $($_.Exception.Message)"
