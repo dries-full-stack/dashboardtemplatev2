@@ -116,11 +116,13 @@ const getRouteId = (availableTabs = ALL_DASHBOARD_TABS) => {
 };
 
 const DEFAULT_BRANDING = {
-  title: 'Belivert',
+  // Generic fallback branding. Production sites should override these via env
+  // (`VITE_DASHBOARD_*`) or Supabase `dashboard_config`.
+  title: 'Profit Pulse',
   headerSubtitle: 'Lead & Marketing Dashboard',
   pageSubtitle: 'Lead & Marketing Dashboard - Leads, Afspraken & ROI',
-  logoUrl: 'https://belivert.be/wp-content/uploads/2025/12/Belivert-logo-Z-rgb.jpg',
-  logoAlt: 'Belivert logo'
+  logoUrl: '/assets/logos/profit-pulse/logo.png',
+  logoAlt: 'Profit Pulse logo'
 };
 
 const DEFAULT_SIDEBAR_BRANDING = {
@@ -11306,8 +11308,7 @@ const resolveBrandTheme = () => {
     normalizeThemeKey(configState.dashboardLogoUrl || ''),
     normalizeThemeKey(envDashboardTitle),
     normalizeThemeKey(envDashboardSubtitle),
-    normalizeThemeKey(envDashboardLogoUrl),
-    normalizeThemeKey(DEFAULT_BRANDING.title)
+    normalizeThemeKey(envDashboardLogoUrl)
   ]
     .filter(Boolean)
     .join(' ');
