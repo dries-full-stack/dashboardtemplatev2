@@ -172,6 +172,8 @@ const readEnvString = (value) => {
 };
 
 const MOCK_ENABLED = import.meta.env.VITE_ENABLE_MOCK_DATA === 'true';
+const SHOW_MOCK_BADGE = import.meta.env.VITE_SHOW_MOCK_BADGE === 'true';
+const SUPPRESS_SETUP_WARNINGS = import.meta.env.VITE_SUPPRESS_SETUP_WARNINGS === 'true';
 const SALES_RANGE_MONTHS = 6;
 const SALES_TARGET_MONTHLY_DEALS = 25;
 const SALES_SELLER_MONTHLY_REVENUE_TARGET = 75000;
@@ -626,166 +628,172 @@ const applyMetricInfoTooltips = () => {
 
 const DEFAULT_BOUNDS = { min: '2018-01-01', max: '2035-12-31' };
 
-const mockEntries = MOCK_ENABLED
-  ? [
-      {
-        date: '2026-10-05',
-        source: 'META',
-        hook: 'Bereken mijn woningwaarde',
-        leads: 100,
-        appointments: 39,
-        cancelled: 4,
-        rescheduled: 3,
-        noShow: 2,
-        deals: 9,
-        costPerLead: 12.8,
-        dealValue: 340
-      },
-      {
-        date: '2026-10-10',
-        source: 'Google Ads',
-        hook: 'Gratis schatting',
-        leads: 80,
-        appointments: 29,
-        cancelled: 3,
-        rescheduled: 2,
-        noShow: 1,
-        deals: 7,
-        costPerLead: 15.2,
-        dealValue: 320
-      },
-      {
-        date: '2026-10-16',
-        source: 'Makelaar vergelijker',
-        hook: '5 verkooptips',
-        leads: 70,
-        appointments: 25,
-        cancelled: 2,
-        rescheduled: 2,
-        noShow: 1,
-        deals: 5,
-        costPerLead: 14.5,
-        dealValue: 330
-      },
-      {
-        date: '2026-10-24',
-        source: 'Immoweb',
-        hook: 'Lokale makelaar vs grote groep?',
-        leads: 50,
-        appointments: 19,
-        cancelled: 2,
-        rescheduled: 1,
-        noShow: 1,
-        deals: 4,
-        costPerLead: 16.5,
-        dealValue: 350
-      },
-      {
-        date: '2026-11-04',
-        source: 'META',
-        hook: 'Bereken mijn woningwaarde',
-        leads: 95,
-        appointments: 36,
-        cancelled: 4,
-        rescheduled: 3,
-        noShow: 2,
-        deals: 8,
-        costPerLead: 12.8,
-        dealValue: 340
-      },
-      {
-        date: '2026-11-12',
-        source: 'Google Ads',
-        hook: 'Gratis schatting',
-        leads: 70,
-        appointments: 26,
-        cancelled: 3,
-        rescheduled: 2,
-        noShow: 1,
-        deals: 6,
-        costPerLead: 15.2,
-        dealValue: 320
-      },
-      {
-        date: '2026-11-18',
-        source: 'Makelaar vergelijker',
-        hook: '5 verkooptips',
-        leads: 65,
-        appointments: 23,
-        cancelled: 2,
-        rescheduled: 2,
-        noShow: 1,
-        deals: 5,
-        costPerLead: 14.5,
-        dealValue: 330
-      },
-      {
-        date: '2026-11-26',
-        source: 'Immoweb',
-        hook: 'Lokale makelaar vs grote groep?',
-        leads: 50,
-        appointments: 18,
-        cancelled: 2,
-        rescheduled: 1,
-        noShow: 0,
-        deals: 4,
-        costPerLead: 16.5,
-        dealValue: 350
-      },
-      {
-        date: '2026-12-03',
-        source: 'META',
-        hook: 'Bereken mijn woningwaarde',
-        leads: 90,
-        appointments: 34,
-        cancelled: 3,
-        rescheduled: 3,
-        noShow: 2,
-        deals: 7,
-        costPerLead: 12.8,
-        dealValue: 340
-      },
-      {
-        date: '2026-12-11',
-        source: 'Google Ads',
-        hook: 'Gratis schatting',
-        leads: 65,
-        appointments: 23,
-        cancelled: 2,
-        rescheduled: 2,
-        noShow: 1,
-        deals: 5,
-        costPerLead: 15.2,
-        dealValue: 320
-      },
-      {
-        date: '2026-12-17',
-        source: 'Makelaar vergelijker',
-        hook: '5 verkooptips',
-        leads: 55,
-        appointments: 19,
-        cancelled: 2,
-        rescheduled: 1,
-        noShow: 1,
-        deals: 4,
-        costPerLead: 14.5,
-        dealValue: 330
-      },
-      {
-        date: '2026-12-28',
-        source: 'Immoweb',
-        hook: 'Lokale makelaar vs grote groep?',
-        leads: 57,
-        appointments: 21,
-        cancelled: 2,
-        rescheduled: 2,
-        noShow: 1,
-        deals: 5,
-        costPerLead: 16.5,
-        dealValue: 350
-      }
-    ]
-  : [];
+const buildMockEntries = () => {
+  // Keep mock data anchored to "yesterday" so the default quick ranges always show something.
+  const stableEnd = addDaysYmd(getTodayYmd(dashboardTimeZone), -1);
+  const base = [
+    {
+      offset: -84,
+      source: 'META',
+      hook: 'Bereken mijn woningwaarde',
+      leads: 100,
+      appointments: 39,
+      cancelled: 4,
+      rescheduled: 3,
+      noShow: 2,
+      deals: 9,
+      costPerLead: 12.8,
+      dealValue: 340
+    },
+    {
+      offset: -79,
+      source: 'Google Ads',
+      hook: 'Gratis schatting',
+      leads: 80,
+      appointments: 29,
+      cancelled: 3,
+      rescheduled: 2,
+      noShow: 1,
+      deals: 7,
+      costPerLead: 15.2,
+      dealValue: 320
+    },
+    {
+      offset: -73,
+      source: 'Makelaar vergelijker',
+      hook: '5 verkooptips',
+      leads: 70,
+      appointments: 25,
+      cancelled: 2,
+      rescheduled: 2,
+      noShow: 1,
+      deals: 5,
+      costPerLead: 14.5,
+      dealValue: 330
+    },
+    {
+      offset: -65,
+      source: 'Immoweb',
+      hook: 'Lokale makelaar vs grote groep?',
+      leads: 50,
+      appointments: 19,
+      cancelled: 2,
+      rescheduled: 1,
+      noShow: 1,
+      deals: 4,
+      costPerLead: 16.5,
+      dealValue: 350
+    },
+    {
+      offset: -54,
+      source: 'META',
+      hook: 'Bereken mijn woningwaarde',
+      leads: 95,
+      appointments: 36,
+      cancelled: 4,
+      rescheduled: 3,
+      noShow: 2,
+      deals: 8,
+      costPerLead: 12.8,
+      dealValue: 340
+    },
+    {
+      offset: -46,
+      source: 'Google Ads',
+      hook: 'Gratis schatting',
+      leads: 70,
+      appointments: 26,
+      cancelled: 3,
+      rescheduled: 2,
+      noShow: 1,
+      deals: 6,
+      costPerLead: 15.2,
+      dealValue: 320
+    },
+    {
+      offset: -40,
+      source: 'Makelaar vergelijker',
+      hook: '5 verkooptips',
+      leads: 65,
+      appointments: 23,
+      cancelled: 2,
+      rescheduled: 2,
+      noShow: 1,
+      deals: 5,
+      costPerLead: 14.5,
+      dealValue: 330
+    },
+    {
+      offset: -32,
+      source: 'Immoweb',
+      hook: 'Lokale makelaar vs grote groep?',
+      leads: 50,
+      appointments: 18,
+      cancelled: 2,
+      rescheduled: 1,
+      noShow: 0,
+      deals: 4,
+      costPerLead: 16.5,
+      dealValue: 350
+    },
+    {
+      offset: -25,
+      source: 'META',
+      hook: 'Bereken mijn woningwaarde',
+      leads: 90,
+      appointments: 34,
+      cancelled: 3,
+      rescheduled: 3,
+      noShow: 2,
+      deals: 7,
+      costPerLead: 12.8,
+      dealValue: 340
+    },
+    {
+      offset: -17,
+      source: 'Google Ads',
+      hook: 'Gratis schatting',
+      leads: 65,
+      appointments: 23,
+      cancelled: 2,
+      rescheduled: 2,
+      noShow: 1,
+      deals: 5,
+      costPerLead: 15.2,
+      dealValue: 320
+    },
+    {
+      offset: -11,
+      source: 'Makelaar vergelijker',
+      hook: '5 verkooptips',
+      leads: 55,
+      appointments: 19,
+      cancelled: 2,
+      rescheduled: 1,
+      noShow: 1,
+      deals: 4,
+      costPerLead: 14.5,
+      dealValue: 330
+    },
+    {
+      offset: 0,
+      source: 'Immoweb',
+      hook: 'Lokale makelaar vs grote groep?',
+      leads: 57,
+      appointments: 21,
+      cancelled: 2,
+      rescheduled: 2,
+      noShow: 1,
+      deals: 5,
+      costPerLead: 16.5,
+      dealValue: 350
+    }
+  ];
+
+  return base.map(({ offset, ...entry }) => ({ ...entry, date: addDaysYmd(stableEnd, offset) }));
+};
+
+const mockEntries = MOCK_ENABLED ? buildMockEntries() : [];
 
 const dataBounds = mockEntries.reduce(
   (acc, entry) => {
@@ -804,7 +812,7 @@ const monthBounds = {
 let dateRange = { ...DEFAULT_RANGE };
 let pickerState = { open: false, selecting: 'start', viewMonth: DEFAULT_RANGE.start.slice(0, 7) };
 
-const mockBadge = MOCK_ENABLED ? '<span class="mock-badge">Mock data</span>' : '';
+const mockBadge = MOCK_ENABLED && SHOW_MOCK_BADGE ? '<span class="mock-badge">Mock data</span>' : '';
 const DEBUG_ENABLED = false;
 const METRICS_DEBUG_MODE_STORAGE_KEY = 'dashboard_metrics_debug_mode';
 const SALES_DATE_FIELD_STORAGE_KEY = 'dashboard_sales_date_field';
@@ -8027,17 +8035,6 @@ const buildSellerRows = (sellers, options = {}) => {
     options.sellerRevenueBySellerId && typeof options.sellerRevenueBySellerId === 'object'
       ? options.sellerRevenueBySellerId
       : null;
-  const monthlyRevenueBySellerId =
-    options.monthlyRevenueBySellerId && typeof options.monthlyRevenueBySellerId === 'object'
-      ? options.monthlyRevenueBySellerId
-      : null;
-  const monthlyAppointmentsBySellerId =
-    options.monthlyAppointmentsBySellerId && typeof options.monthlyAppointmentsBySellerId === 'object'
-      ? options.monthlyAppointmentsBySellerId
-      : null;
-  const useCurrentMonthKpi = options.useCurrentMonthKpi === true;
-  const monthsCountRaw = Number(options.monthsCount ?? 1);
-  const monthsCount = Number.isFinite(monthsCountRaw) && monthsCountRaw > 0 ? monthsCountRaw : 1;
   if (!Array.isArray(sellers) || sellers.length === 0) {
     return `
       <tr class="border-b">
@@ -8054,41 +8051,12 @@ const buildSellerRows = (sellers, options = {}) => {
       const mappedRevenue = sellerRevenueBySellerId ? Number(sellerRevenueBySellerId[sellerIdRaw]) : Number.NaN;
       const revenueRaw = Number.isFinite(mappedRevenue) ? mappedRevenue : Number(seller.revenue) || 0;
       const revenue = revenueRaw ? formatCurrency(revenueRaw, 0) : '--';
-      const fallbackMonthlyRevenue = revenueRaw > 0 ? revenueRaw / monthsCount : 0;
-      let monthlyRevenue = fallbackMonthlyRevenue;
-      if (useCurrentMonthKpi) {
-        const mappedRevenue = monthlyRevenueBySellerId
-          ? Number(monthlyRevenueBySellerId[sellerIdRaw])
-          : Number.NaN;
-        monthlyRevenue = Number.isFinite(mappedRevenue) ? mappedRevenue : 0;
-      }
-      const monthlyRevenueLabel = revenueRaw > 0 ? `${formatCurrency(monthlyRevenue, 0)}/m` : '--';
-      const monthlyKpiRatio =
-        revenueRaw > 0 ? safeDivide(monthlyRevenue, SALES_SELLER_MONTHLY_REVENUE_TARGET) : 0;
-      const monthlyKpiLabel = revenueRaw > 0 ? `${formatPercent(monthlyKpiRatio, 0)} KPI` : '--';
-      const monthlyKpiToneClass = monthlyKpiRatio >= 1 ? 'is-good' : monthlyKpiRatio >= 0.8 ? 'is-warn' : 'is-low';
-      const monthlyKpiProgress = Math.max(0, Math.min(monthlyKpiRatio * 100, 100));
-      const monthlyKpiProgressWidth = revenueRaw > 0 ? Math.max(monthlyKpiProgress, 4) : 0;
-      const monthlyKpiBarToneClass =
-        monthlyKpiRatio >= 1 ? 'is-good' : monthlyKpiRatio >= 0.8 ? 'is-warn' : 'is-low';
       const sellerId = escapeHtml(sellerIdRaw);
       const sellerName = escapeHtml(seller.name);
       const sellerAttrs = `data-sales-drill="all" data-sales-seller-id="${sellerId}" data-sales-seller-name="${sellerName}"`;
       const pendingAppointments = Number(seller.appointmentsPending) || 0;
       const knownAppointments = formatNumber(seller.appointments || 0);
       const appointmentLabel = pendingAppointments > 0 ? `${knownAppointments}+` : knownAppointments;
-      const mappedMonthlyAppointments = useCurrentMonthKpi
-        ? Number(monthlyAppointmentsBySellerId ? monthlyAppointmentsBySellerId[sellerIdRaw] : Number.NaN)
-        : Number.NaN;
-      const monthlyAppointments = Number.isFinite(mappedMonthlyAppointments) ? mappedMonthlyAppointments : 0;
-      const monthlyAppointmentsRatio = safeDivide(monthlyAppointments, SALES_SELLER_MONTHLY_APPOINTMENTS_TARGET);
-      const monthlyAppointmentsLabel = `${formatNumber(monthlyAppointments)}/${formatNumber(
-        SALES_SELLER_MONTHLY_APPOINTMENTS_TARGET
-      )}`;
-      const monthlyAppointmentsToneClass =
-        monthlyAppointmentsRatio >= 1 ? 'is-good' : monthlyAppointmentsRatio >= 0.8 ? 'is-warn' : 'is-low';
-      const monthlyAppointmentsProgress = Math.max(0, Math.min(monthlyAppointmentsRatio * 100, 100));
-      const monthlyAppointmentsProgressWidth = monthlyAppointments > 0 ? Math.max(monthlyAppointmentsProgress, 4) : 0;
 
       const appointmentsMain = !appointmentsSupported
         ? `
@@ -8108,33 +8076,9 @@ const buildSellerRows = (sellers, options = {}) => {
             `
           : `<span class="font-medium" ${sellerAttrs}>${appointmentLabel}</span>`;
 
-      const appointmentsKpiMarkup =
-        useCurrentMonthKpi && appointmentsSupported
-          ? `
-              <div class="text-[11px] seller-kpi-label ${monthlyAppointmentsToneClass}" ${sellerAttrs}>
-                ${escapeHtml(`${monthlyAppointmentsLabel} • ${formatPercent(monthlyAppointmentsRatio, 0)} KPI`)}
-              </div>
-              <div
-                class="seller-kpi-bar"
-                role="progressbar"
-                aria-label="Afspraken KPI voortgang"
-                aria-valuemin="0"
-                aria-valuemax="100"
-                aria-valuenow="${Math.round(monthlyAppointmentsProgress)}"
-                title="${escapeHtml(`${monthlyAppointmentsLabel} afspraken vs ${formatNumber(SALES_SELLER_MONTHLY_APPOINTMENTS_TARGET)} /maand`)}"
-                ${sellerAttrs}
-              >
-                <span class="seller-kpi-bar-fill ${monthlyAppointmentsToneClass}" style="width:${monthlyAppointmentsProgressWidth.toFixed(
-                  1
-                )}%"></span>
-              </div>
-            `
-          : '';
-
       const appointmentsCell = `
         <div class="inline-flex flex-col items-center gap-1">
           ${appointmentsMain}
-          ${appointmentsKpiMarkup}
         </div>
       `;
       return `
@@ -8169,23 +8113,6 @@ const buildSellerRows = (sellers, options = {}) => {
           </td>
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right font-semibold">
             <span ${sellerAttrs}>${revenue}</span>
-            <div class="text-[11px] seller-kpi-label ${monthlyKpiToneClass}" ${sellerAttrs}>${escapeHtml(
-              `${monthlyRevenueLabel} • ${monthlyKpiLabel}`
-            )}</div>
-            <div
-              class="seller-kpi-bar"
-              role="progressbar"
-              aria-label="Omzet KPI voortgang"
-              aria-valuemin="0"
-              aria-valuemax="100"
-              aria-valuenow="${Math.round(monthlyKpiProgress)}"
-              title="${escapeHtml(`${monthlyRevenueLabel} vs ${formatCurrency(SALES_SELLER_MONTHLY_REVENUE_TARGET, 0)}/maand`)}"
-              ${sellerAttrs}
-            >
-              <span class="seller-kpi-bar-fill ${monthlyKpiBarToneClass}" style="width:${monthlyKpiProgressWidth.toFixed(
-                1
-              )}%"></span>
-            </div>
           </td>
         </tr>
       `;
@@ -9466,23 +9393,27 @@ const formatSyncTimestamp = (value) => {
   return `Laatste sync: ${formatted}`;
 };
 
-const renderLatestSyncBadge = (containerClass = 'hidden sm:flex') => `
-  <div class="${containerClass} items-center gap-2 px-3 py-1.5 rounded-full bg-secondary/10 border border-secondary/20" data-latest-sync-badge>
-    <div class="w-2 h-2 rounded-full bg-secondary animate-pulse"></div>
-    <div class="flex flex-col leading-tight">
-      <span class="text-xs font-semibold text-secondary">Live Data</span>
-      <span class="text-[10px] text-muted-foreground">
-        ${
-          liveState.sync.status === 'loading'
-            ? 'Laatste sync: laden...'
-            : liveState.sync.status === 'ready'
-              ? formatSyncTimestamp(liveState.sync.timestamp)
-              : 'Laatste sync: onbekend'
-        }
-      </span>
+const renderLatestSyncBadge = (containerClass = 'hidden sm:flex') => {
+  if (MOCK_ENABLED || !supabase) return '';
+
+  return `
+    <div class="${containerClass} items-center gap-2 px-3 py-1.5 rounded-full bg-secondary/10 border border-secondary/20" data-latest-sync-badge>
+      <div class="w-2 h-2 rounded-full bg-secondary animate-pulse"></div>
+      <div class="flex flex-col leading-tight">
+        <span class="text-xs font-semibold text-secondary">Live Data</span>
+        <span class="text-[10px] text-muted-foreground">
+          ${
+            liveState.sync.status === 'loading'
+              ? 'Laatste sync: laden...'
+              : liveState.sync.status === 'ready'
+                ? formatSyncTimestamp(liveState.sync.timestamp)
+                : 'Laatste sync: onbekend'
+          }
+        </span>
+      </div>
     </div>
-  </div>
-`;
+  `;
+};
 
 const formatDateTime = (value) => {
   if (!value) return '--';
@@ -9605,6 +9536,8 @@ const renderDatePicker = (range) => {
 };
 
 const getOpportunityDebug = (range) => {
+  if (MOCK_ENABLED || SUPPRESS_SETUP_WARNINGS) return null;
+
   if (!supabase) {
     return {
       tone: 'warning',
@@ -12577,7 +12510,7 @@ const renderFunnelSection = (section, metrics, options = {}) => {
   const showBadge = cards.some((card) => card.isMock !== false);
 
   return `
-    <section class="bg-white/50 rounded-2xl p-6 shadow-sm border border-gray-200">
+    <section class="bg-white/50 rounded-2xl p-4 sm:p-6 shadow-sm border border-gray-200">
       <h2 class="text-lg font-bold text-gray-800 mb-1 flex items-center gap-2">
         ${icons.users('lucide lucide-users w-5 h-5 text-primary')}
         ${title}
@@ -12605,7 +12538,7 @@ const renderFinanceSection = (section, metrics, options = {}) => {
   const showBadge = !cards.some((card) => card.isMock === false);
 
   return `
-    <section class="bg-white/50 rounded-2xl p-6 shadow-sm border border-gray-200">
+    <section class="bg-white/50 rounded-2xl p-4 sm:p-6 shadow-sm border border-gray-200">
       <h2 class="text-lg font-bold text-gray-800 mb-1 flex items-center gap-2">
         ${icons.dollar('lucide lucide-dollar-sign w-5 h-5 text-primary')}
         ${title}
@@ -12639,7 +12572,7 @@ const renderSourceBreakdownSection = (section, metrics) => {
   const descriptionMarkup = description ? `<p class="text-sm text-gray-500 mb-4">${escapeHtml(description)}</p>` : '';
 
   return `
-    <section class="bg-white/50 rounded-2xl p-6 shadow-sm border border-gray-200">
+    <section class="bg-white/50 rounded-2xl p-4 sm:p-6 shadow-sm border border-gray-200">
       <h2 class="text-lg font-bold text-gray-800 mb-1 flex items-center gap-2">
         ${icons.chartColumn('lucide lucide-chart-column w-5 h-5 text-primary')}
         ${title}
@@ -12687,7 +12620,7 @@ const renderHookPerformanceSection = (section, metrics) => {
   const descriptionMarkup = description ? `<p class="text-sm text-gray-500 mb-4">${escapeHtml(description)}</p>` : '';
 
   return `
-    <section class="bg-white/50 rounded-2xl p-6 shadow-sm border border-gray-200">
+    <section class="bg-white/50 rounded-2xl p-4 sm:p-6 shadow-sm border border-gray-200">
       <h2 class="text-lg font-bold text-gray-800 mb-1 flex items-center gap-2">
         ${icons.chartColumn('lucide lucide-chart-column w-5 h-5 text-primary')}
         ${title}
@@ -12710,7 +12643,7 @@ const renderLostReasonsSection = (section, metrics) => {
   const descriptionMarkup = description ? `<p class="text-sm text-gray-500 mb-4">${escapeHtml(description)}</p>` : '';
 
   return `
-    <section class="bg-white/50 rounded-2xl p-6 shadow-sm border border-gray-200">
+    <section class="bg-white/50 rounded-2xl p-4 sm:p-6 shadow-sm border border-gray-200">
       <h2 class="text-lg font-bold text-gray-800 mb-1 flex items-center gap-2">
         ${icons.triangleAlert('lucide lucide-triangle-alert w-5 h-5 text-orange-500')}
         ${title}
@@ -12719,7 +12652,7 @@ const renderLostReasonsSection = (section, metrics) => {
       ${descriptionMarkup}
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div class="rounded-lg border bg-card text-card-foreground shadow-sm">
-          <div class="flex flex-col space-y-1.5 p-6">
+          <div class="flex flex-col space-y-1.5 p-4 sm:p-6">
             <h3 class="font-semibold tracking-tight text-lg flex items-center gap-2">
               ${icons.triangleAlert('lucide lucide-triangle-alert w-5 h-5 text-orange-500')}
               Verloren Leads - Redenen
@@ -12727,7 +12660,7 @@ const renderLostReasonsSection = (section, metrics) => {
             </h3>
             <p class="text-sm text-muted-foreground">Analyseer waarom leads niet converteren</p>
           </div>
-          <div class="p-6 pt-0">
+          <div class="p-4 sm:p-6 pt-0">
             <div class="space-y-3">
               ${renderLostReasons(metrics.lostReasons, metrics.lostReasonsLive)}
             </div>
@@ -12737,13 +12670,13 @@ const renderLostReasonsSection = (section, metrics) => {
           </div>
         </div>
         <div class="rounded-lg border bg-card text-card-foreground shadow-sm">
-          <div class="flex flex-col space-y-1.5 p-6">
+          <div class="flex flex-col space-y-1.5 p-4 sm:p-6">
             <h3 class="font-semibold tracking-tight text-lg flex items-center gap-2">
               Verdeling Verloren Leads
               ${metrics.lostReasonsLive ? '' : mockBadge}
             </h3>
           </div>
-          <div class="p-6 pt-0">
+          <div class="p-4 sm:p-6 pt-0">
             <div class="h-64 flex items-center justify-center">
               ${renderLostReasonsChart(metrics.lostReasons)}
             </div>
@@ -13025,11 +12958,13 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
       .filter(Boolean)
   ].join('');
   const leadPipelineLoading =
-    leadPipelineFilterState.status === 'loading' || leadPipelineFilterState.status === 'idle';
+    Boolean(supabase) && (leadPipelineFilterState.status === 'loading' || leadPipelineFilterState.status === 'idle');
   const leadPipelineDisabled =
     !supabase || configState.status !== 'ready' || !configState.locationId || leadPipelineLoading;
   const leadPipelineStatusMarkup =
-    leadPipelineFilterState.status === 'error'
+    !supabase
+      ? ''
+      : leadPipelineFilterState.status === 'error'
       ? '<div class="text-xs text-amber-600">Pipeline lijst tijdelijk niet beschikbaar.</div>'
       : leadPipelineLoading
         ? '<div class="text-xs text-muted-foreground">Pipelines laden...</div>'
@@ -13074,9 +13009,14 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
               <img src="${sidebarBranding.logoUrl}" alt="${sidebarBranding.logoAlt}" class="h-9 w-auto object-contain" />
             </div>
           </div>
-          <button type="button" class="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground hidden lg:flex" data-sidebar-toggle>
-            ${icons.chevronLeft('lucide lucide-chevron-left w-4 h-4 transition-transform')}
-          </button>
+          <div class="flex items-center gap-1.5">
+            <button type="button" class="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground lg:hidden" aria-label="Sluit menu" data-sidebar-toggle>
+              ${icons.circleX('lucide lucide-circle-x w-5 h-5')}
+            </button>
+            <button type="button" class="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground hidden lg:flex" data-sidebar-toggle>
+              ${icons.chevronLeft('lucide lucide-chevron-left w-4 h-4 transition-transform')}
+            </button>
+          </div>
         </div>
         <nav class="flex-1 overflow-y-auto py-4 px-3">
           <div class="mb-6">
@@ -13091,14 +13031,14 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
         </div>
       </aside>
       <div class="flex-1 flex flex-col min-w-0">
-        <header class="h-14 border-b border-border bg-card/50 backdrop-blur-sm flex items-center justify-between px-6 sticky top-0 z-40">
-          <div class="flex items-center gap-4">
+        <header class="h-14 border-b border-border bg-card/50 backdrop-blur-sm flex items-center justify-between px-4 sm:px-6 sticky top-0 z-40">
+          <div class="flex items-center gap-2 sm:gap-4">
             <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 lg:hidden hover:bg-accent" aria-label="Sluit menu" data-sidebar-toggle>
               ${icons.menu('lucide lucide-menu h-5 w-5')}
             </button>
             <div class="flex items-center gap-3">
-              <div class="flex items-center rounded-xl bg-white/80 px-3.5 py-2 shadow-sm ring-1 ring-black/5">
-                <img src="${branding.logoUrl}" alt="${branding.logoAlt}" class="h-10 w-auto object-contain" />
+              <div class="flex items-center rounded-xl bg-white/80 px-2.5 py-1.5 sm:px-3.5 sm:py-2 shadow-sm ring-1 ring-black/5">
+                <img src="${branding.logoUrl}" alt="${branding.logoAlt}" class="h-9 sm:h-10 w-auto object-contain" />
               </div>
               <div class="hidden sm:block">
                 <div class="text-lg font-bold text-primary tracking-tight">${branding.title}</div>
@@ -13106,11 +13046,11 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
               </div>
             </div>
           </div>
-          <div class="flex items-center gap-4">
+          <div class="flex items-center gap-2 sm:gap-4">
             ${renderLatestSyncBadge('hidden sm:flex')}
             ${
               settingsEnabled
-                ? `<button class="admin-trigger" type="button" data-admin-open>${settingsButtonLabel}</button>`
+                ? `<button class="admin-trigger hidden sm:inline-flex" type="button" data-admin-open>${settingsButtonLabel}</button>`
                 : ''
             }
             <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 hover:bg-accent" title="Herlaad pagina" data-action="refresh">
@@ -13118,20 +13058,24 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
             </button>
           </div>
         </header>
-        <main class="flex-1 p-6 overflow-auto">
+        <main class="flex-1 p-4 sm:p-6 overflow-y-auto overflow-x-hidden">
           <div class="page-header flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-2">
             <div>
               <h1 class="text-2xl font-bold text-foreground tracking-tight">${branding.title}</h1>
               <p class="text-sm text-muted-foreground">${branding.pageSubtitle}</p>
             </div>
-            <div class="flex items-end gap-3 flex-wrap justify-end">
-              <div class="flex flex-col gap-1 min-w-[15rem]">
-                <span class="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Pipeline</span>
-                <select class="admin-input" data-lead-pipeline-filter ${leadPipelineDisabled ? 'disabled' : ''}>
-                  ${leadPipelineSelectOptionsMarkup}
-                </select>
-                ${leadPipelineStatusMarkup}
-              </div>
+            <div class="flex items-start sm:items-end gap-3 flex-wrap justify-start sm:justify-end">
+              ${
+                supabase
+                  ? `<div class="flex flex-col gap-1 min-w-[15rem]">
+                      <span class="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Pipeline</span>
+                      <select class="admin-input" data-lead-pipeline-filter ${leadPipelineDisabled ? 'disabled' : ''}>
+                        ${leadPipelineSelectOptionsMarkup}
+                      </select>
+                      ${leadPipelineStatusMarkup}
+                    </div>`
+                  : ''
+              }
               <div class="date-picker relative flex items-center gap-2 flex-wrap">
                 <button class="date-trigger${pickerState.selecting === 'start' && pickerState.open ? ' active' : ''}" type="button" data-date-trigger="start">
                   ${icons.calendar('lucide lucide-calendar h-4 w-4')}
@@ -13144,10 +13088,10 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
                 </button>
                 ${renderQuickRangeButtonsMarkup(range)}
                 ${renderDatePicker(range)}
-              </div>
             </div>
-          </div>
-          ${
+           </div>
+         </div>
+         ${
             debugInfo
               ? `<div class="mb-2 rounded-lg border px-4 py-2 text-xs font-medium ${
                   debugInfo.tone === 'danger'
@@ -13163,10 +13107,10 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
              ${loadingOverlayMarkup}
             <div class="space-y-8${showLoadingOverlay ? ' opacity-0 pointer-events-none select-none' : ''}">
               ${renderDashboardSections(layout, metrics, { animateKpis })}
-            </div>
            </div>
+         </div>
          </main>
-        <footer class="h-12 border-t border-border bg-card/50 flex items-center justify-center px-6">
+        <footer class="h-12 border-t border-border bg-card/50 flex items-center justify-center px-4 sm:px-6">
           <p class="text-xs text-muted-foreground font-medium">(c) 2026 ${branding.title} - ${branding.headerSubtitle}</p>
         </footer>
       </div>
@@ -13228,9 +13172,14 @@ const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
               <img src="${sidebarBranding.logoUrl}" alt="${sidebarBranding.logoAlt}" class="h-9 w-auto object-contain" />
             </div>
           </div>
-          <button type="button" class="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground hidden lg:flex" data-sidebar-toggle>
-            ${icons.chevronLeft('lucide lucide-chevron-left w-4 h-4 transition-transform')}
-          </button>
+          <div class="flex items-center gap-1.5">
+            <button type="button" class="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground lg:hidden" aria-label="Sluit menu" data-sidebar-toggle>
+              ${icons.circleX('lucide lucide-circle-x w-5 h-5')}
+            </button>
+            <button type="button" class="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground hidden lg:flex" data-sidebar-toggle>
+              ${icons.chevronLeft('lucide lucide-chevron-left w-4 h-4 transition-transform')}
+            </button>
+          </div>
         </div>
         <nav class="flex-1 overflow-y-auto py-4 px-3">
           <div class="mb-6">
@@ -13245,14 +13194,14 @@ const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
         </div>
       </aside>
       <div class="flex-1 flex flex-col min-w-0">
-        <header class="h-14 border-b border-border bg-card/50 backdrop-blur-sm flex items-center justify-between px-6 sticky top-0 z-40">
-          <div class="flex items-center gap-4">
+        <header class="h-14 border-b border-border bg-card/50 backdrop-blur-sm flex items-center justify-between px-4 sm:px-6 sticky top-0 z-40">
+          <div class="flex items-center gap-2 sm:gap-4">
             <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 lg:hidden hover:bg-accent" aria-label="Sluit menu" data-sidebar-toggle>
               ${icons.menu('lucide lucide-menu h-5 w-5')}
             </button>
             <div class="flex items-center gap-3">
-              <div class="flex items-center rounded-xl bg-white/80 px-3.5 py-2 shadow-sm ring-1 ring-black/5">
-                <img src="${branding.logoUrl}" alt="${branding.logoAlt}" class="h-10 w-auto object-contain" />
+              <div class="flex items-center rounded-xl bg-white/80 px-2.5 py-1.5 sm:px-3.5 sm:py-2 shadow-sm ring-1 ring-black/5">
+                <img src="${branding.logoUrl}" alt="${branding.logoAlt}" class="h-9 sm:h-10 w-auto object-contain" />
               </div>
               <div class="hidden sm:block">
                 <div class="text-lg font-bold text-primary tracking-tight">${branding.title}</div>
@@ -13260,11 +13209,11 @@ const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
               </div>
             </div>
           </div>
-          <div class="flex items-center gap-4">
+          <div class="flex items-center gap-2 sm:gap-4">
             ${renderLatestSyncBadge('hidden lg:flex')}
             ${
               settingsEnabled
-                ? `<button class="admin-trigger" type="button" data-admin-open>${settingsButtonLabel}</button>`
+                ? `<button class="admin-trigger hidden sm:inline-flex" type="button" data-admin-open>${settingsButtonLabel}</button>`
                 : ''
             }
             <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 hover:bg-accent" title="Herlaad pagina" data-action="refresh">
@@ -13272,7 +13221,7 @@ const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
             </button>
           </div>
         </header>
-        <main class="flex-1 p-6 overflow-auto relative">
+        <main class="flex-1 p-4 sm:p-6 overflow-y-auto overflow-x-hidden relative">
           <div class="absolute inset-0 z-20 bg-background/95 backdrop-blur-sm flex items-start justify-center${
             showLoadingOverlay ? '' : ' hidden'
           }" data-sales-loading-overlay>
@@ -13285,7 +13234,7 @@ const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
             ${salesMainMarkup}
           </div>
         </main>
-        <footer class="h-12 border-t border-border bg-card/30 flex items-center justify-center px-6">
+        <footer class="h-12 border-t border-border bg-card/30 flex items-center justify-center px-4 sm:px-6">
           <p class="text-xs text-muted-foreground font-medium">(c) 2026 ${branding.title} - ${branding.headerSubtitle}</p>
         </footer>
       </div>
@@ -13314,9 +13263,14 @@ const buildCallCenterMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
               <img src="${sidebarBranding.logoUrl}" alt="${sidebarBranding.logoAlt}" class="h-9 w-auto object-contain" />
             </div>
           </div>
-          <button type="button" class="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground hidden lg:flex" data-sidebar-toggle>
-            ${icons.chevronLeft('lucide lucide-chevron-left w-4 h-4 transition-transform')}
-          </button>
+          <div class="flex items-center gap-1.5">
+            <button type="button" class="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground lg:hidden" aria-label="Sluit menu" data-sidebar-toggle>
+              ${icons.circleX('lucide lucide-circle-x w-5 h-5')}
+            </button>
+            <button type="button" class="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground hidden lg:flex" data-sidebar-toggle>
+              ${icons.chevronLeft('lucide lucide-chevron-left w-4 h-4 transition-transform')}
+            </button>
+          </div>
         </div>
         <nav class="flex-1 overflow-y-auto py-4 px-3">
           <div class="mb-6">
@@ -13331,14 +13285,14 @@ const buildCallCenterMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
         </div>
       </aside>
       <div class="flex-1 flex flex-col min-w-0">
-        <header class="h-14 border-b border-border bg-card/50 backdrop-blur-sm flex items-center justify-between px-6 sticky top-0 z-40">
-          <div class="flex items-center gap-4">
+        <header class="h-14 border-b border-border bg-card/50 backdrop-blur-sm flex items-center justify-between px-4 sm:px-6 sticky top-0 z-40">
+          <div class="flex items-center gap-2 sm:gap-4">
             <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 lg:hidden hover:bg-accent" aria-label="Sluit menu" data-sidebar-toggle>
               ${icons.menu('lucide lucide-menu h-5 w-5')}
             </button>
             <div class="flex items-center gap-3">
-              <div class="flex items-center rounded-xl bg-white/80 px-3.5 py-2 shadow-sm ring-1 ring-black/5">
-                <img src="${branding.logoUrl}" alt="${branding.logoAlt}" class="h-10 w-auto object-contain" />
+              <div class="flex items-center rounded-xl bg-white/80 px-2.5 py-1.5 sm:px-3.5 sm:py-2 shadow-sm ring-1 ring-black/5">
+                <img src="${branding.logoUrl}" alt="${branding.logoAlt}" class="h-9 sm:h-10 w-auto object-contain" />
               </div>
               <div class="hidden sm:block">
                 <div class="text-lg font-bold text-primary tracking-tight">${branding.title}</div>
@@ -13346,11 +13300,11 @@ const buildCallCenterMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
               </div>
             </div>
           </div>
-          <div class="flex items-center gap-4">
+          <div class="flex items-center gap-2 sm:gap-4">
             ${renderLatestSyncBadge('hidden sm:flex')}
             ${
               settingsEnabled
-                ? `<button class="admin-trigger" type="button" data-admin-open>${settingsButtonLabel}</button>`
+                ? `<button class="admin-trigger hidden sm:inline-flex" type="button" data-admin-open>${settingsButtonLabel}</button>`
                 : ''
             }
             <button class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover:text-accent-foreground h-10 w-10 hover:bg-accent" title="Herlaad pagina" data-action="refresh">
@@ -13358,7 +13312,7 @@ const buildCallCenterMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
             </button>
           </div>
         </header>
-        <main class="flex-1 p-6 overflow-auto">
+        <main class="flex-1 p-4 sm:p-6 overflow-y-auto overflow-x-hidden">
           <div class="page-header flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
             <div>
               <h1 class="text-2xl font-bold text-foreground tracking-tight">Call Center</h1>
@@ -13371,7 +13325,7 @@ const buildCallCenterMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
             </p>
           </div>
         </main>
-        <footer class="h-12 border-t border-border bg-card/50 flex items-center justify-center px-6">
+        <footer class="h-12 border-t border-border bg-card/50 flex items-center justify-center px-4 sm:px-6">
           <p class="text-xs text-muted-foreground font-medium">(c) 2026 ${branding.title} - ${branding.headerSubtitle}</p>
         </footer>
       </div>
@@ -13485,10 +13439,12 @@ const setDesktopSidebarCollapsed = (collapsed) => {
 const openSidebar = () => {
   if (!isDesktop()) {
     document.body.dataset.sidebar = 'open';
+    document.body.dataset.scrollLocked = 'true';
   }
 };
 const closeSidebar = () => {
   delete document.body.dataset.sidebar;
+  delete document.body.dataset.scrollLocked;
 };
 const toggleSidebar = () => {
   if (isDesktop()) {
