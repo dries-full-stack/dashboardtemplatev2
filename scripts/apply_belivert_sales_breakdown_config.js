@@ -5,7 +5,7 @@
  * Why:
  * - sales_product_category_rules + sales_region_rules live in dashboard_config and should be upserted
  *   without needing psql locally.
- * - We fetch the service role key via `supabase projects api-keys` to avoid pasting secrets into commands.
+ * - We fetch the (legacy) service_role JWT via `supabase projects api-keys` to avoid pasting secrets into commands.
  *
  * Usage:
  *   node scripts/apply_belivert_sales_breakdown_config.js
@@ -37,7 +37,7 @@ const parseArgs = (argv) => {
   return args;
 };
 
-const getServiceRoleKey = async (projectRef) => {
+const getApiKeys = async (projectRef) => {
   const { stdout } = await execFileAsync(
     'supabase',
     ['projects', 'api-keys', '--project-ref', projectRef, '--output', 'json'],
@@ -55,30 +55,41 @@ const getServiceRoleKey = async (projectRef) => {
     throw new Error('No API keys returned by `supabase projects api-keys`.');
   }
 
-  const secretItem =
-    items.find((item) => item && item.type === 'secret' && item.api_key) ||
-    items.find((item) => item && item.name === 'service_role' && item.api_key);
-  const key = secretItem?.api_key ? String(secretItem.api_key) : '';
-  if (!key) {
-    throw new Error('Service role key not found in `supabase projects api-keys` output.');
+  const publishableKey =
+    items.find((item) => item && item.type === 'publishable' && item.api_key)?.api_key ||
+    items.find((item) => item && item.type === 'legacy' && item.name === 'anon' && item.api_key)?.api_key ||
+    '';
+
+  const legacyServiceRoleJwt =
+    items.find((item) => item && item.type === 'legacy' && item.name === 'service_role' && item.api_key)?.api_key || '';
+
+  if (!publishableKey) {
+    throw new Error('Publishable (or legacy anon) key not found in `supabase projects api-keys` output.');
   }
-  return key;
+  if (!legacyServiceRoleJwt) {
+    throw new Error('Legacy service_role JWT not found in `supabase projects api-keys` output.');
+  }
+
+  return {
+    publishableKey: String(publishableKey),
+    serviceRoleJwt: String(legacyServiceRoleJwt)
+  };
 };
 
-const buildUpsertHeaders = (serviceRoleKey) => ({
+const buildUpsertHeaders = ({ publishableKey, serviceRoleJwt }) => ({
   Prefer: 'resolution=merge-duplicates',
   'Content-Type': 'application/json; charset=utf-8',
-  apikey: serviceRoleKey,
-  Authorization: `Bearer ${serviceRoleKey}`
+  apikey: publishableKey,
+  Authorization: `Bearer ${serviceRoleJwt}`
 });
 
-const upsertDashboardConfig = async ({ supabaseUrl, serviceRoleKey, row }) => {
+const upsertDashboardConfig = async ({ supabaseUrl, keys, row }) => {
   const url = new URL(`${supabaseUrl}/rest/v1/dashboard_config`);
   url.searchParams.set('on_conflict', 'id');
 
   const response = await fetch(url.toString(), {
     method: 'POST',
-    headers: buildUpsertHeaders(serviceRoleKey),
+    headers: buildUpsertHeaders(keys),
     body: JSON.stringify([row])
   });
 
@@ -94,7 +105,7 @@ const main = async () => {
   const projectRef = String(args['project-ref'] || DEFAULT_PROJECT_REF).trim() || DEFAULT_PROJECT_REF;
   const supabaseUrl = `https://${projectRef}.supabase.co`;
 
-  const serviceRoleKey = await getServiceRoleKey(projectRef);
+  const keys = await getApiKeys(projectRef);
 
   const row = {
     id: 1,
@@ -125,7 +136,7 @@ const main = async () => {
     updated_at: new Date().toISOString()
   };
 
-  await upsertDashboardConfig({ supabaseUrl, serviceRoleKey, row });
+  await upsertDashboardConfig({ supabaseUrl, keys, row });
   // eslint-disable-next-line no-console
   console.log(`[apply_config] OK project=${projectRef} table=dashboard_config id=1`);
 };
@@ -135,4 +146,3 @@ main().catch((error) => {
   console.error(`[apply_config] ERROR ${error?.message || error}`);
   process.exit(1);
 });
-
