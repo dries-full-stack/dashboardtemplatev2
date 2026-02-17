@@ -26,7 +26,7 @@ values (
                        {
                            "id":  "lead",
                            "label":  "Leadgeneratie",
-                           "enabled":  true
+                           "enabled":  false
                        },
                        {
                            "id":  "sales",
