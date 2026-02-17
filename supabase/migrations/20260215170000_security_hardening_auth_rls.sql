@@ -19,6 +19,7 @@ grant select, insert, update on table public.dashboard_config to authenticated;
 drop policy if exists "Public read dashboard config" on public.dashboard_config;
 drop policy if exists "Public write dashboard KPI" on public.dashboard_config;
 drop policy if exists "Authenticated write dashboard config" on public.dashboard_config;
+drop policy if exists "Authenticated manage dashboard config" on public.dashboard_config;
 create policy "Authenticated manage dashboard config"
   on public.dashboard_config
   for all
@@ -136,6 +137,7 @@ revoke all on table public.marketing_spend_source_mapping from authenticated;
 grant select, insert, update, delete on table public.marketing_spend_source_mapping to authenticated;
 drop policy if exists "Public read marketing spend source mapping" on public.marketing_spend_source_mapping;
 drop policy if exists "Authenticated write marketing spend source mapping" on public.marketing_spend_source_mapping;
+drop policy if exists "Authenticated manage marketing spend source mapping" on public.marketing_spend_source_mapping;
 create policy "Authenticated manage marketing spend source mapping"
   on public.marketing_spend_source_mapping
   for all
@@ -165,6 +167,7 @@ drop policy if exists "Public read lost reason overrides" on public.lost_reason_
 drop policy if exists "Public insert lost reason overrides" on public.lost_reason_overrides;
 drop policy if exists "Public update lost reason overrides" on public.lost_reason_overrides;
 drop policy if exists "Authenticated write lost reason overrides" on public.lost_reason_overrides;
+drop policy if exists "Authenticated manage lost reason overrides" on public.lost_reason_overrides;
 create policy "Authenticated manage lost reason overrides"
   on public.lost_reason_overrides
   for all
@@ -340,4 +343,3 @@ grant execute on function public.get_lost_reason_key_candidates(text, timestampt
 
 revoke all on function public.get_finance_summary(text, timestamptz, timestamptz) from public;
 grant execute on function public.get_finance_summary(text, timestamptz, timestamptz) to authenticated, service_role;
-
