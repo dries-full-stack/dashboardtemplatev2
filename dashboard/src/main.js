@@ -8035,6 +8035,8 @@ const buildSellerRows = (sellers, options = {}) => {
     options.sellerRevenueBySellerId && typeof options.sellerRevenueBySellerId === 'object'
       ? options.sellerRevenueBySellerId
       : null;
+  const monthsCountRaw = Number(options.monthsCount ?? 1);
+  const monthsCount = Number.isFinite(monthsCountRaw) && monthsCountRaw > 0 ? monthsCountRaw : 1;
   if (!Array.isArray(sellers) || sellers.length === 0) {
     return `
       <tr class="border-b">
@@ -8051,12 +8053,30 @@ const buildSellerRows = (sellers, options = {}) => {
       const mappedRevenue = sellerRevenueBySellerId ? Number(sellerRevenueBySellerId[sellerIdRaw]) : Number.NaN;
       const revenueRaw = Number.isFinite(mappedRevenue) ? mappedRevenue : Number(seller.revenue) || 0;
       const revenue = revenueRaw ? formatCurrency(revenueRaw, 0) : '--';
+      const monthlyRevenue = revenueRaw > 0 ? revenueRaw / monthsCount : 0;
+      const monthlyRevenueLabel = revenueRaw > 0 ? `${formatCurrency(monthlyRevenue, 0)}/m` : '--';
+      const monthlyKpiRatio = revenueRaw > 0 ? safeDivide(monthlyRevenue, SALES_SELLER_MONTHLY_REVENUE_TARGET) : 0;
+      const monthlyKpiLabel = revenueRaw > 0 ? `${formatPercent(monthlyKpiRatio, 0)} KPI` : '--';
+      const monthlyKpiToneClass =
+        monthlyKpiRatio >= 1 ? 'is-good' : monthlyKpiRatio >= 0.8 ? 'is-warn' : 'is-low';
+      const monthlyKpiProgress = Math.max(0, Math.min(monthlyKpiRatio * 100, 100));
+      const monthlyKpiProgressWidth = revenueRaw > 0 ? Math.max(monthlyKpiProgress, 4) : 0;
       const sellerId = escapeHtml(sellerIdRaw);
       const sellerName = escapeHtml(seller.name);
       const sellerAttrs = `data-sales-drill="all" data-sales-seller-id="${sellerId}" data-sales-seller-name="${sellerName}"`;
       const pendingAppointments = Number(seller.appointmentsPending) || 0;
       const knownAppointments = formatNumber(seller.appointments || 0);
       const appointmentLabel = pendingAppointments > 0 ? `${knownAppointments}+` : knownAppointments;
+      const monthlyAppointmentsRaw = Number(seller.appointments) || 0;
+      const monthlyAppointments = appointmentsSupported && pendingAppointments === 0 ? monthlyAppointmentsRaw / monthsCount : 0;
+      const monthlyAppointmentsRatio = safeDivide(monthlyAppointments, SALES_SELLER_MONTHLY_APPOINTMENTS_TARGET);
+      const monthlyAppointmentsLabel = `${formatNumber(monthlyAppointments, 0)}/${formatNumber(
+        SALES_SELLER_MONTHLY_APPOINTMENTS_TARGET
+      )}`;
+      const monthlyAppointmentsToneClass =
+        monthlyAppointmentsRatio >= 1 ? 'is-good' : monthlyAppointmentsRatio >= 0.8 ? 'is-warn' : 'is-low';
+      const monthlyAppointmentsProgress = Math.max(0, Math.min(monthlyAppointmentsRatio * 100, 100));
+      const monthlyAppointmentsProgressWidth = monthlyAppointments > 0 ? Math.max(monthlyAppointmentsProgress, 4) : 0;
 
       const appointmentsMain = !appointmentsSupported
         ? `
@@ -8076,9 +8096,35 @@ const buildSellerRows = (sellers, options = {}) => {
             `
           : `<span class="font-medium" ${sellerAttrs}>${appointmentLabel}</span>`;
 
+      const appointmentsKpiMarkup =
+        appointmentsSupported && pendingAppointments === 0
+          ? `
+              <div class="text-[11px] seller-kpi-label ${monthlyAppointmentsToneClass}" ${sellerAttrs}>
+                ${escapeHtml(`${monthlyAppointmentsLabel} • ${formatPercent(monthlyAppointmentsRatio, 0)} KPI`)}
+              </div>
+              <div
+                class="seller-kpi-bar"
+                role="progressbar"
+                aria-label="Afspraken KPI voortgang"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow="${Math.round(monthlyAppointmentsProgress)}"
+                title="${escapeHtml(
+                  `${monthlyAppointmentsLabel} afspraken vs ${formatNumber(SALES_SELLER_MONTHLY_APPOINTMENTS_TARGET)} /maand (genormaliseerd)`
+                )}"
+                ${sellerAttrs}
+              >
+                <span class="seller-kpi-bar-fill ${monthlyAppointmentsToneClass}" style="width:${monthlyAppointmentsProgressWidth.toFixed(
+                  1
+                )}%"></span>
+              </div>
+            `
+          : '';
+
       const appointmentsCell = `
         <div class="inline-flex flex-col items-center gap-1">
           ${appointmentsMain}
+          ${appointmentsKpiMarkup}
         </div>
       `;
       return `
@@ -8113,6 +8159,31 @@ const buildSellerRows = (sellers, options = {}) => {
           </td>
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right font-semibold">
             <span ${sellerAttrs}>${revenue}</span>
+            ${
+              revenueRaw > 0
+                ? `
+                    <div class="text-[11px] seller-kpi-label ${monthlyKpiToneClass}" ${sellerAttrs}>${escapeHtml(
+                      `${monthlyRevenueLabel} • ${monthlyKpiLabel}`
+                    )}</div>
+                    <div
+                      class="seller-kpi-bar"
+                      role="progressbar"
+                      aria-label="Omzet KPI voortgang"
+                      aria-valuemin="0"
+                      aria-valuemax="100"
+                      aria-valuenow="${Math.round(monthlyKpiProgress)}"
+                      title="${escapeHtml(
+                        `${monthlyRevenueLabel} vs ${formatCurrency(SALES_SELLER_MONTHLY_REVENUE_TARGET, 0)}/maand (genormaliseerd)`
+                      )}"
+                      ${sellerAttrs}
+                    >
+                      <span class="seller-kpi-bar-fill ${monthlyKpiToneClass}" style="width:${monthlyKpiProgressWidth.toFixed(
+                        1
+                      )}%"></span>
+                    </div>
+                  `
+                : ''
+            }
           </td>
         </tr>
       `;
@@ -8126,6 +8197,8 @@ const buildSellerCards = (sellers, options = {}) => {
     options.sellerRevenueBySellerId && typeof options.sellerRevenueBySellerId === 'object'
       ? options.sellerRevenueBySellerId
       : null;
+  const monthsCountRaw = Number(options.monthsCount ?? 1);
+  const monthsCount = Number.isFinite(monthsCountRaw) && monthsCountRaw > 0 ? monthsCountRaw : 1;
 
   if (!Array.isArray(sellers) || sellers.length === 0) {
     return `
@@ -8144,6 +8217,13 @@ const buildSellerCards = (sellers, options = {}) => {
       const mappedRevenue = sellerRevenueBySellerId ? Number(sellerRevenueBySellerId[sellerIdRaw]) : Number.NaN;
       const revenueRaw = Number.isFinite(mappedRevenue) ? mappedRevenue : Number(seller.revenue) || 0;
       const revenue = revenueRaw ? formatCurrency(revenueRaw, 0) : '--';
+      const monthlyRevenue = revenueRaw > 0 ? revenueRaw / monthsCount : 0;
+      const monthlyRevenueLabel = revenueRaw > 0 ? `${formatCurrency(monthlyRevenue, 0)}/m` : '--';
+      const monthlyKpiRatio = revenueRaw > 0 ? safeDivide(monthlyRevenue, SALES_SELLER_MONTHLY_REVENUE_TARGET) : 0;
+      const monthlyKpiToneClass =
+        monthlyKpiRatio >= 1 ? 'is-good' : monthlyKpiRatio >= 0.8 ? 'is-warn' : 'is-low';
+      const monthlyKpiProgress = Math.max(0, Math.min(monthlyKpiRatio * 100, 100));
+      const monthlyKpiProgressWidth = revenueRaw > 0 ? Math.max(monthlyKpiProgress, 4) : 0;
 
       const sellerId = escapeHtml(sellerIdRaw);
       const sellerName = escapeHtml(seller.name);
@@ -8152,6 +8232,17 @@ const buildSellerCards = (sellers, options = {}) => {
       const pendingAppointments = Number(seller.appointmentsPending) || 0;
       const knownAppointments = formatNumber(seller.appointments || 0);
       const appointmentLabel = pendingAppointments > 0 ? `${knownAppointments}+` : knownAppointments;
+      const monthlyAppointmentsRaw = Number(seller.appointments) || 0;
+      const monthlyAppointments =
+        appointmentsSupported && pendingAppointments === 0 ? monthlyAppointmentsRaw / monthsCount : 0;
+      const monthlyAppointmentsRatio = safeDivide(monthlyAppointments, SALES_SELLER_MONTHLY_APPOINTMENTS_TARGET);
+      const monthlyAppointmentsLabel = `${formatNumber(monthlyAppointments, 0)}/${formatNumber(
+        SALES_SELLER_MONTHLY_APPOINTMENTS_TARGET
+      )}`;
+      const monthlyAppointmentsToneClass =
+        monthlyAppointmentsRatio >= 1 ? 'is-good' : monthlyAppointmentsRatio >= 0.8 ? 'is-warn' : 'is-low';
+      const monthlyAppointmentsProgress = Math.max(0, Math.min(monthlyAppointmentsRatio * 100, 100));
+      const monthlyAppointmentsProgressWidth = monthlyAppointments > 0 ? Math.max(monthlyAppointmentsProgress, 4) : 0;
 
       const appointmentsMain = !appointmentsSupported
         ? `
@@ -8170,6 +8261,31 @@ const buildSellerCards = (sellers, options = {}) => {
               </div>
             `
           : `<span class="text-base font-semibold text-foreground" ${sellerAttrs}>${appointmentLabel}</span>`;
+
+      const appointmentsKpiMarkup =
+        appointmentsSupported && pendingAppointments === 0
+          ? `
+              <div class="mt-1 text-[11px] seller-kpi-label ${monthlyAppointmentsToneClass}" ${sellerAttrs}>
+                ${escapeHtml(`${monthlyAppointmentsLabel} • ${formatPercent(monthlyAppointmentsRatio, 0)} KPI`)}
+              </div>
+              <div
+                class="seller-kpi-bar"
+                role="progressbar"
+                aria-label="Afspraken KPI voortgang"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow="${Math.round(monthlyAppointmentsProgress)}"
+                title="${escapeHtml(
+                  `${monthlyAppointmentsLabel} afspraken vs ${formatNumber(SALES_SELLER_MONTHLY_APPOINTMENTS_TARGET)} /maand (genormaliseerd)`
+                )}"
+                ${sellerAttrs}
+              >
+                <span class="seller-kpi-bar-fill ${monthlyAppointmentsToneClass}" style="width:${monthlyAppointmentsProgressWidth.toFixed(
+                  1
+                )}%"></span>
+              </div>
+            `
+          : '';
 
       return `
         <div class="rounded-2xl border border-border bg-card/60 p-4 shadow-sm">
@@ -8192,6 +8308,31 @@ const buildSellerCards = (sellers, options = {}) => {
             <div class="text-right flex-shrink-0">
               <div class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Omzet</div>
               <div class="mt-0.5 text-sm font-semibold text-foreground whitespace-nowrap" ${sellerAttrs}>${revenue}</div>
+              ${
+                revenueRaw > 0
+                  ? `
+                      <div class="mt-1 text-[11px] seller-kpi-label ${monthlyKpiToneClass}" ${sellerAttrs}>${escapeHtml(
+                        `${monthlyRevenueLabel} • ${formatPercent(monthlyKpiRatio, 0)} KPI`
+                      )}</div>
+                      <div
+                        class="seller-kpi-bar"
+                        role="progressbar"
+                        aria-label="Omzet KPI voortgang"
+                        aria-valuemin="0"
+                        aria-valuemax="100"
+                        aria-valuenow="${Math.round(monthlyKpiProgress)}"
+                        title="${escapeHtml(
+                          `${monthlyRevenueLabel} vs ${formatCurrency(SALES_SELLER_MONTHLY_REVENUE_TARGET, 0)}/maand (genormaliseerd)`
+                        )}"
+                        ${sellerAttrs}
+                      >
+                        <span class="seller-kpi-bar-fill ${monthlyKpiToneClass}" style="width:${monthlyKpiProgressWidth.toFixed(
+                          1
+                        )}%"></span>
+                      </div>
+                    `
+                  : ''
+              }
             </div>
           </div>
 
@@ -8199,6 +8340,7 @@ const buildSellerCards = (sellers, options = {}) => {
             <div class="rounded-xl border border-border/60 bg-muted/25 p-3">
               <div class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Afspraken</div>
               <div class="mt-1">${appointmentsMain}</div>
+              ${appointmentsKpiMarkup}
             </div>
             <div class="rounded-xl border border-border/60 bg-muted/25 p-3">
               <div class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Offertes</div>
@@ -8511,6 +8653,7 @@ const applySalesData = (data) => {
   if (sellerCards) {
     sellerCards.innerHTML = buildSellerCards(data.sellers, {
       appointmentsSupported: data.appointmentsSupported,
+      monthsCount: kpiMonths,
       sellerRevenueBySellerId
     });
   }
