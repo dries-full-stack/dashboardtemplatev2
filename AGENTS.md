@@ -22,6 +22,7 @@ Deze file is living documentation. Update `AGENTS.md` systematisch in dezelfde P
 - `scripts/`: PowerShell bootstrap + helper scripts.
 - `clients/<slug>/`: per-klant scaffolds (dashboard_config.sql, layout json, env templates, schedule.sql).
 - `netlify/functions/`: Netlify function(s) voor provisioning (`provision-client.js`).
+- `docs/`: interne documentatie + meeting notes (lightweight, repo-local).
 
 ## Quick Start (Local Dev)
 
@@ -100,6 +101,7 @@ Migrations:
 - Cron RPC's: `supabase/migrations/20260209153000_cron_jobs_rpc.sql` (RPC `setup_cron_jobs`, `cron_health`).
 - Security hardening (RLS/auth): `supabase/migrations/20260215170000_security_hardening_auth_rls.sql` (verwijdert anon "customer mode", vereist dashboard login).
 - Dashboard access allowlist (RLS): `supabase/migrations/20260215180000_dashboard_access_allowlist.sql` (voegt allowlist toe zodat "authenticated" niet genoeg is als signups aan staan).
+- Teamleader deals close-date index: `supabase/migrations/20260217120000_teamleader_deals_closed_at_index.sql` (index op `closed_at` voor filtering op gewonnen/verloren deals).
 
 Preflight warnings betekenis:
 - `dashboard_config ontbreekt`: schema nog niet gepusht naar het Supabase project. Oplossing: `supabase db push`.
@@ -169,6 +171,7 @@ Layout/branding aanpassen (zonder code changes):
 - `pwsh ENOENT` / "PowerShell starten faalde": installeer PowerShell (`pwsh`), zet `ONBOARDING_POWERSHELL_BIN`, of forceer Node runner met `ONBOARDING_FORCE_NODE_BOOTSTRAP=1`.
 - `ERR_CONNECTION_REFUSED` op `http://localhost:8787/...`: onboarding server draait niet of crashte. Start met `npm run onboard` (of `npm run dev`).
 - Console errors `bootstrap-autofill-overlay.js`: komt van browser password-manager/autofill extensies, geen repo bug.
+- Sidebar chevron (desktop) doet niets of sidebar blijft "ingeklapt": in oudere builds toggelde `toggleSidebar()` enkel op mobile. Fix: update/deploy dashboard. Workaround: clear `localStorage` key `dashboard_sidebar_desktop` (per subdomain/origin) en refresh.
 - Dashboard login faalt ("Invalid login credentials" / geen sessie): user bestaat niet of heeft geen password. Oplossing: seed een email+password user via `node scripts/admin_seed_password_user.js <client|all> user@domain.tld` (+ `DASHBOARD_USER_PASSWORD=...`) en check `public.dashboard_access` allowlist.
 - Dashboard deployt nog van een klant-branch (oude UI / verkeerde versie): check Netlify site settings → Build & deploy → `Production branch` en zet die op `main` (en `allowed branches` op `main`).
 - Netlify build faalt met `Host key verification failed` na repo-branch/settings update: meestal werd de GitHub App `installation_id` gewist door een `PUT` update. Fix: reconnect repo in Netlify UI of herstel via `PATCH` waarbij je `repo.installation_id` meegeeft; vermijd `PUT` voor site updates.
@@ -176,6 +179,9 @@ Layout/branding aanpassen (zonder code changes):
 - Magic link redirect naar localhost: Supabase Auth URL config mist je deploy URL (of `Site URL` staat nog op `http://localhost:5173`), waardoor Supabase fallbackt naar de `Site URL`. Oplossing: Supabase Dashboard → Authentication → URL Configuration: zet `Site URL` naar je productie dashboard URL en voeg die URL (plus `http://localhost:5173` voor local dev) toe aan `Redirect URLs`.
 - Onverwachte Auth settings na `supabase config push`: de CLI pusht een volledige Auth config; als je enkel `site_url`/redirects wil aanpassen kunnen defaults andere Auth flags overschrijven (bv. MFA TOTP of email confirmations). Oplossing: zet de relevante `[auth.*]` flags expliciet in `supabase/config.toml` (of pas het aan via Supabase Dashboard).
 - Dashboard login lukt maar je krijgt 401/403 bij data calls: check of de user in `public.dashboard_access` staat (allowlist). Oplossing: voeg email toe aan `public.dashboard_access` (of draai migratie `20260215180000_dashboard_access_allowlist.sql` opnieuw om bestaande auth users te seeden).
+- Sales dashboard: afspraken tonen `--`: `teamleader_deals.had_appointment_phase` is nog niet gedeployed (migraties ontbreken). Oplossing: `supabase db push` + (optioneel) trigger `teamleader-sync` voor deals.
+- Sales dashboard: afspraken tonen `123+ (nog X)`: `had_appointment_phase` is `NULL` voor sommige deals terwijl phase history nog bezig is (sync/backfill). Oplossing: wacht of trigger `teamleader-sync` (deals reconcile) zodat `/deals.info` markers gevuld worden.
+- Sales dashboard: cyclustijden lijken "te snel" of "te traag": check of marker columns `appointment_phase_first_started_at` en `quote_phase_first_started_at` bestaan en gevuld worden (migraties + sync). Zonder markers wordt er gefallbackt op `created_at`/`updated_at`.
 
 ## Timezones / Off-by-One
 
@@ -198,6 +204,38 @@ Layout/branding aanpassen (zonder code changes):
 - Teamleader deal sources are synced automatically into `public.teamleader_deal_sources`.
 - Sales dashboard reads Teamleader `dealSource` IDs from `teamleader_deals.raw_data.source` and maps them to labels via `teamleader_deal_sources`.
 - No manual source-ID mapping is required.
+
+## Sales Dashboard (Belivert)
+
+Waar komen de cijfers vandaan?
+- Basis: `public.teamleader_deals` (Teamleader Focus deals).
+- Omzet in de sales UI = `teamleader_deals.estimated_value` (forecast), niet de effectieve factuur-omzet.
+- Als de klant "behaalde omzet" bedoelt: gebruik `public.teamleader_invoices` (invoice_date) als bron en map naar sales/service via tags/regels (of invoice line items in `raw_data`).
+
+Offertes tellen (Belivert workflow):
+- 1 klant kan meerdere offerteversies krijgen. KPI's bundelen daarom per klant (`customer_type` + `customer_id`) zodat dit 1 traject telt.
+- Vanaf wanneer telt iets als "offerte": `dashboard_config.sales_quotes_from_phase_id` (fase threshold; gebruikt `sort_order`, fallback `probability`).
+
+Uitsluiten service/deeltrajecten:
+- `dashboard_config.sales_excluded_deal_keywords` (bv. `["service"]`) exclude deals op titel voor de sales KPI's.
+
+Cyclustijden (edge-marker aware):
+- "Gem. Tijd tot Offerte" = afspraakfase start -> quote fase start (`appointment_phase_first_started_at` -> `quote_phase_first_started_at`).
+- "Gem. Offerte → Close" = quote fase start -> close (`quote_phase_first_started_at` -> `closed_at`).
+- "Gem. Sales Cycle" = afspraakfase start -> close (`appointment_phase_first_started_at` -> `closed_at`).
+- Fallback als markers ontbreken: `created_at`/`updated_at`/`closed_at`.
+
+Benodigde Teamleader markers:
+- Migrations: `supabase/migrations/20260207150000_teamleader_deals_appointment_phase.sql`, `supabase/migrations/20260207231000_teamleader_deals_quote_phase_marker.sql`.
+- Sync populatie: `supabase/functions/teamleader-sync/index.ts` vult markers via phase history (`/deals.info`).
+
+Seller KPI targets (hardcoded in UI):
+- Omzet KPI per verkoper: EUR 75.000/maand (`SALES_SELLER_MONTHLY_REVENUE_TARGET`).
+- Afspraken KPI per verkoper: 52/maand (`SALES_SELLER_MONTHLY_APPOINTMENTS_TARGET`).
+- Opgelet: afspraken KPI is momenteel een proxy (aantal trajecten in huidige maand). Als de klant "ingeplande afspraken" letterlijk bedoelt, moeten we afspraken-events expliciet syncen/relateren.
+
+Meeting notes / roadmap:
+- Zie `docs/meeting-notes/2026-02-17-belivert-sales-dashboard.md` voor de lijst met klantvragen (Nick D) + implementatie-opties.
 
 ## Deploy / Refresh Checklist (Generic)
 

@@ -175,6 +175,7 @@ const MOCK_ENABLED = import.meta.env.VITE_ENABLE_MOCK_DATA === 'true';
 const SALES_RANGE_MONTHS = 6;
 const SALES_TARGET_MONTHLY_DEALS = 25;
 const SALES_SELLER_MONTHLY_REVENUE_TARGET = 75000;
+const SALES_SELLER_MONTHLY_APPOINTMENTS_TARGET = 52;
 const BELIVERT_DEFAULT_EXCLUDED_DEAL_KEYWORDS = ['service'];
 const SALES_MAIN_MARKUP = salesMainMarkup.trim();
 
@@ -428,17 +429,21 @@ const METRIC_INFO_BY_LABEL = {
   'offertes gemaakt':
     'Aantal unieke offertetrajecten in de periode. Meerdere offerteversies voor dezelfde klant worden samengenomen.',
   'gem. tijd tot offerte':
-    'Gemiddelde snelheid waarmee een lead tot offerte wordt gebracht (in dagen). Lager is meestal beter.',
+    'Gemiddelde tijd tussen ingeplande afspraak en verzonden offerte (in dagen). Lager is meestal beter.',
+  'gem. offerte -> close':
+    'Gemiddelde tijd tussen verzonden offerte en het sluiten van de deal (in dagen).',
   'goedgekeurde offertes':
     'Aantal offertetrajecten die effectief gewonnen zijn. Dit zijn je gerealiseerde deals.',
   'deal ratio':
     'Welk deel van je offertes effectief wordt gewonnen. Formule: gewonnen offertes / gemaakte offertes.',
   'gem. sales cycle':
-    'Gemiddelde tijd van eerste trajectstart tot deal-winst. Geeft de snelheid van je salesproces weer.',
+    'Gemiddelde tijd van ingeplande afspraak tot deal-winst. Geeft de snelheid van je salesproces weer.',
   'hangende offertes':
     'Offertes die nog openstaan. Dit is je actieve pipeline en toekomstige potentie.',
   'afgekeurde offertes':
     'Offertetrajecten die niet doorgingen. Belangrijk om verliesredenen op te volgen en bij te sturen.',
+  'gem. deal waarde':
+    'Gemiddelde omzet per gewonnen deal. Formule: totale omzet / aantal gewonnen deals.',
   'kost per klant':
     'Gemiddelde marketingkost om 1 gewonnen klant binnen te halen. Formule: totale leadkosten / gewonnen deals.'
 };
@@ -798,6 +803,7 @@ let pickerState = { open: false, selecting: 'start', viewMonth: DEFAULT_RANGE.st
 const mockBadge = MOCK_ENABLED ? '<span class="mock-badge">Mock data</span>' : '';
 const DEBUG_ENABLED = false;
 const METRICS_DEBUG_MODE_STORAGE_KEY = 'dashboard_metrics_debug_mode';
+const SALES_DATE_FIELD_STORAGE_KEY = 'dashboard_sales_date_field';
 
 const readCachedMetricsDebugMode = () => {
   try {
@@ -820,7 +826,30 @@ const writeCachedMetricsDebugMode = (enabled) => {
   }
 };
 
+const normalizeSalesDateField = (value) => {
+  const key = String(value || '').trim().toLowerCase();
+  if (key === 'closed_at' || key === 'closed') return 'closed_at';
+  return 'created_at';
+};
+
+const readCachedSalesDateField = () => {
+  try {
+    return normalizeSalesDateField(localStorage.getItem(SALES_DATE_FIELD_STORAGE_KEY));
+  } catch (_error) {
+    return 'created_at';
+  }
+};
+
+const writeCachedSalesDateField = (value) => {
+  try {
+    localStorage.setItem(SALES_DATE_FIELD_STORAGE_KEY, normalizeSalesDateField(value));
+  } catch (_error) {
+    // Ignore storage errors (privacy mode, blocked storage, etc.).
+  }
+};
+
 let metricsDebugModeEnabled = readCachedMetricsDebugMode();
+let salesDateField = readCachedSalesDateField();
 let metricsComputationVersion = 0;
 const isMetricsDebugModeEnabled = () => metricsDebugModeEnabled;
 const bumpMetricsComputationVersion = () => {
@@ -6984,10 +7013,21 @@ const buildSalesMetrics = (
   appointmentsSupported = true,
   quotesFromPhaseId = null,
   excludedDealKeywords = [],
-  bundleDealsForMetrics = true
+  bundleDealsForMetrics = true,
+  dealDateField = 'created_at'
 ) => {
   const now = new Date();
   const range = getSalesRange(activeRange);
+  const effectiveDealDateField = dealDateField === 'closed_at' ? 'closed_at' : 'created_at';
+  const getDealCloseDate = (deal) => {
+    const status = normalizeStatus(deal?.status);
+    if (!isWonStatus(status) && !isLostStatus(status)) return null;
+    return parseDate(deal?.closed_at) || parseDate(deal?.updated_at);
+  };
+  const getDealRangeDate = (deal) => {
+    if (effectiveDealDateField === 'closed_at') return getDealCloseDate(deal);
+    return parseDate(deal?.created_at);
+  };
   const monthBuckets = buildMonthBuckets(range.start, range.end);
   const monthMap = new Map(monthBuckets.map((bucket) => [bucket.key, bucket]));
   const lostReasonById = new Map(
@@ -7150,10 +7190,10 @@ const buildSalesMetrics = (
   };
 
   const inRangeDealsRaw = (deals || []).filter((deal) => {
-    const createdAt = parseDate(deal?.created_at);
-    if (!createdAt) return false;
+    const rangeDate = getDealRangeDate(deal);
+    if (!rangeDate) return false;
     if (isExcludedDeal(deal)) return false;
-    return createdAt >= range.start && createdAt <= range.end;
+    return rangeDate >= range.start && rangeDate <= range.end;
   });
   const quoteEligibleDealsRaw = inRangeDealsRaw.filter((deal) => isQuoteDeal(deal));
 
@@ -7174,12 +7214,15 @@ const buildSalesMetrics = (
   const openDeals = [];
   const quoteDurations = [];
   const cycleDurations = [];
+  const quoteToCloseDurations = [];
   const records = [];
   const detailRecords = [];
 
-  const toSalesRecord = (deal) => {
-    const createdAt = parseDate(deal.created_at);
-    if (!createdAt) return null;
+	  const toSalesRecord = (deal) => {
+	    const createdAt = parseDate(deal.created_at);
+	    if (!createdAt) return null;
+	    const occurredAt = effectiveDealDateField === 'closed_at' ? getDealCloseDate(deal) : createdAt;
+	    if (!occurredAt) return null;
 
     const status = normalizeStatus(deal.status);
     const won = isWonStatus(status);
@@ -7213,10 +7256,10 @@ const buildSalesMetrics = (
       dealSource.label ||
       '';
 
-    return {
-      record_id: deal.id,
-      record_type: 'deal',
-      occurred_at: deal.created_at,
+	    return {
+	      record_id: deal.id,
+	      record_type: 'deal',
+	      occurred_at: occurredAt.toISOString(),
       contact_name: customerName,
       contact_email: customerEmail,
       source: sourceLabel || phaseLabel || deal.customer_type || 'Deal',
@@ -7226,7 +7269,7 @@ const buildSalesMetrics = (
       phase_label: phaseLabel || null,
       estimated_value: estimatedValue,
       estimated_currency: estimatedCurrency,
-      monthKey: toMonthKey(createdAt),
+	      monthKey: toMonthKey(occurredAt),
       seller_id: sellerId,
       seller_name: sellerName,
       loss_reason: lossReason ? String(lossReason).trim() : null,
@@ -7252,28 +7295,37 @@ const buildSalesMetrics = (
     if (record) records.push(record);
 
     const updatedAt = parseDate(deal.updated_at);
-    const quoteDays = diffDays(updatedAt, createdAt);
+    const appointmentAt = parseDate(deal.appointment_phase_first_started_at) || createdAt;
+    const quoteAt = parseDate(deal.quote_phase_first_started_at) || updatedAt;
+    const quoteDays = diffDays(quoteAt, appointmentAt);
     if (Number.isFinite(quoteDays) && quoteDays >= 0) quoteDurations.push(quoteDays);
 
     if (won) {
       const closedAt = parseDate(deal.closed_at) || updatedAt;
-      const cycleDays = diffDays(closedAt, createdAt);
+      const cycleDays = diffDays(closedAt, appointmentAt);
       if (Number.isFinite(cycleDays) && cycleDays >= 0) cycleDurations.push(cycleDays);
+
+      const quoteToCloseDays = diffDays(closedAt, quoteAt);
+      if (Number.isFinite(quoteToCloseDays) && quoteToCloseDays >= 0) quoteToCloseDurations.push(quoteToCloseDays);
     }
 
-    const createdKey = toMonthKey(createdAt);
-    const createdBucket = monthMap.get(createdKey);
-    if (createdBucket) createdBucket.quotes += 1;
-
-    if (won) {
-      const closedAt = parseDate(deal.closed_at) || updatedAt || createdAt;
-      if (closedAt) {
-        const closedKey = toMonthKey(closedAt);
-        const closedBucket = monthMap.get(closedKey);
-        if (closedBucket) closedBucket.won += 1;
-      }
-    }
-  });
+	    const quoteBucketAt =
+	      effectiveDealDateField === 'closed_at' ? parseDate(deal.closed_at) || updatedAt || createdAt : createdAt;
+	    if (quoteBucketAt) {
+	      const key = toMonthKey(quoteBucketAt);
+	      const bucket = monthMap.get(key);
+	      if (bucket) bucket.quotes += 1;
+	    }
+	
+	    if (won) {
+	      const wonAt = parseDate(deal.closed_at) || updatedAt || createdAt;
+	      if (wonAt) {
+	        const key = toMonthKey(wonAt);
+	        const bucket = monthMap.get(key);
+	        if (bucket) bucket.won += 1;
+	      }
+	    }
+	  });
 
   quoteEligibleDealsRaw.forEach((deal) => {
     const record = toSalesRecord(deal);
@@ -7290,12 +7342,19 @@ const buildSalesMetrics = (
   const avgSalesCycleDays = cycleDurations.length
     ? cycleDurations.reduce((sum, value) => sum + value, 0) / cycleDurations.length
     : null;
-
-  const thisMonthKey = toMonthKey(new Date());
-  const dealsThisMonth = dealsInRange.filter((deal) => {
-    const createdAt = parseDate(deal.created_at);
-    return createdAt && toMonthKey(createdAt) === thisMonthKey;
-  }).length;
+	  const avgQuoteToCloseDays = quoteToCloseDurations.length
+	    ? quoteToCloseDurations.reduce((sum, value) => sum + value, 0) / quoteToCloseDurations.length
+	    : null;
+	
+	  const thisMonthKey = toMonthKey(new Date());
+	  const dealsThisMonthBase = effectiveDealDateField === 'closed_at' ? wonDeals : dealsInRange;
+	  const dealsThisMonth = dealsThisMonthBase.filter((deal) => {
+	    const bucketAt =
+	      effectiveDealDateField === 'closed_at'
+	        ? parseDate(deal.closed_at) || parseDate(deal.updated_at)
+	        : parseDate(deal.created_at);
+	    return bucketAt && toMonthKey(bucketAt) === thisMonthKey;
+	  }).length;
   const defaultTargetDeals =
     Number.isFinite(monthlyTargetDeals) && monthlyTargetDeals > 0 ? monthlyTargetDeals : SALES_TARGET_MONTHLY_DEALS;
   const monthOverrideRaw =
@@ -7378,8 +7437,10 @@ const buildSalesMetrics = (
         deals: 0,
         won: 0,
         lost: 0,
-        cycleSum: 0,
-        cycleCount: 0,
+        appointmentToQuoteSum: 0,
+        appointmentToQuoteCount: 0,
+        quoteToCloseSum: 0,
+        quoteToCloseCount: 0,
         revenue: 0
       });
     }
@@ -7398,15 +7459,25 @@ const buildSalesMetrics = (
     const status = normalizeStatus(deal.status);
     const won = isWonStatus(status);
     const lost = isLostStatus(status);
+
+    const createdAt = parseDate(deal.created_at);
+    const appointmentAt = parseDate(deal.appointment_phase_first_started_at) || createdAt;
+    const quotePhaseAt = parseDate(deal.quote_phase_first_started_at);
+    const quoteAtForSpeed = quotePhaseAt || parseDate(deal.updated_at);
+    const timeToQuote = diffDays(quoteAtForSpeed, appointmentAt);
+    if (Number.isFinite(timeToQuote) && timeToQuote >= 0) {
+      seller.appointmentToQuoteSum += timeToQuote;
+      seller.appointmentToQuoteCount += 1;
+    }
+
     if (won) {
       seller.won += 1;
       seller.revenue += Number(deal.estimated_value) || 0;
-      const createdAt = parseDate(deal.created_at);
       const closedAt = parseDate(deal.closed_at) || parseDate(deal.updated_at);
-      const cycle = diffDays(closedAt, createdAt);
-      if (Number.isFinite(cycle) && cycle >= 0) {
-        seller.cycleSum += cycle;
-        seller.cycleCount += 1;
+      const quoteToClose = diffDays(closedAt, quotePhaseAt);
+      if (Number.isFinite(quoteToClose) && quoteToClose >= 0) {
+        seller.quoteToCloseSum += quoteToClose;
+        seller.quoteToCloseCount += 1;
       }
     } else if (lost) {
       seller.lost += 1;
@@ -7417,12 +7488,14 @@ const buildSalesMetrics = (
     .map((seller) => ({
       ...seller,
       conversion: safeDivide(seller.won, seller.deals),
-      avgCycle: seller.cycleCount ? seller.cycleSum / seller.cycleCount : null
+      avgTimeToQuote: seller.appointmentToQuoteCount ? seller.appointmentToQuoteSum / seller.appointmentToQuoteCount : null,
+      avgQuoteToClose: seller.quoteToCloseCount ? seller.quoteToCloseSum / seller.quoteToCloseCount : null
     }))
     .sort((a, b) => b.won - a.won || b.revenue - a.revenue)
     .slice(0, 10);
 
   const totalRevenue = wonDeals.reduce((sum, deal) => sum + (Number(deal.estimated_value) || 0), 0);
+  const avgDealValue = wonDeals.length ? safeDivide(totalRevenue, wonDeals.length) : null;
   const summary = {
     wonDeals: wonDeals.length,
     revenue: totalRevenue,
@@ -7441,11 +7514,13 @@ const buildSalesMetrics = (
       open: openDeals.length,
       openValue,
       avgQuoteTimeDays,
+      avgQuoteToCloseDays,
       avgSalesCycleDays,
       approvalRate,
       rejectionRate,
       dealRatio,
-      costPerCustomer
+      costPerCustomer,
+      avgDealValue
     },
     target: {
       current: dealsThisMonth,
@@ -7763,20 +7838,25 @@ const buildSellerRows = (sellers, options = {}) => {
     options.monthlyRevenueBySellerId && typeof options.monthlyRevenueBySellerId === 'object'
       ? options.monthlyRevenueBySellerId
       : null;
+  const monthlyAppointmentsBySellerId =
+    options.monthlyAppointmentsBySellerId && typeof options.monthlyAppointmentsBySellerId === 'object'
+      ? options.monthlyAppointmentsBySellerId
+      : null;
   const useCurrentMonthKpi = options.useCurrentMonthKpi === true;
   const monthsCountRaw = Number(options.monthsCount ?? 1);
   const monthsCount = Number.isFinite(monthsCountRaw) && monthsCountRaw > 0 ? monthsCountRaw : 1;
   if (!Array.isArray(sellers) || sellers.length === 0) {
     return `
       <tr class="border-b">
-        <td colspan="8" class="p-4 text-sm text-muted-foreground">Geen verkopersdata gevonden.</td>
+        <td colspan="9" class="p-4 text-sm text-muted-foreground">Geen verkopersdata gevonden.</td>
       </tr>
     `;
   }
   return sellers
     .map((seller, index) => {
       const conversion = formatPercent(seller.conversion, 1);
-      const avgCycle = seller.avgCycle ? formatDays(seller.avgCycle, 1) : '--';
+      const avgTimeToQuote = Number.isFinite(seller.avgTimeToQuote) ? formatDays(seller.avgTimeToQuote, 1) : '--';
+      const avgQuoteToClose = Number.isFinite(seller.avgQuoteToClose) ? formatDays(seller.avgQuoteToClose, 1) : '--';
       const revenueRaw = Number(seller.revenue) || 0;
       const revenue = revenueRaw ? formatCurrency(revenueRaw, 0) : '--';
       const sellerIdRaw = String(seller.id || '');
@@ -7803,7 +7883,20 @@ const buildSellerRows = (sellers, options = {}) => {
       const pendingAppointments = Number(seller.appointmentsPending) || 0;
       const knownAppointments = formatNumber(seller.appointments || 0);
       const appointmentLabel = pendingAppointments > 0 ? `${knownAppointments}+` : knownAppointments;
-      const appointmentsCell = !appointmentsSupported
+      const mappedMonthlyAppointments = useCurrentMonthKpi
+        ? Number(monthlyAppointmentsBySellerId ? monthlyAppointmentsBySellerId[sellerIdRaw] : Number.NaN)
+        : Number.NaN;
+      const monthlyAppointments = Number.isFinite(mappedMonthlyAppointments) ? mappedMonthlyAppointments : 0;
+      const monthlyAppointmentsRatio = safeDivide(monthlyAppointments, SALES_SELLER_MONTHLY_APPOINTMENTS_TARGET);
+      const monthlyAppointmentsLabel = `${formatNumber(monthlyAppointments)}/${formatNumber(
+        SALES_SELLER_MONTHLY_APPOINTMENTS_TARGET
+      )}`;
+      const monthlyAppointmentsToneClass =
+        monthlyAppointmentsRatio >= 1 ? 'is-good' : monthlyAppointmentsRatio >= 0.8 ? 'is-warn' : 'is-low';
+      const monthlyAppointmentsProgress = Math.max(0, Math.min(monthlyAppointmentsRatio * 100, 100));
+      const monthlyAppointmentsProgressWidth = monthlyAppointments > 0 ? Math.max(monthlyAppointmentsProgress, 4) : 0;
+
+      const appointmentsMain = !appointmentsSupported
         ? `
             <span class="inline-flex items-center justify-center text-xs text-muted-foreground" title="Afspraken zijn niet beschikbaar omdat teamleader_deals.had_appointment_phase ontbreekt (migratie nog niet gedeployed).">
               --
@@ -7820,6 +7913,36 @@ const buildSellerRows = (sellers, options = {}) => {
               </div>
             `
           : `<span class="font-medium" ${sellerAttrs}>${appointmentLabel}</span>`;
+
+      const appointmentsKpiMarkup =
+        useCurrentMonthKpi && appointmentsSupported
+          ? `
+              <div class="text-[11px] seller-kpi-label ${monthlyAppointmentsToneClass}" ${sellerAttrs}>
+                ${escapeHtml(`${monthlyAppointmentsLabel} • ${formatPercent(monthlyAppointmentsRatio, 0)} KPI`)}
+              </div>
+              <div
+                class="seller-kpi-bar"
+                role="progressbar"
+                aria-label="Afspraken KPI voortgang"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow="${Math.round(monthlyAppointmentsProgress)}"
+                title="${escapeHtml(`${monthlyAppointmentsLabel} afspraken vs ${formatNumber(SALES_SELLER_MONTHLY_APPOINTMENTS_TARGET)} /maand`)}"
+                ${sellerAttrs}
+              >
+                <span class="seller-kpi-bar-fill ${monthlyAppointmentsToneClass}" style="width:${monthlyAppointmentsProgressWidth.toFixed(
+                  1
+                )}%"></span>
+              </div>
+            `
+          : '';
+
+      const appointmentsCell = `
+        <div class="inline-flex flex-col items-center gap-1">
+          ${appointmentsMain}
+          ${appointmentsKpiMarkup}
+        </div>
+      `;
       return `
         <tr class="border-b transition-colors data-[state=selected]:bg-muted hover:bg-muted/50">
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0">${index + 1}</td>
@@ -7845,7 +7968,10 @@ const buildSellerRows = (sellers, options = {}) => {
             <div class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors border-transparent hover:bg-secondary/80 bg-muted text-foreground" ${sellerAttrs}>${conversion}</div>
           </td>
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-center">
-            <span class="text-sm text-muted-foreground" ${sellerAttrs}>${avgCycle}</span>
+            <span class="text-sm text-muted-foreground" ${sellerAttrs}>${avgTimeToQuote}</span>
+          </td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-center">
+            <span class="text-sm text-muted-foreground" ${sellerAttrs}>${avgQuoteToClose}</span>
           </td>
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right font-semibold">
             <span ${sellerAttrs}>${revenue}</span>
@@ -7876,10 +8002,12 @@ const SALES_DRILLDOWN_CONFIG = {
   quotes_created: { filter: 'all', label: 'Offertes' },
   quotes_subtext: { filter: 'all', label: 'Offertes' },
   avg_quote_time: { filter: 'all', label: 'Deals' },
+  avg_quote_to_close: { filter: 'won', label: 'Goedgekeurde deals' },
   approved_quotes: { filter: 'won', label: 'Goedgekeurde deals' },
   approval_rate: { filter: 'won', label: 'Goedgekeurde deals' },
   deal_ratio: { filter: 'won', label: 'Goedgekeurde deals' },
   avg_sales_cycle: { filter: 'won', label: 'Goedgekeurde deals' },
+  avg_deal_value: { filter: 'won', label: 'Goedgekeurde deals' },
   open_quotes: { filter: 'open', label: 'Open deals' },
   open_value: { filter: 'open', label: 'Open deals' },
   rejected_quotes: { filter: 'lost', label: 'Afgekeurde deals' },
@@ -7917,6 +8045,9 @@ const getSalesRecordsForFilter = (records, filter, options = {}) => {
   if (effectiveFilter === 'month') {
     const monthKey = toMonthKey(new Date());
     rows = rows.filter((record) => record.monthKey === monthKey);
+    if (salesDateField === 'closed_at') {
+      rows = rows.filter((record) => record.statusType === 'won');
+    }
   } else if (effectiveFilter !== 'all') {
     rows = rows.filter((record) => record.statusType === effectiveFilter);
   }
@@ -8017,12 +8148,17 @@ const applySalesData = (data) => {
   };
 
   setKpi('quotes_created', formatNumber(data.totals.quotes));
-  setKpi('quotes_subtext', `Van ${formatNumber(data.totals.allDeals)} deals`);
+  setKpi('quotes_subtext', `Van ${formatNumber(data.totals.allDeals)} afspraken`);
   setKpi('avg_quote_time', formatDays(data.totals.avgQuoteTimeDays));
+  setKpi('avg_quote_to_close', formatDays(data.totals.avgQuoteToCloseDays));
   setKpi('approved_quotes', formatNumber(data.totals.won));
   setKpi('approval_rate', `${formatPercent(data.totals.approvalRate, 1)} approval rate`);
   setKpi('deal_ratio', formatPercent(data.totals.dealRatio, 1));
   setKpi('avg_sales_cycle', formatDays(data.totals.avgSalesCycleDays));
+  setKpi(
+    'avg_deal_value',
+    Number.isFinite(data.totals.avgDealValue) ? formatCurrency(data.totals.avgDealValue, 0) : '--'
+  );
   setKpi('open_quotes', formatNumber(data.totals.open));
   setKpi('open_value', data.totals.openValue ? `${formatCurrency(data.totals.openValue, 0)} waarde` : '--');
   setKpi('rejected_quotes', formatNumber(data.totals.lost));
@@ -8059,12 +8195,17 @@ const applySalesData = (data) => {
     data?.sellerMonthlyRevenueById && typeof data.sellerMonthlyRevenueById === 'object'
       ? data.sellerMonthlyRevenueById
       : {};
+  const monthlyAppointmentsBySellerId =
+    data?.sellerMonthlyAppointmentsById && typeof data.sellerMonthlyAppointmentsById === 'object'
+      ? data.sellerMonthlyAppointmentsById
+      : {};
   const sellers = document.querySelector('[data-sales-seller-rows]');
   if (sellers) {
     sellers.innerHTML = buildSellerRows(data.sellers, {
       appointmentsSupported: data.appointmentsSupported,
       monthsCount: 1,
       monthlyRevenueBySellerId,
+      monthlyAppointmentsBySellerId,
       useCurrentMonthKpi: true
     });
   }
@@ -8089,6 +8230,24 @@ const applySalesData = (data) => {
     sellerKpiNode.setAttribute('title', 'Gebaseerd op huidige maand');
   }
 
+  const monthlyAppointmentSellerIds = Object.keys(monthlyAppointmentsBySellerId);
+  const monthlyAppointmentSellerCount = monthlyAppointmentSellerIds.length;
+  const sellersOnAppointmentsTarget = monthlyAppointmentSellerIds.filter((sellerId) => {
+    const appointments = Number(monthlyAppointmentsBySellerId[sellerId]) || 0;
+    return appointments >= SALES_SELLER_MONTHLY_APPOINTMENTS_TARGET;
+  }).length;
+  const sellerAppointmentsKpiText =
+    monthlyAppointmentSellerCount > 0
+      ? `${formatNumber(sellersOnAppointmentsTarget)}/${formatNumber(monthlyAppointmentSellerCount)} op KPI (${formatNumber(
+          SALES_SELLER_MONTHLY_APPOINTMENTS_TARGET
+        )} afspraken/maand)`
+      : `KPI ${formatNumber(SALES_SELLER_MONTHLY_APPOINTMENTS_TARGET)} afspraken/maand`;
+  setKpi('seller_appointments_kpi_progress', sellerAppointmentsKpiText);
+  const sellerAppointmentsKpiNode = document.querySelector('[data-sales-kpi="seller_appointments_kpi_progress"]');
+  if (sellerAppointmentsKpiNode) {
+    sellerAppointmentsKpiNode.setAttribute('title', 'Gebaseerd op huidige maand');
+  }
+
   setKpi('summary_won_deals', formatNumber(data.summary.wonDeals));
   setKpi('summary_revenue', data.summary.revenue ? formatCurrency(data.summary.revenue, 0) : '--');
   setKpi('summary_conversion', formatPercent(data.summary.conversion, 1));
@@ -8106,6 +8265,18 @@ const renderSalesDateControls = () => {
   const endLabel = controls.querySelector('[data-sales-date-end]');
   if (startLabel) startLabel.textContent = formatDisplayDate(dateRange.start);
   if (endLabel) endLabel.textContent = formatDisplayDate(dateRange.end);
+
+  const dateFieldToggle = controls.querySelector('[data-sales-date-field-toggle]');
+  if (dateFieldToggle) {
+    dateFieldToggle.querySelectorAll('[data-sales-date-field]').forEach((button) => {
+      const field = normalizeSalesDateField(button.getAttribute('data-sales-date-field'));
+      const active = field === salesDateField;
+      button.classList.toggle('bg-primary', active);
+      button.classList.toggle('text-primary-foreground', active);
+      button.classList.toggle('text-muted-foreground', !active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+  }
 
   const quickRangeControls = controls.querySelector('[data-quick-range-controls]');
   if (quickRangeControls) {
@@ -8142,7 +8313,7 @@ const ensureSalesData = async () => {
     return;
   }
 
-  const key = buildRangeKey(dateRange);
+  const key = `${buildRangeKey(dateRange)}|deal_date=${salesDateField}`;
   if (salesState.rangeKey === key && salesState.status === 'ready') {
     applySalesData(salesState.data);
     return;
@@ -8171,43 +8342,62 @@ const ensureSalesData = async () => {
   const currentMonthEndIso = toUtcEndExclusive(currentMonthRange.end);
   const requestVersion = metricsComputationVersion;
 
-  try {
-    const dealsSelectBase =
-      'id,title,location_id,created_at,updated_at,closed_at,status,customer_type,customer_id,responsible_user_id,phase_id,estimated_value,estimated_value_currency,raw_data';
-    const dealsSelectWithAppointments = `${dealsSelectBase},had_appointment_phase`;
-    let appointmentsSupported = true;
+	  try {
+	    const dealsSelectBase =
+	      'id,title,location_id,created_at,updated_at,closed_at,status,customer_type,customer_id,responsible_user_id,phase_id,estimated_value,estimated_value_currency,raw_data';
+		    const dealsOptionalColumns = [
+		      'had_appointment_phase',
+		      'appointment_phase_first_started_at',
+		      'quote_phase_first_started_at'
+		    ];
+		    let appointmentsSupported = true;
+		    const dealDateField = salesDateField === 'closed_at' ? 'closed_at' : 'created_at';
 
-    const buildDealsQuery = (selectClause) => () =>
-      supabase
-        .from('teamleader_deals')
-        .select(selectClause)
-        .eq('location_id', activeLocationId)
-        .gte('created_at', startIso)
-        .lt('created_at', endExclusiveIso)
-        // Stable pagination: without explicit ordering, `.range()` can skip/duplicate rows when data changes mid-fetch.
-        .order('created_at', { ascending: true })
-        .order('id', { ascending: true });
+	    const buildDealsQuery = (selectClause) => () =>
+	      supabase
+		        .from('teamleader_deals')
+		        .select(selectClause)
+	        .eq('location_id', activeLocationId)
+	        .gte(dealDateField, startIso)
+	        .lt(dealDateField, endExclusiveIso)
+	        // Stable pagination: without explicit ordering, `.range()` can skip/duplicate rows when data changes mid-fetch.
+		        .order(dealDateField, { ascending: true })
+		        .order('id', { ascending: true });
 
-    const dealsPromise = (async () => {
-      try {
-        return await fetchAllRows(buildDealsQuery(dealsSelectWithAppointments));
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (message.includes('had_appointment_phase') && message.includes('does not exist')) {
-          console.warn('teamleader_deals.had_appointment_phase ontbreekt nog; fallback zonder afsprakenveld.');
-          appointmentsSupported = false;
-          return await fetchAllRows(buildDealsQuery(dealsSelectBase));
-        }
-        throw error;
-      }
-    })();
-    const buildCurrentMonthDealsQuery = () =>
-      supabase
-        .from('teamleader_deals')
-        .select(dealsSelectBase)
-        .eq('location_id', activeLocationId)
-        .gte('created_at', currentMonthStartIso)
-        .lt('created_at', currentMonthEndIso);
+	    const dealsPromise = (async () => {
+	      let optionalColumns = [...dealsOptionalColumns];
+	      while (true) {
+	        const selectClause = optionalColumns.length
+	          ? `${dealsSelectBase},${optionalColumns.join(',')}`
+	          : dealsSelectBase;
+	        try {
+	          return await fetchAllRows(buildDealsQuery(selectClause));
+	        } catch (error) {
+	          const message = error instanceof Error ? error.message : String(error);
+	          const missingColumn = optionalColumns.find(
+	            (column) => message.includes(column) && message.includes('does not exist')
+	          );
+	          if (!missingColumn) throw error;
+	          if (missingColumn === 'had_appointment_phase') {
+	            console.warn('teamleader_deals.had_appointment_phase ontbreekt nog; fallback zonder afsprakenveld.');
+	            appointmentsSupported = false;
+	          } else {
+	            console.warn(`teamleader_deals.${missingColumn} ontbreekt nog; fallback zonder dit veld.`);
+	          }
+	          optionalColumns = optionalColumns.filter((column) => column !== missingColumn);
+	          if (!optionalColumns.length) {
+	            return await fetchAllRows(buildDealsQuery(dealsSelectBase));
+	          }
+	        }
+	      }
+	    })();
+	    const buildCurrentMonthDealsQuery = () =>
+	      supabase
+	        .from('teamleader_deals')
+	        .select(dealsSelectBase)
+	        .eq('location_id', activeLocationId)
+	        .gte(dealDateField, currentMonthStartIso)
+	        .lt(dealDateField, currentMonthEndIso);
     const currentMonthDealsPromise = fetchAllRows(buildCurrentMonthDealsQuery).catch((error) => {
       console.warn('Unable to load current-month Teamleader deals for seller KPI', error);
       return [];
@@ -8311,23 +8501,24 @@ const ensureSalesData = async () => {
     const effectiveSalesQuotesFromPhaseId = debugMode ? null : configState.salesQuotesFromPhaseId;
     const effectiveSalesExcludedDealKeywords = debugMode ? [] : configState.salesExcludedDealKeywords;
 
-    const data = buildSalesMetrics(
-      dateRange,
-      deals,
-      users,
-      companies,
-      contacts,
-      phases,
-      dealSources,
-      spendRows,
-      lostReasonsLookup,
-      effectiveSalesMonthlyDealsTarget,
-      effectiveSalesMonthlyDealsTargets,
-      appointmentsSupported,
-      effectiveSalesQuotesFromPhaseId,
-      effectiveSalesExcludedDealKeywords,
-      !debugMode
-    );
+	    const data = buildSalesMetrics(
+	      dateRange,
+	      deals,
+	      users,
+	      companies,
+	      contacts,
+	      phases,
+	      dealSources,
+	      spendRows,
+	      lostReasonsLookup,
+	      effectiveSalesMonthlyDealsTarget,
+	      effectiveSalesMonthlyDealsTargets,
+	      appointmentsSupported,
+	      effectiveSalesQuotesFromPhaseId,
+	      effectiveSalesExcludedDealKeywords,
+	      !debugMode,
+	      dealDateField
+	    );
     const phaseMap = new Map((phases || []).map((phase) => [phase.id, phase]));
     const normalizedQuotesFromPhaseId =
       typeof effectiveSalesQuotesFromPhaseId === 'string'
@@ -8406,25 +8597,39 @@ const ensureSalesData = async () => {
     const currentMonthDealsForKpi = debugMode
       ? filteredCurrentMonthDeals
       : bundleDealsForKpi(filteredCurrentMonthDeals);
-    const sellerMonthlyRevenueById = {};
-    currentMonthDealsForKpi.forEach((deal) => {
-      const sellerId = String(deal?.responsible_user_id || 'unknown');
-      if (!Object.prototype.hasOwnProperty.call(sellerMonthlyRevenueById, sellerId)) {
-        sellerMonthlyRevenueById[sellerId] = 0;
+	    const sellerMonthlyRevenueById = {};
+	    currentMonthDealsForKpi.forEach((deal) => {
+	      const sellerId = String(deal?.responsible_user_id || 'unknown');
+	      if (!Object.prototype.hasOwnProperty.call(sellerMonthlyRevenueById, sellerId)) {
+	        sellerMonthlyRevenueById[sellerId] = 0;
       }
       const status = normalizeStatus(deal?.status);
       if (!isWonStatus(status)) return;
       const value = Number(deal?.estimated_value);
       if (Number.isFinite(value) && value > 0) {
-        sellerMonthlyRevenueById[sellerId] += value;
-      }
-    });
-    if (requestVersion !== metricsComputationVersion) return;
-    data.sellerMonthlyRevenueById = sellerMonthlyRevenueById;
-    salesState.status = 'ready';
-    salesState.data = data;
-    salesState.inFlight = false;
-    applySalesData(data);
+	        sellerMonthlyRevenueById[sellerId] += value;
+	      }
+	    });
+
+	    const filteredCurrentMonthAppointments = (currentMonthDeals || []).filter((deal) => !isExcludedDeal(deal));
+	    const currentMonthAppointmentsForKpi = debugMode
+	      ? filteredCurrentMonthAppointments
+	      : bundleDealsForKpi(filteredCurrentMonthAppointments);
+	    const sellerMonthlyAppointmentsById = {};
+	    currentMonthAppointmentsForKpi.forEach((deal) => {
+	      const sellerId = String(deal?.responsible_user_id || 'unknown');
+	      if (!Object.prototype.hasOwnProperty.call(sellerMonthlyAppointmentsById, sellerId)) {
+	        sellerMonthlyAppointmentsById[sellerId] = 0;
+	      }
+	      sellerMonthlyAppointmentsById[sellerId] += 1;
+	    });
+	    if (requestVersion !== metricsComputationVersion) return;
+	    data.sellerMonthlyRevenueById = sellerMonthlyRevenueById;
+	    data.sellerMonthlyAppointmentsById = sellerMonthlyAppointmentsById;
+	    salesState.status = 'ready';
+	    salesState.data = data;
+	    salesState.inFlight = false;
+	    applySalesData(data);
   } catch (error) {
     if (requestVersion !== metricsComputationVersion) return;
     salesState.status = 'error';
@@ -12101,25 +12306,25 @@ const buildMarkup = (range, layoutOverride, routeId = 'lead', dashboardTabs = AL
     <div class="flex min-h-screen w-full bg-background">
       <div class="fixed inset-0 bg-background/80 backdrop-blur-sm z-40 lg:hidden sidebar-overlay" data-sidebar-close></div>
       <aside class="fixed lg:sticky lg:top-0 z-50 h-screen bg-sidebar border-r border-sidebar-border transition-all duration-300 flex flex-col overflow-hidden w-64 translate-x-0 sidebar-panel">
-        <div class="h-14 flex items-center justify-between px-4 border-b border-sidebar-border">
-          <div class="flex items-center gap-3">
+        <div class="h-14 flex items-center justify-between px-4 border-b border-sidebar-border sidebar-header">
+          <div class="flex items-center gap-3 sidebar-brand">
             <div class="flex items-center rounded-lg bg-white/90 px-3 py-1.5 shadow-sm ring-1 ring-black/5">
               <img src="${sidebarBranding.logoUrl}" alt="${sidebarBranding.logoAlt}" class="h-9 w-auto object-contain" />
             </div>
           </div>
-          <button class="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground hidden lg:flex" data-sidebar-toggle>
+          <button type="button" class="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground hidden lg:flex" data-sidebar-toggle>
             ${icons.chevronLeft('lucide lucide-chevron-left w-4 h-4 transition-transform')}
           </button>
         </div>
         <nav class="flex-1 overflow-y-auto py-4 px-3">
           <div class="mb-6">
-            <h3 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-3 mb-2">Dashboards</h3>
+            <h3 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-3 mb-2 sidebar-section-title">Dashboards</h3>
             <ul class="space-y-1">
               ${renderNavLinks(activeRoute, dashboardTabs)}
             </ul>
           </div>
         </nav>
-        <div class="p-4 border-t border-sidebar-border">
+        <div class="p-4 border-t border-sidebar-border sidebar-footer">
           <p class="text-xs text-sidebar-foreground/60 text-center">${sidebarFooter}</p>
         </div>
       </aside>
@@ -12213,7 +12418,7 @@ const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
   const branding = resolveBranding();
   const sidebarBranding = resolveSidebarBranding();
   const sidebarFooter = configState.dashboardTitle ? `${branding.title} Dashboard` : 'Dashboard Template';
-  const salesKey = buildRangeKey(dateRange);
+  const salesKey = `${buildRangeKey(dateRange)}|deal_date=${salesDateField}`;
   const showLoadingOverlay = Boolean(supabase) && (salesState.status !== 'ready' || salesState.rangeKey !== salesKey);
   const salesAnimationKey = `sales:${salesKey}`;
   const salesContentVisible = !showLoadingOverlay;
@@ -12255,25 +12460,25 @@ const buildSalesMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
     <div class="flex min-h-screen w-full bg-background">
       <div class="fixed inset-0 bg-background/80 backdrop-blur-sm z-40 lg:hidden sidebar-overlay" data-sidebar-close></div>
       <aside class="fixed lg:sticky lg:top-0 z-50 h-screen bg-sidebar border-r border-sidebar-border transition-all duration-300 flex flex-col overflow-hidden w-64 translate-x-0 sidebar-panel">
-        <div class="h-14 flex items-center justify-between px-4 border-b border-sidebar-border">
-          <div class="flex items-center gap-3">
+        <div class="h-14 flex items-center justify-between px-4 border-b border-sidebar-border sidebar-header">
+          <div class="flex items-center gap-3 sidebar-brand">
             <div class="flex items-center rounded-lg bg-white/90 px-3 py-1.5 shadow-sm ring-1 ring-black/5">
               <img src="${sidebarBranding.logoUrl}" alt="${sidebarBranding.logoAlt}" class="h-9 w-auto object-contain" />
             </div>
           </div>
-          <button class="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground hidden lg:flex" data-sidebar-toggle>
+          <button type="button" class="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground hidden lg:flex" data-sidebar-toggle>
             ${icons.chevronLeft('lucide lucide-chevron-left w-4 h-4 transition-transform')}
           </button>
         </div>
         <nav class="flex-1 overflow-y-auto py-4 px-3">
           <div class="mb-6">
-            <h3 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-3 mb-2">Dashboards</h3>
+            <h3 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-3 mb-2 sidebar-section-title">Dashboards</h3>
             <ul class="space-y-1">
               ${renderNavLinks('sales', dashboardTabs)}
             </ul>
           </div>
         </nav>
-        <div class="p-4 border-t border-sidebar-border">
+        <div class="p-4 border-t border-sidebar-border sidebar-footer">
           <p class="text-xs text-sidebar-foreground/60 text-center">${sidebarFooter}</p>
         </div>
       </aside>
@@ -12341,25 +12546,25 @@ const buildCallCenterMarkup = (dashboardTabs = ALL_DASHBOARD_TABS) => {
     <div class="flex min-h-screen w-full bg-background">
       <div class="fixed inset-0 bg-background/80 backdrop-blur-sm z-40 lg:hidden sidebar-overlay" data-sidebar-close></div>
       <aside class="fixed lg:sticky lg:top-0 z-50 h-screen bg-sidebar border-r border-sidebar-border transition-all duration-300 flex flex-col overflow-hidden w-64 translate-x-0 sidebar-panel">
-        <div class="h-14 flex items-center justify-between px-4 border-b border-sidebar-border">
-          <div class="flex items-center gap-3">
+        <div class="h-14 flex items-center justify-between px-4 border-b border-sidebar-border sidebar-header">
+          <div class="flex items-center gap-3 sidebar-brand">
             <div class="flex items-center rounded-lg bg-white/90 px-3 py-1.5 shadow-sm ring-1 ring-black/5">
               <img src="${sidebarBranding.logoUrl}" alt="${sidebarBranding.logoAlt}" class="h-9 w-auto object-contain" />
             </div>
           </div>
-          <button class="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground hidden lg:flex" data-sidebar-toggle>
+          <button type="button" class="p-1.5 rounded-md hover:bg-sidebar-accent text-sidebar-foreground hidden lg:flex" data-sidebar-toggle>
             ${icons.chevronLeft('lucide lucide-chevron-left w-4 h-4 transition-transform')}
           </button>
         </div>
         <nav class="flex-1 overflow-y-auto py-4 px-3">
           <div class="mb-6">
-            <h3 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-3 mb-2">Dashboards</h3>
+            <h3 class="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-3 mb-2 sidebar-section-title">Dashboards</h3>
             <ul class="space-y-1">
               ${renderNavLinks('call-center', dashboardTabs)}
             </ul>
           </div>
         </nav>
-        <div class="p-4 border-t border-sidebar-border">
+        <div class="p-4 border-t border-sidebar-border sidebar-footer">
           <p class="text-xs text-sidebar-foreground/60 text-center">${sidebarFooter}</p>
         </div>
       </aside>
@@ -12484,6 +12689,37 @@ const renderApp = () => {
 };
 
 const isDesktop = () => window.matchMedia('(min-width: 1024px)').matches;
+
+const DESKTOP_SIDEBAR_STORAGE_KEY = 'dashboard_sidebar_desktop';
+
+const isDesktopSidebarCollapsed = () => document.body.dataset.sidebarDesktop === 'collapsed';
+const readDesktopSidebarCollapsed = () => {
+  try {
+    return localStorage.getItem(DESKTOP_SIDEBAR_STORAGE_KEY) === 'collapsed';
+  } catch (_error) {
+    return false;
+  }
+};
+const writeDesktopSidebarCollapsed = (collapsed) => {
+  try {
+    if (collapsed) {
+      localStorage.setItem(DESKTOP_SIDEBAR_STORAGE_KEY, 'collapsed');
+    } else {
+      localStorage.removeItem(DESKTOP_SIDEBAR_STORAGE_KEY);
+    }
+  } catch (_error) {
+    // Ignore storage access issues (privacy mode, blocked storage, etc.).
+  }
+};
+const setDesktopSidebarCollapsed = (collapsed) => {
+  if (collapsed) {
+    document.body.dataset.sidebarDesktop = 'collapsed';
+  } else {
+    delete document.body.dataset.sidebarDesktop;
+  }
+  writeDesktopSidebarCollapsed(collapsed);
+};
+
 const openSidebar = () => {
   if (!isDesktop()) {
     document.body.dataset.sidebar = 'open';
@@ -12493,12 +12729,13 @@ const closeSidebar = () => {
   delete document.body.dataset.sidebar;
 };
 const toggleSidebar = () => {
-  if (isDesktop()) return;
-  if (document.body.dataset.sidebar === 'open') {
-    closeSidebar();
-  } else {
-    openSidebar();
+  if (isDesktop()) {
+    setDesktopSidebarCollapsed(!isDesktopSidebarCollapsed());
+    return;
   }
+
+  if (document.body.dataset.sidebar === 'open') closeSidebar();
+  else openSidebar();
 };
 
 const bindInteractions = () => {
@@ -12527,6 +12764,24 @@ const bindInteractions = () => {
       pickerState.open = false;
       pickerState.selecting = 'start';
       pickerState.viewMonth = dateRange.start.slice(0, 7);
+      renderApp();
+    });
+  });
+
+  document.querySelectorAll('[data-sales-date-field]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const nextField = normalizeSalesDateField(button.getAttribute('data-sales-date-field'));
+      if (nextField === salesDateField) return;
+      salesDateField = nextField;
+      writeCachedSalesDateField(nextField);
+
+      bumpMetricsComputationVersion();
+      salesState.status = 'idle';
+      salesState.data = null;
+      salesState.rangeKey = '';
+      salesState.errorMessage = '';
+      salesState.inFlight = false;
+
       renderApp();
     });
   });
@@ -13234,6 +13489,9 @@ const bindInteractions = () => {
 };
 
 dateRange = normalizeRange(dateRange.start, dateRange.end);
+if (readDesktopSidebarCollapsed()) {
+  document.body.dataset.sidebarDesktop = 'collapsed';
+}
 initAuth();
 renderApp();
 
