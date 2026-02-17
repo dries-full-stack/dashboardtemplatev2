@@ -343,6 +343,68 @@
 </div>
 </div>
 </div>
+<div class="kpi-card animate-slide-up">
+<div class="flex items-start justify-between gap-2">
+<div class="flex-1 min-w-0">
+<div class="flex items-center gap-1">
+<p class="metric-label truncate">Behaalde Omzet (Sales)</p>
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-info w-3 h-3 text-muted-foreground hover:text-foreground cursor-help flex-shrink-0" data-state="closed">
+<circle cx="12" cy="12" r="10">
+</circle>
+<path d="M12 16v-4">
+</path>
+<path d="M12 8h.01">
+</path>
+</svg>
+</div>
+<p class="metric-value mt-2" data-sales-kpi="invoice_revenue_sales" data-sales-static="true">--</p>
+<div class="flex items-center gap-2 mt-2">
+<span class="text-xs text-muted-foreground">Facturen excl. service</span>
+</div>
+</div>
+<div class="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0">
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-euro w-4 h-4 text-primary">
+<path d="M4 10h12">
+</path>
+<path d="M4 14h9">
+</path>
+<path d="M19 6a7.7 7.7 0 0 0-5.2-2A7.9 7.9 0 0 0 6 12c0 4.4 3.5 8 7.8 8 2 0 3.8-.8 5.2-2">
+</path>
+</svg>
+</div>
+</div>
+</div>
+<div class="kpi-card animate-slide-up">
+<div class="flex items-start justify-between gap-2">
+<div class="flex-1 min-w-0">
+<div class="flex items-center gap-1">
+<p class="metric-label truncate">Behaalde Omzet (Totaal)</p>
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-info w-3 h-3 text-muted-foreground hover:text-foreground cursor-help flex-shrink-0" data-state="closed">
+<circle cx="12" cy="12" r="10">
+</circle>
+<path d="M12 16v-4">
+</path>
+<path d="M12 8h.01">
+</path>
+</svg>
+</div>
+<p class="metric-value mt-2" data-sales-kpi="invoice_revenue_total" data-sales-static="true">--</p>
+<div class="flex items-center gap-2 mt-2">
+<span class="text-xs text-muted-foreground">Facturen incl. service</span>
+</div>
+</div>
+<div class="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0">
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-euro w-4 h-4 text-primary">
+<path d="M4 10h12">
+</path>
+<path d="M4 14h9">
+</path>
+<path d="M19 6a7.7 7.7 0 0 0-5.2-2A7.9 7.9 0 0 0 6 12c0 4.4 3.5 8 7.8 8 2 0 3.8-.8 5.2-2">
+</path>
+</svg>
+</div>
+</div>
+</div>
 </div>
 <div class="grid gap-6 lg:grid-cols-2">
 <div class="rounded-lg border bg-card text-card-foreground shadow-sm">
@@ -568,6 +630,201 @@
 </div>
 </div>
 </div>
+</div>
+</div>
+</div>
+</div>
+<div class="grid gap-6 lg:grid-cols-2">
+<div class="rounded-lg border bg-card text-card-foreground shadow-sm">
+<div class="flex flex-col space-y-1.5 p-6 pb-2">
+<div class="flex items-center justify-between">
+<h3 class="tracking-tight text-lg font-semibold flex items-center gap-2">
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-receipt w-5 h-5 text-primary">
+<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2z"></path>
+<path d="M16 8H8"></path>
+<path d="M16 12H8"></path>
+<path d="M12 16H8"></path>
+</svg>Omzet per maand (Facturen)</h3>
+<div class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80" data-sales-static="true">Excl. BTW</div>
+</div>
+<p class="text-sm text-muted-foreground">Behaald = Teamleader facturen (invoice_date).</p>
+</div>
+<div class="p-6 pt-0">
+<div class="relative w-full overflow-auto">
+<table class="w-full caption-bottom text-sm">
+<thead class="[&_tr]:border-b">
+<tr class="border-b transition-colors data-[state=selected]:bg-muted hover:bg-muted/50">
+<th class="h-12 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0">Maand</th>
+<th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Sales</th>
+<th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Totaal</th>
+<th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">3j terug</th>
+</tr>
+</thead>
+<tbody class="[&_tr:last-child]:border-0" data-sales-invoice-monthly-rows>
+<tr class="border-b">
+<td colspan="4" class="p-4 text-sm text-muted-foreground">Geen facturen gevonden.</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+<div class="rounded-lg border bg-card text-card-foreground shadow-sm">
+<div class="flex flex-col space-y-1.5 p-6 pb-2">
+<div class="flex items-center justify-between">
+<h3 class="tracking-tight text-lg font-semibold flex items-center gap-2">
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-megaphone w-5 h-5 text-primary">
+<path d="m3 11 18-5v12L3 14v-3z"></path>
+<path d="M11.6 16.8a3 3 0 1 1-5.6-1.6"></path>
+</svg>Lead generatoren (GHL)</h3>
+<div class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80" data-sales-static="true">Retour = fase</div>
+</div>
+<p class="text-sm text-muted-foreground">Aangekocht = leads aangemaakt. Retour = pipeline fase die "retour" bevat.</p>
+</div>
+<div class="p-6 pt-0 space-y-6">
+<div class="grid grid-cols-3 gap-4">
+<div class="text-center p-3 rounded-lg bg-muted/50">
+<p class="text-2xl font-bold text-foreground" data-sales-kpi="leads_total" data-sales-static="true">--</p>
+<p class="text-xs text-muted-foreground mt-1">Leads</p>
+</div>
+<div class="text-center p-3 rounded-lg bg-muted/50">
+<p class="text-2xl font-bold text-foreground" data-sales-kpi="leads_retour" data-sales-static="true">--</p>
+<p class="text-xs text-muted-foreground mt-1">Retour</p>
+</div>
+<div class="text-center p-3 rounded-lg bg-muted/50">
+<p class="text-2xl font-bold text-foreground" data-sales-kpi="leads_retour_rate" data-sales-static="true">--</p>
+<p class="text-xs text-muted-foreground mt-1">Retour %</p>
+</div>
+</div>
+<div class="relative w-full overflow-auto">
+<table class="w-full caption-bottom text-sm">
+<thead class="[&_tr]:border-b">
+<tr class="border-b transition-colors data-[state=selected]:bg-muted hover:bg-muted/50">
+<th class="h-12 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0">Maand</th>
+<th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Leads</th>
+<th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Retour</th>
+<th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">%</th>
+</tr>
+</thead>
+<tbody class="[&_tr:last-child]:border-0" data-sales-lead-monthly-rows>
+<tr class="border-b">
+<td colspan="4" class="p-4 text-sm text-muted-foreground">Geen leads gevonden.</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="grid gap-4 md:grid-cols-2">
+<div class="rounded-lg border border-border/60 bg-muted/30">
+<div class="p-4 pb-2">
+<h4 class="text-sm font-semibold text-foreground">Per bron</h4>
+</div>
+<div class="px-4 pb-4">
+<div class="relative w-full overflow-auto">
+<table class="w-full caption-bottom text-sm">
+<thead class="[&_tr]:border-b">
+<tr class="border-b">
+<th class="h-10 text-left align-middle text-xs font-medium text-muted-foreground">Bron</th>
+<th class="h-10 text-right align-middle text-xs font-medium text-muted-foreground">Leads</th>
+<th class="h-10 text-right align-middle text-xs font-medium text-muted-foreground">Retour</th>
+</tr>
+</thead>
+<tbody class="[&_tr:last-child]:border-0" data-sales-lead-source-rows>
+<tr class="border-b">
+<td colspan="3" class="py-2 text-sm text-muted-foreground">Geen data.</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+<div class="rounded-lg border border-border/60 bg-muted/30">
+<div class="p-4 pb-2">
+<h4 class="text-sm font-semibold text-foreground">Per campagne</h4>
+</div>
+<div class="px-4 pb-4">
+<div class="relative w-full overflow-auto">
+<table class="w-full caption-bottom text-sm">
+<thead class="[&_tr]:border-b">
+<tr class="border-b">
+<th class="h-10 text-left align-middle text-xs font-medium text-muted-foreground">Campagne</th>
+<th class="h-10 text-right align-middle text-xs font-medium text-muted-foreground">Leads</th>
+<th class="h-10 text-right align-middle text-xs font-medium text-muted-foreground">Retour</th>
+</tr>
+</thead>
+<tbody class="[&_tr:last-child]:border-0" data-sales-lead-campaign-rows>
+<tr class="border-b">
+<td colspan="3" class="py-2 text-sm text-muted-foreground">Geen data.</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="grid gap-6 lg:grid-cols-2">
+<div class="rounded-lg border bg-card text-card-foreground shadow-sm">
+<div class="flex flex-col space-y-1.5 p-6 pb-2">
+<div class="flex items-center justify-between">
+<h3 class="tracking-tight text-lg font-semibold flex items-center gap-2">
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-layers w-5 h-5 text-primary">
+<path d="M12.83 2.18a2 2 0 0 0-1.66 0l-7 3.11a2 2 0 0 0 0 3.62l7 3.11a2 2 0 0 0 1.66 0l7-3.11a2 2 0 0 0 0-3.62Z"></path>
+<path d="M2 12.5l8.17 3.63a2 2 0 0 0 1.66 0L20 12.5"></path>
+<path d="M2 17.5l8.17 3.63a2 2 0 0 0 1.66 0L20 17.5"></path>
+</svg>Sales per productcategorie</h3>
+<div class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80" data-sales-static="true">Facturen</div>
+</div>
+<p class="text-sm text-muted-foreground">Afgeleid uit Teamleader deal titles (config rules).</p>
+</div>
+<div class="p-6 pt-0">
+<div class="relative w-full overflow-auto">
+<table class="w-full caption-bottom text-sm">
+<thead class="[&_tr]:border-b">
+<tr class="border-b transition-colors data-[state=selected]:bg-muted hover:bg-muted/50">
+<th class="h-12 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0">Categorie</th>
+<th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Sales</th>
+<th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Totaal</th>
+</tr>
+</thead>
+<tbody class="[&_tr:last-child]:border-0" data-sales-category-rows>
+<tr class="border-b">
+<td colspan="3" class="py-2 text-sm text-muted-foreground">Geen categorie-mapping ingesteld.</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+<div class="rounded-lg border bg-card text-card-foreground shadow-sm">
+<div class="flex flex-col space-y-1.5 p-6 pb-2">
+<div class="flex items-center justify-between">
+<h3 class="tracking-tight text-lg font-semibold flex items-center gap-2">
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-map-pin w-5 h-5 text-primary">
+<path d="M20 10c0 5-8 12-8 12s-8-7-8-12a8 8 0 0 1 16 0Z"></path>
+<circle cx="12" cy="10" r="3"></circle>
+</svg>Sales per regio</h3>
+<div class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80" data-sales-static="true">Postcode</div>
+</div>
+<p class="text-sm text-muted-foreground">Afgeleid uit Teamleader klant-postcode (contact/company).</p>
+</div>
+<div class="p-6 pt-0">
+<div class="relative w-full overflow-auto">
+<table class="w-full caption-bottom text-sm">
+<thead class="[&_tr]:border-b">
+<tr class="border-b transition-colors data-[state=selected]:bg-muted hover:bg-muted/50">
+<th class="h-12 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0">Regio</th>
+<th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Sales</th>
+<th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Totaal</th>
+</tr>
+</thead>
+<tbody class="[&_tr:last-child]:border-0" data-sales-region-rows>
+<tr class="border-b">
+<td colspan="3" class="py-2 text-sm text-muted-foreground">Geen regio-mapping ingesteld.</td>
+</tr>
+</tbody>
+</table>
 </div>
 </div>
 </div>

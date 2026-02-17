@@ -10,6 +10,9 @@ create table if not exists public.dashboard_config (
   sales_quotes_from_phase_id text,
   -- Deal titles containing one of these words/phrases are excluded from Sales KPIs.
   sales_excluded_deal_keywords jsonb not null default '[]'::jsonb,
+  -- Optional rules to bucket invoice omzet by category/region (Belivert sales dashboard).
+  sales_product_category_rules jsonb not null default '[]'::jsonb,
+  sales_region_rules jsonb not null default '[]'::jsonb,
   billing_portal_url text,
   billing_checkout_url text,
   billing_checkout_embed boolean not null default false,
@@ -32,6 +35,8 @@ alter table public.dashboard_config
   add column if not exists sales_monthly_deals_targets jsonb not null default '{}'::jsonb,
   add column if not exists sales_quotes_from_phase_id text,
   add column if not exists sales_excluded_deal_keywords jsonb not null default '[]'::jsonb,
+  add column if not exists sales_product_category_rules jsonb not null default '[]'::jsonb,
+  add column if not exists sales_region_rules jsonb not null default '[]'::jsonb,
   add column if not exists billing_portal_url text,
   add column if not exists billing_checkout_url text,
   add column if not exists billing_checkout_embed boolean not null default false,
@@ -63,6 +68,8 @@ grant update (
   sales_monthly_deals_targets,
   sales_quotes_from_phase_id,
   sales_excluded_deal_keywords,
+  sales_product_category_rules,
+  sales_region_rules,
   billing_portal_url,
   billing_checkout_url,
   billing_checkout_embed,

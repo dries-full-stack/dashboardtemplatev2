@@ -102,6 +102,7 @@ Migrations:
 - Security hardening (RLS/auth): `supabase/migrations/20260215170000_security_hardening_auth_rls.sql` (verwijdert anon "customer mode", vereist dashboard login).
 - Dashboard access allowlist (RLS): `supabase/migrations/20260215180000_dashboard_access_allowlist.sql` (voegt allowlist toe zodat "authenticated" niet genoeg is als signups aan staan).
 - Teamleader deals close-date index: `supabase/migrations/20260217120000_teamleader_deals_closed_at_index.sql` (index op `closed_at` voor filtering op gewonnen/verloren deals).
+- Sales breakdown rules (Belivert): `supabase/migrations/20260217173000_dashboard_config_sales_breakdown_rules.sql` (voegt `sales_product_category_rules` + `sales_region_rules` toe aan `dashboard_config`).
 
 Preflight warnings betekenis:
 - `dashboard_config ontbreekt`: schema nog niet gepusht naar het Supabase project. Oplossing: `supabase db push`.
@@ -173,6 +174,9 @@ Layout/branding aanpassen (zonder code changes):
 - Console errors `bootstrap-autofill-overlay.js`: komt van browser password-manager/autofill extensies, geen repo bug.
 - Sidebar chevron (desktop) doet niets of sidebar blijft "ingeklapt": in oudere builds toggelde `toggleSidebar()` enkel op mobile. Fix: update/deploy dashboard. Workaround: clear `localStorage` key `dashboard_sidebar_desktop` (per subdomain/origin) en refresh.
 - Dashboard login faalt ("Invalid login credentials" / geen sessie): user bestaat niet of heeft geen password. Oplossing: seed een email+password user via `node scripts/admin_seed_password_user.js <client|all> user@domain.tld` (+ `DASHBOARD_USER_PASSWORD=...`) en check `public.dashboard_access` allowlist.
+- Console error `permission denied for table ...` (bv. `opportunity_pipeline_lookup`, code `42501`): dashboard draait zonder Supabase sessie terwijl RLS nu `authenticated-only` is (vaak door `VITE_REQUIRE_AUTH=false`). Oplossing: zet `VITE_REQUIRE_AUTH=true` en log in (en voeg de user toe aan `public.dashboard_access`).
+- Marketing costs/spend blijft leeg of stopt met updaten: vaak ontbreken de cron jobs (`meta-sync-daily` / `google-sync-daily` / `google-sheet-sync-daily`). Oplossing: run `Cron install` in de wizard (roept RPC `setup_cron_jobs` aan) of installeer de schedules manueel via `setup_cron_jobs` met `enable_meta=true` en de juiste `google_mode`.
+- Google Ads (Sheets) costs blijven steken op een oude datum: een geplande Google Ads report-export maakt vaak elke run een **nieuwe** Sheet in een Drive-folder, waardoor `SHEET_CSV_URL` naar een oud bestand blijft wijzen. Oplossing: gebruik een **stabiele** destination sheet (zelfde sheet ID) die telkens overschreven wordt (via Google Ads Script of Apps Script dat de nieuwste report-sheet kopieert) en zet die sheet op “Anyone with the link can view”; update daarna `SHEET_CSV_URL` naar de CSV-export URL van die stabiele sheet.
 - Dashboard deployt nog van een klant-branch (oude UI / verkeerde versie): check Netlify site settings → Build & deploy → `Production branch` en zet die op `main` (en `allowed branches` op `main`).
 - Netlify build faalt met `Host key verification failed` na repo-branch/settings update: meestal werd de GitHub App `installation_id` gewist door een `PUT` update. Fix: reconnect repo in Netlify UI of herstel via `PATCH` waarbij je `repo.installation_id` meegeeft; vermijd `PUT` voor site updates.
 - `Failed to invite user ... email rate limit exceeded`: Supabase Auth rate-limiteert uitgaande emails (invite/magic link). Oplossing: wacht tot de limiet reset of configureer custom SMTP; workaround zonder email: `node scripts/admin_magic_link.js belivert user@domain.tld https://<dashboard-url>` (maakt user aan, zet allowlist entry, en print een 1x magic link die je handmatig kan delen).
@@ -209,8 +213,12 @@ Layout/branding aanpassen (zonder code changes):
 
 Waar komen de cijfers vandaan?
 - Basis: `public.teamleader_deals` (Teamleader Focus deals).
-- Omzet in de sales UI = `teamleader_deals.estimated_value` (forecast), niet de effectieve factuur-omzet.
-- Als de klant "behaalde omzet" bedoelt: gebruik `public.teamleader_invoices` (invoice_date) als bron en map naar sales/service via tags/regels (of invoice line items in `raw_data`).
+- Funnel/ratio/cyclustijden + "avg deal value" zijn deal-based (`teamleader_deals.*`).
+- **Behaalde omzet** KPI's + maandtabel zijn invoice-based: `public.teamleader_invoices` (`invoice_date`, `total_tax_exclusive`).
+- Sales vs service split gebeurt via `dashboard_config.sales_excluded_deal_keywords` (match op `teamleader_deals.title` via gekoppelde `deal_id` in de factuur).
+- Breakdown rules (optioneel, Belivert):
+  - `dashboard_config.sales_product_category_rules` (match op `teamleader_deals.title`)
+  - `dashboard_config.sales_region_rules` (postcode uit `teamleader_contacts/raw_data` of `teamleader_companies/raw_data`)
 
 Offertes tellen (Belivert workflow):
 - 1 klant kan meerdere offerteversies krijgen. KPI's bundelen daarom per klant (`customer_type` + `customer_id`) zodat dit 1 traject telt.

@@ -8,7 +8,10 @@ insert into public.dashboard_config (
   dashboard_subtitle,
   dashboard_logo_url,
   dashboard_layout,
-  source_normalization_rules
+  source_normalization_rules,
+  sales_excluded_deal_keywords,
+  sales_product_category_rules,
+  sales_region_rules
 )
 values (
   1,
@@ -95,6 +98,36 @@ $$
   { "bucket": "Organic", "patterns": ["organic", "seo", "direct", "referral", "(none)", "website"] }
 ]
 $$::jsonb
+  ,
+  $$["service","onderhoud","herstelling","depannage","interventie"]$$::jsonb
+  ,
+  $$
+[
+  { "category": "Warmtepomp", "title_any": ["warmtepomp", "wp", "heat pump"] },
+  { "category": "Airco", "title_any": ["airco", "airconditioning", "a/c"] },
+  { "category": "Ventilatie", "title_any": ["ventilatie", "ventilatie-unit", "type d", "type c"] },
+  { "category": "Zonnepanelen", "title_any": ["zonnepanelen", "pv", "panelen", "photovolta"] },
+  { "category": "Batterij", "title_any": ["batterij", "thuisbatterij", "storage"] },
+  { "category": "Laadpaal", "title_any": ["laadpaal", "ev charger", "charger"] },
+  { "category": "Service", "title_any": ["service", "onderhoud", "herstelling", "depannage", "interventie"] }
+]
+$$::jsonb
+  ,
+  $$
+[
+  { "region": "Brussel", "postal_ranges": [[1000, 1299]] },
+  { "region": "Waals-Brabant", "postal_ranges": [[1300, 1499]] },
+  { "region": "Vlaams-Brabant", "postal_ranges": [[1500, 1999], [3000, 3499]] },
+  { "region": "Antwerpen", "postal_ranges": [[2000, 2999]] },
+  { "region": "Limburg", "postal_ranges": [[3500, 3999]] },
+  { "region": "Luik", "postal_ranges": [[4000, 4999]] },
+  { "region": "Namen", "postal_ranges": [[5000, 5999]] },
+  { "region": "Henegouwen", "postal_ranges": [[6000, 6599], [7000, 7999]] },
+  { "region": "Luxemburg", "postal_ranges": [[6600, 6999]] },
+  { "region": "West-Vlaanderen", "postal_ranges": [[8000, 8999]] },
+  { "region": "Oost-Vlaanderen", "postal_ranges": [[9000, 9999]] }
+]
+$$::jsonb
 )
 on conflict (id) do update set
   location_id = excluded.location_id,
@@ -104,4 +137,7 @@ on conflict (id) do update set
   dashboard_logo_url = excluded.dashboard_logo_url,
   dashboard_layout = excluded.dashboard_layout,
   source_normalization_rules = excluded.source_normalization_rules,
+  sales_excluded_deal_keywords = excluded.sales_excluded_deal_keywords,
+  sales_product_category_rules = excluded.sales_product_category_rules,
+  sales_region_rules = excluded.sales_region_rules,
   updated_at = now();

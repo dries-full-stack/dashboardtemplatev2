@@ -444,6 +444,10 @@ const METRIC_INFO_BY_LABEL = {
     'Offertetrajecten die niet doorgingen. Belangrijk om verliesredenen op te volgen en bij te sturen.',
   'gem. deal waarde':
     'Gemiddelde omzet per gewonnen deal. Formule: totale omzet / aantal gewonnen deals.',
+  'behaalde omzet (sales)':
+    'Behaalde omzet op basis van Teamleader facturen (excl. BTW), exclusief service-werken (filter op uitgesloten deal keywords).',
+  'behaalde omzet (totaal)':
+    'Behaalde omzet op basis van Teamleader facturen (excl. BTW), inclusief service-werken.',
   'kost per klant':
     'Gemiddelde marketingkost om 1 gewonnen klant binnen te halen. Formule: totale leadkosten / gewonnen deals.'
 };
@@ -1027,6 +1031,8 @@ const configState = {
   salesMonthlyDealsTargets: null,
   salesQuotesFromPhaseId: null,
   salesExcludedDealKeywords: null,
+  salesProductCategoryRules: null,
+  salesRegionRules: null,
   sourceNormalizationRules: null,
   costPerLeadBySource: null,
   billingPortalUrl: null,
@@ -1243,6 +1249,8 @@ const resetConfigState = () => {
   configState.salesMonthlyDealsTargets = null;
   configState.salesQuotesFromPhaseId = null;
   configState.salesExcludedDealKeywords = null;
+  configState.salesProductCategoryRules = null;
+  configState.salesRegionRules = null;
   configState.sourceNormalizationRules = null;
   configState.costPerLeadBySource = null;
   configState.billingPortalUrl = null;
@@ -1400,6 +1408,8 @@ const loadLocationConfig = async () => {
       ? data.sales_quotes_from_phase_id.trim()
       : null;
   configState.salesExcludedDealKeywords = sanitizeSalesExcludedDealKeywords(data?.sales_excluded_deal_keywords);
+  configState.salesProductCategoryRules = sanitizeSalesProductCategoryRules(data?.sales_product_category_rules);
+  configState.salesRegionRules = sanitizeSalesRegionRules(data?.sales_region_rules);
   configState.sourceNormalizationRules = data?.source_normalization_rules ?? null;
   configState.costPerLeadBySource =
     data?.cost_per_lead_by_source &&
@@ -3486,6 +3496,74 @@ const formatSalesExcludedDealKeywordsText = (value) =>
 
 const mergeSalesExcludedDealKeywords = (...values) =>
   sanitizeSalesExcludedDealKeywords(values.flatMap((value) => sanitizeSalesExcludedDealKeywords(value)));
+
+const normalizeSalesRuleLabel = (value) =>
+  String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const sanitizeSalesProductCategoryRules = (value) => {
+  if (!Array.isArray(value)) return null;
+
+  const cleaned = value
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return null;
+      const category = normalizeSalesRuleLabel(entry.category ?? entry.label ?? entry.name);
+      if (!category) return null;
+
+      let patterns = entry.title_any ?? entry.titleAny ?? entry.title_any_keywords ?? entry.patterns ?? entry.keywords;
+      if (typeof patterns === 'string') {
+        patterns = patterns
+          .split(',')
+          .map((token) => token.trim())
+          .filter(Boolean);
+      }
+      if (!Array.isArray(patterns)) patterns = [];
+
+      const normalizedPatterns = patterns
+        .map((pattern) => normalizeSalesRuleLabel(pattern).toLowerCase())
+        .filter(Boolean);
+
+      if (!normalizedPatterns.length) return null;
+      return { category, patterns: normalizedPatterns };
+    })
+    .filter(Boolean);
+
+  return cleaned.length ? cleaned.slice(0, 200) : null;
+};
+
+const sanitizeSalesRegionRules = (value) => {
+  if (!Array.isArray(value)) return null;
+
+  const cleaned = value
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return null;
+      const region = normalizeSalesRuleLabel(entry.region ?? entry.label ?? entry.name);
+      if (!region) return null;
+
+      let ranges = entry.postal_ranges ?? entry.postalRanges ?? entry.ranges ?? entry.postal_ranges_be;
+      if (!Array.isArray(ranges)) ranges = [];
+
+      const normalizedRanges = ranges
+        .map((range) => {
+          if (!Array.isArray(range) || range.length < 2) return null;
+          const start = Number(range[0]);
+          const end = Number(range[1]);
+          if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+          const min = Math.max(0, Math.floor(Math.min(start, end)));
+          const max = Math.max(0, Math.floor(Math.max(start, end)));
+          if (max <= 0) return null;
+          return [min, max];
+        })
+        .filter(Boolean);
+
+      if (!normalizedRanges.length) return null;
+      return { region, ranges: normalizedRanges };
+    })
+    .filter(Boolean);
+
+  return cleaned.length ? cleaned.slice(0, 200) : null;
+};
 
 const isMissingColumnError = (error, columnName) => {
   const message = error instanceof Error ? error.message : String(error ?? '');
@@ -7832,8 +7910,123 @@ const buildFunnelMarkup = (funnel) => {
     </div>
   `;
 };
+
+const buildSalesInvoiceMonthlyRows = (rows) => {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return `
+      <tr class="border-b">
+        <td colspan="4" class="p-4 text-sm text-muted-foreground">Geen facturen gevonden.</td>
+      </tr>
+    `;
+  }
+
+  return rows
+    .map((row) => {
+      const month = escapeHtml(String(row?.label ?? row?.key ?? '--'));
+      const salesValue = Number(row?.sales);
+      const totalValue = Number(row?.total);
+      const compareValue = Number(row?.compareTotal);
+      const sales = Number.isFinite(salesValue) ? formatCurrency(salesValue, 0) : '--';
+      const total = Number.isFinite(totalValue) ? formatCurrency(totalValue, 0) : '--';
+      const compare = Number.isFinite(compareValue) ? formatCurrency(compareValue, 0) : '--';
+      return `
+        <tr class="border-b transition-colors data-[state=selected]:bg-muted hover:bg-muted/50">
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 font-medium">${month}</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${sales}</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${total}</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right text-muted-foreground">${compare}</td>
+        </tr>
+      `;
+    })
+    .join('');
+};
+
+const buildSalesLeadMonthlyRows = (rows) => {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return `
+      <tr class="border-b">
+        <td colspan="4" class="p-4 text-sm text-muted-foreground">Geen leads gevonden.</td>
+      </tr>
+    `;
+  }
+
+  return rows
+    .map((row) => {
+      const month = escapeHtml(String(row?.label ?? row?.key ?? '--'));
+      const leads = formatNumber(Number(row?.leads ?? 0));
+      const retour = formatNumber(Number(row?.retour ?? 0));
+      const ratioValue = Number(row?.retourRate);
+      const ratio = Number.isFinite(ratioValue) ? formatPercent(ratioValue, 1) : '--';
+      return `
+        <tr class="border-b transition-colors data-[state=selected]:bg-muted hover:bg-muted/50">
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 font-medium">${month}</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${leads}</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${retour}</td>
+          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right text-muted-foreground">${ratio}</td>
+        </tr>
+      `;
+    })
+    .join('');
+};
+
+const buildSalesLeadBreakdownRows = (rows) => {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return `
+      <tr class="border-b">
+        <td colspan="3" class="py-2 text-sm text-muted-foreground">Geen data.</td>
+      </tr>
+    `;
+  }
+
+  return rows
+    .map((row) => {
+      const label = escapeHtml(String(row?.label ?? 'Onbekend'));
+      const leads = formatNumber(Number(row?.leads ?? 0));
+      const retour = formatNumber(Number(row?.retour ?? 0));
+      return `
+        <tr class="border-b last:border-0">
+          <td class="py-2 text-sm text-foreground">${label}</td>
+          <td class="py-2 text-sm text-foreground text-right">${leads}</td>
+          <td class="py-2 text-sm text-muted-foreground text-right">${retour}</td>
+        </tr>
+      `;
+    })
+    .join('');
+};
+
+const buildSalesRevenueBreakdownRows = (rows, emptyText = 'Geen data.') => {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return `
+      <tr class="border-b">
+        <td colspan="3" class="py-2 text-sm text-muted-foreground">${escapeHtml(emptyText)}</td>
+      </tr>
+    `;
+  }
+
+  return rows
+    .map((row) => {
+      const label = escapeHtml(String(row?.label ?? 'Onbekend'));
+      const salesValue = Number(row?.sales);
+      const totalValue = Number(row?.total);
+      const sales = Number.isFinite(salesValue) ? formatCurrency(salesValue, 0) : '--';
+      const total = Number.isFinite(totalValue) ? formatCurrency(totalValue, 0) : '--';
+      return `
+        <tr class="border-b last:border-0">
+          <td class="py-2 text-sm text-foreground">${label}</td>
+          <td class="py-2 text-sm text-foreground text-right font-medium">${sales}</td>
+          <td class="py-2 text-sm text-muted-foreground text-right">${total}</td>
+        </tr>
+      `;
+    })
+    .join('');
+};
+
 const buildSellerRows = (sellers, options = {}) => {
   const appointmentsSupported = options.appointmentsSupported !== false;
+  const sellerRevenueBySellerId =
+    options.sellerRevenueBySellerId && typeof options.sellerRevenueBySellerId === 'object'
+      ? options.sellerRevenueBySellerId
+      : null;
   const monthlyRevenueBySellerId =
     options.monthlyRevenueBySellerId && typeof options.monthlyRevenueBySellerId === 'object'
       ? options.monthlyRevenueBySellerId
@@ -7857,9 +8050,10 @@ const buildSellerRows = (sellers, options = {}) => {
       const conversion = formatPercent(seller.conversion, 1);
       const avgTimeToQuote = Number.isFinite(seller.avgTimeToQuote) ? formatDays(seller.avgTimeToQuote, 1) : '--';
       const avgQuoteToClose = Number.isFinite(seller.avgQuoteToClose) ? formatDays(seller.avgQuoteToClose, 1) : '--';
-      const revenueRaw = Number(seller.revenue) || 0;
-      const revenue = revenueRaw ? formatCurrency(revenueRaw, 0) : '--';
       const sellerIdRaw = String(seller.id || '');
+      const mappedRevenue = sellerRevenueBySellerId ? Number(sellerRevenueBySellerId[sellerIdRaw]) : Number.NaN;
+      const revenueRaw = Number.isFinite(mappedRevenue) ? mappedRevenue : Number(seller.revenue) || 0;
+      const revenue = revenueRaw ? formatCurrency(revenueRaw, 0) : '--';
       const fallbackMonthlyRevenue = revenueRaw > 0 ? revenueRaw / monthsCount : 0;
       let monthlyRevenue = fallbackMonthlyRevenue;
       if (useCurrentMonthKpi) {
@@ -8169,6 +8363,61 @@ const applySalesData = (data) => {
   );
   setKpi('open_total_value', data.totals.openValue ? `${formatCurrency(data.totals.openValue, 0)} totaal` : '--');
 
+  const invoice = data?.invoice && typeof data.invoice === 'object' ? data.invoice : {};
+  setKpi(
+    'invoice_revenue_sales',
+    Number.isFinite(Number(invoice.revenueSales)) ? formatCurrency(Number(invoice.revenueSales), 0) : '--'
+  );
+  setKpi(
+    'invoice_revenue_total',
+    Number.isFinite(Number(invoice.revenueTotal)) ? formatCurrency(Number(invoice.revenueTotal), 0) : '--'
+  );
+
+  const invoiceMonthlyRows = Array.isArray(invoice.monthly) ? invoice.monthly : [];
+  const invoiceMonthlyTable = document.querySelector('[data-sales-invoice-monthly-rows]');
+  if (invoiceMonthlyTable) {
+    invoiceMonthlyTable.innerHTML = buildSalesInvoiceMonthlyRows(invoiceMonthlyRows);
+  }
+
+  const leads = data?.leads && typeof data.leads === 'object' ? data.leads : {};
+  setKpi('leads_total', formatNumber(Number(leads.total ?? 0)));
+  setKpi('leads_retour', formatNumber(Number(leads.retour ?? 0)));
+  setKpi(
+    'leads_retour_rate',
+    Number.isFinite(Number(leads.retourRate)) ? formatPercent(Number(leads.retourRate), 1) : '--'
+  );
+
+  const leadMonthlyTable = document.querySelector('[data-sales-lead-monthly-rows]');
+  if (leadMonthlyTable) {
+    leadMonthlyTable.innerHTML = buildSalesLeadMonthlyRows(Array.isArray(leads.monthly) ? leads.monthly : []);
+  }
+
+  const leadSourceTable = document.querySelector('[data-sales-lead-source-rows]');
+  if (leadSourceTable) {
+    leadSourceTable.innerHTML = buildSalesLeadBreakdownRows(Array.isArray(leads.sources) ? leads.sources : []);
+  }
+
+  const leadCampaignTable = document.querySelector('[data-sales-lead-campaign-rows]');
+  if (leadCampaignTable) {
+    leadCampaignTable.innerHTML = buildSalesLeadBreakdownRows(Array.isArray(leads.campaigns) ? leads.campaigns : []);
+  }
+
+  const breakdowns = data?.breakdowns && typeof data.breakdowns === 'object' ? data.breakdowns : {};
+  const categoryTable = document.querySelector('[data-sales-category-rows]');
+  if (categoryTable) {
+    categoryTable.innerHTML = buildSalesRevenueBreakdownRows(
+      Array.isArray(breakdowns.categories) ? breakdowns.categories : [],
+      'Geen categorie-mapping ingesteld.'
+    );
+  }
+  const regionTable = document.querySelector('[data-sales-region-rows]');
+  if (regionTable) {
+    regionTable.innerHTML = buildSalesRevenueBreakdownRows(
+      Array.isArray(breakdowns.regions) ? breakdowns.regions : [],
+      'Geen regio-mapping ingesteld.'
+    );
+  }
+
   setKpi('deals_this_month', formatNumber(data.target.current));
   setKpi('deals_target', formatNumber(data.target.target));
   setKpi('deals_target_percent', formatPercent(data.target.percent, 0));
@@ -8191,35 +8440,41 @@ const applySalesData = (data) => {
   const funnel = document.querySelector('[data-sales-funnel]');
   if (funnel) funnel.innerHTML = buildFunnelMarkup(data.funnel);
 
-  const monthlyRevenueBySellerId =
-    data?.sellerMonthlyRevenueById && typeof data.sellerMonthlyRevenueById === 'object'
-      ? data.sellerMonthlyRevenueById
+  const sellerRevenueBySellerId =
+    data?.sellerRevenueById && typeof data.sellerRevenueById === 'object'
+      ? data.sellerRevenueById
       : {};
-  const monthlyAppointmentsBySellerId =
-    data?.sellerMonthlyAppointmentsById && typeof data.sellerMonthlyAppointmentsById === 'object'
-      ? data.sellerMonthlyAppointmentsById
-      : {};
+  const avgDaysPerMonth = 365.25 / 12;
+  const rangeStart = data?.range?.start instanceof Date ? data.range.start : null;
+  const rangeEndExclusive = data?.range?.endExclusive instanceof Date ? data.range.endExclusive : null;
+  const rangeDaysRaw =
+    rangeStart && rangeEndExclusive
+      ? (rangeEndExclusive.getTime() - rangeStart.getTime()) / (1000 * 60 * 60 * 24)
+      : Number.NaN;
+  const rangeDays = Number.isFinite(rangeDaysRaw) && rangeDaysRaw > 0 ? rangeDaysRaw : 1;
+  const kpiMonths = Math.max(0.25, rangeDays / avgDaysPerMonth);
   const sellers = document.querySelector('[data-sales-seller-rows]');
   if (sellers) {
     sellers.innerHTML = buildSellerRows(data.sellers, {
       appointmentsSupported: data.appointmentsSupported,
-      monthsCount: 1,
-      monthlyRevenueBySellerId,
-      monthlyAppointmentsBySellerId,
-      useCurrentMonthKpi: true
+      monthsCount: kpiMonths,
+      sellerRevenueBySellerId,
+      useCurrentMonthKpi: false
     });
   }
   const sellerCount = Array.isArray(data.sellers) ? data.sellers.length : 0;
   setKpi('seller_count', `${formatNumber(sellerCount)} verkopers`);
-  const monthlySellerIds = Object.keys(monthlyRevenueBySellerId);
-  const monthlySellerCount = monthlySellerIds.length;
-  const sellersOnTarget = monthlySellerIds.filter((sellerId) => {
-    const revenue = Number(monthlyRevenueBySellerId[sellerId]) || 0;
-    return revenue >= SALES_SELLER_MONTHLY_REVENUE_TARGET;
+  const sellersOnTarget = (Array.isArray(data.sellers) ? data.sellers : []).filter((seller) => {
+    const sellerIdRaw = String(seller?.id || '');
+    const mappedRevenue = sellerIdRaw ? Number(sellerRevenueBySellerId[sellerIdRaw]) : Number.NaN;
+    const revenueRaw = Number.isFinite(mappedRevenue) ? mappedRevenue : Number(seller?.revenue) || 0;
+    if (revenueRaw <= 0) return false;
+    const monthlyRevenue = revenueRaw / kpiMonths;
+    return monthlyRevenue >= SALES_SELLER_MONTHLY_REVENUE_TARGET;
   }).length;
   const sellerKpiText =
-    monthlySellerCount > 0
-      ? `${formatNumber(sellersOnTarget)}/${formatNumber(monthlySellerCount)} op KPI (${formatCurrency(
+    sellerCount > 0
+      ? `${formatNumber(sellersOnTarget)}/${formatNumber(sellerCount)} op KPI (${formatCurrency(
           SALES_SELLER_MONTHLY_REVENUE_TARGET,
           0
         )}/maand)`
@@ -8227,25 +8482,31 @@ const applySalesData = (data) => {
   setKpi('seller_revenue_kpi_progress', sellerKpiText);
   const sellerKpiNode = document.querySelector('[data-sales-kpi="seller_revenue_kpi_progress"]');
   if (sellerKpiNode) {
-    sellerKpiNode.setAttribute('title', 'Gebaseerd op huidige maand');
+    sellerKpiNode.setAttribute(
+      'title',
+      `Genormaliseerd naar maand op basis van geselecteerde periode (${dateRange.start} -> ${dateRange.end}).`
+    );
   }
 
-  const monthlyAppointmentSellerIds = Object.keys(monthlyAppointmentsBySellerId);
-  const monthlyAppointmentSellerCount = monthlyAppointmentSellerIds.length;
-  const sellersOnAppointmentsTarget = monthlyAppointmentSellerIds.filter((sellerId) => {
-    const appointments = Number(monthlyAppointmentsBySellerId[sellerId]) || 0;
-    return appointments >= SALES_SELLER_MONTHLY_APPOINTMENTS_TARGET;
+  const sellersOnAppointmentsTarget = (Array.isArray(data.sellers) ? data.sellers : []).filter((seller) => {
+    const appointmentsRaw = Number(seller?.appointments) || 0;
+    if (appointmentsRaw <= 0) return false;
+    const monthlyAppointments = appointmentsRaw / kpiMonths;
+    return monthlyAppointments >= SALES_SELLER_MONTHLY_APPOINTMENTS_TARGET;
   }).length;
   const sellerAppointmentsKpiText =
-    monthlyAppointmentSellerCount > 0
-      ? `${formatNumber(sellersOnAppointmentsTarget)}/${formatNumber(monthlyAppointmentSellerCount)} op KPI (${formatNumber(
+    sellerCount > 0
+      ? `${formatNumber(sellersOnAppointmentsTarget)}/${formatNumber(sellerCount)} op KPI (${formatNumber(
           SALES_SELLER_MONTHLY_APPOINTMENTS_TARGET
         )} afspraken/maand)`
       : `KPI ${formatNumber(SALES_SELLER_MONTHLY_APPOINTMENTS_TARGET)} afspraken/maand`;
   setKpi('seller_appointments_kpi_progress', sellerAppointmentsKpiText);
   const sellerAppointmentsKpiNode = document.querySelector('[data-sales-kpi="seller_appointments_kpi_progress"]');
   if (sellerAppointmentsKpiNode) {
-    sellerAppointmentsKpiNode.setAttribute('title', 'Gebaseerd op huidige maand');
+    sellerAppointmentsKpiNode.setAttribute(
+      'title',
+      `Genormaliseerd naar maand op basis van geselecteerde periode (${dateRange.start} -> ${dateRange.end}).`
+    );
   }
 
   setKpi('summary_won_deals', formatNumber(data.summary.wonDeals));
@@ -8343,6 +8604,45 @@ const ensureSalesData = async () => {
   const requestVersion = metricsComputationVersion;
 
 	  try {
+      const pad2Number = (value) => String(value).padStart(2, '0');
+      const shiftYmdByYears = (ymd, deltaYears) => {
+        if (!ymd || typeof ymd !== 'string') return '';
+        const parts = ymd.split('-').map((token) => Number(token));
+        if (parts.length < 3) return ymd;
+        const [year, month, day] = parts;
+        if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return ymd;
+        const nextYear = year + (Number(deltaYears) || 0);
+        const safeMonth = Math.min(12, Math.max(1, Math.round(month)));
+        const daysInMonth = new Date(Date.UTC(nextYear, safeMonth, 0)).getUTCDate();
+        const safeDay = Math.min(daysInMonth, Math.max(1, Math.round(day)));
+        return `${nextYear}-${pad2Number(safeMonth)}-${pad2Number(safeDay)}`;
+      };
+      const buildMonthKeysBetween = (startYmd, endYmd) => {
+        if (!startYmd || !endYmd) return [];
+        const [startYear, startMonth] = startYmd.split('-').slice(0, 2).map(Number);
+        const [endYear, endMonth] = endYmd.split('-').slice(0, 2).map(Number);
+        if (!Number.isFinite(startYear) || !Number.isFinite(startMonth)) return [];
+        if (!Number.isFinite(endYear) || !Number.isFinite(endMonth)) return [];
+        const keys = [];
+        let year = startYear;
+        let month = startMonth;
+        while (year < endYear || (year === endYear && month <= endMonth)) {
+          keys.push(`${year}-${pad2Number(month)}`);
+          month += 1;
+          if (month > 12) {
+            month = 1;
+            year += 1;
+          }
+        }
+        return keys;
+      };
+      const formatMonthKeyLabel = (monthKey) => {
+        if (!monthKey) return '--';
+        const [year, month] = String(monthKey).split('-').map(Number);
+        if (!Number.isFinite(year) || !Number.isFinite(month) || month < 1 || month > 12) return String(monthKey);
+        return `${MONTH_LABELS_NL[month - 1]} ${year}`;
+      };
+
 	    const dealsSelectBase =
 	      'id,title,location_id,created_at,updated_at,closed_at,status,customer_type,customer_id,responsible_user_id,phase_id,estimated_value,estimated_value_currency,raw_data';
 		    const dealsOptionalColumns = [
@@ -8437,6 +8737,50 @@ const ensureSalesData = async () => {
       }
     })();
 
+      const invoicesSelect =
+        'id,deal_id,invoice_date,status,total_tax_exclusive,total_tax_inclusive,currency,created_at,updated_at';
+      const buildInvoicesQuery = (startDate, endDate) => () =>
+        supabase
+          .from('teamleader_invoices')
+          .select(invoicesSelect)
+          .eq('location_id', activeLocationId)
+          .gte('invoice_date', startDate)
+          .lte('invoice_date', endDate)
+          .order('invoice_date', { ascending: true })
+          .order('id', { ascending: true });
+      const compareSpendStart = shiftYmdByYears(spendStart, -3);
+      const compareSpendEnd = shiftYmdByYears(spendEnd, -3);
+      const invoicesPromise = fetchAllRows(buildInvoicesQuery(spendStart, spendEnd)).catch((error) => {
+        console.warn('Unable to load Teamleader invoices for omzet KPIs', error);
+        return [];
+      });
+      const invoicesComparePromise = fetchAllRows(buildInvoicesQuery(compareSpendStart, compareSpendEnd)).catch((error) => {
+        console.warn('Unable to load Teamleader invoices (3j terug) for omzet KPIs', error);
+        return [];
+      });
+      const currentMonthInvoicesPromise = fetchAllRows(
+        buildInvoicesQuery(currentMonthRange.start, currentMonthRange.end)
+      ).catch((error) => {
+        console.warn('Unable to load current-month Teamleader invoices for seller KPI', error);
+        return [];
+      });
+
+      const opportunitiesPromise = fetchAllRows(() => {
+        let query = supabase
+          .from('opportunities_view')
+          .select('id,created_at,pipeline_stage_name,source_guess,custom_fields,raw_data')
+          .eq('location_id', activeLocationId)
+          .gte('created_at', startIso)
+          .lt('created_at', endExclusiveIso)
+          .order('created_at', { ascending: true })
+          .order('id', { ascending: true });
+        query = applyOpportunityPipelineFilter(query);
+        return query;
+      }).catch((error) => {
+        console.warn('Unable to load GHL opportunities for lead generator KPIs', error);
+        return [];
+      });
+
       const [
         deals,
         currentMonthDeals,
@@ -8446,7 +8790,11 @@ const ensureSalesData = async () => {
         phases,
         dealSources,
         spendRows,
-        lostReasonsLookup
+        lostReasonsLookup,
+        invoices,
+        compareInvoices,
+        currentMonthInvoices,
+        opportunities
       ] = await Promise.all([
         dealsPromise,
         currentMonthDealsPromise,
@@ -8490,7 +8838,11 @@ const ensureSalesData = async () => {
               return [];
             }
             return data || [];
-          })
+          }),
+        invoicesPromise,
+        invoicesComparePromise,
+        currentMonthInvoicesPromise,
+        opportunitiesPromise
       ]);
 
     if (requestVersion !== metricsComputationVersion) return;
@@ -8597,19 +8949,429 @@ const ensureSalesData = async () => {
     const currentMonthDealsForKpi = debugMode
       ? filteredCurrentMonthDeals
       : bundleDealsForKpi(filteredCurrentMonthDeals);
-	    const sellerMonthlyRevenueById = {};
-	    currentMonthDealsForKpi.forEach((deal) => {
-	      const sellerId = String(deal?.responsible_user_id || 'unknown');
-	      if (!Object.prototype.hasOwnProperty.call(sellerMonthlyRevenueById, sellerId)) {
-	        sellerMonthlyRevenueById[sellerId] = 0;
+
+      const dealsById = new Map();
+      (deals || []).forEach((deal) => {
+        const id = toTrimmedText(deal?.id);
+        if (!id) return;
+        dealsById.set(id, deal);
+      });
+      (currentMonthDeals || []).forEach((deal) => {
+        const id = toTrimmedText(deal?.id);
+        if (!id || dealsById.has(id)) return;
+        dealsById.set(id, deal);
+      });
+
+      const invoiceDealIds = new Set();
+      (Array.isArray(invoices) ? invoices : []).forEach((invoice) => {
+        const dealId = toTrimmedText(invoice?.deal_id);
+        if (dealId) invoiceDealIds.add(dealId);
+      });
+      (Array.isArray(currentMonthInvoices) ? currentMonthInvoices : []).forEach((invoice) => {
+        const dealId = toTrimmedText(invoice?.deal_id);
+        if (dealId) invoiceDealIds.add(dealId);
+      });
+      const missingDealIds = Array.from(invoiceDealIds).filter((dealId) => dealId && !dealsById.has(dealId));
+      if (missingDealIds.length) {
+        const chunkSize = 200;
+        for (let i = 0; i < missingDealIds.length; i += chunkSize) {
+          const chunk = missingDealIds.slice(i, i + chunkSize);
+          const query = supabase
+            .from('teamleader_deals')
+            .select('id,title,responsible_user_id,customer_type,customer_id')
+            .eq('location_id', activeLocationId)
+            .in('id', chunk);
+          const { data: extraDeals, error } = await withTimeout(
+            query,
+            12000,
+            'Supabase query timeout (invoice deal lookup).'
+          );
+          if (error) throw error;
+          (extraDeals || []).forEach((deal) => {
+            const id = toTrimmedText(deal?.id);
+            if (!id) return;
+            dealsById.set(id, deal);
+          });
+        }
       }
-      const status = normalizeStatus(deal?.status);
-      if (!isWonStatus(status)) return;
-      const value = Number(deal?.estimated_value);
-      if (Number.isFinite(value) && value > 0) {
-	        sellerMonthlyRevenueById[sellerId] += value;
+
+      if (requestVersion !== metricsComputationVersion) return;
+
+      const pickInvoiceAmount = (invoice) => {
+        const taxExclusive = Number(invoice?.total_tax_exclusive);
+        if (Number.isFinite(taxExclusive)) return taxExclusive;
+        const taxInclusive = Number(invoice?.total_tax_inclusive);
+        if (Number.isFinite(taxInclusive)) return taxInclusive;
+        return 0;
+      };
+      const isIncludedInvoice = (invoice) => {
+        const status = normalizeStatus(invoice?.status);
+        if (!status) return true;
+        // Exclude non-final invoice states so "behaald" doesn't count drafts/cancellations.
+        return !(
+          status.includes('draft') ||
+          status.includes('concept') ||
+          status.includes('cancel') ||
+          status.includes('void')
+        );
+      };
+      const bumpInvoiceMap = (map, monthKey, amount) => {
+        if (!monthKey) return;
+        map.set(monthKey, (map.get(monthKey) || 0) + amount);
+      };
+	      const monthKeyFromYmd = (ymd) => {
+	        const raw = toTrimmedText(ymd);
+	        if (!raw) return '';
+	        return raw.length >= 7 ? raw.slice(0, 7) : raw;
+	      };
+
+      const productCategoryRules = Array.isArray(configState.salesProductCategoryRules)
+        ? configState.salesProductCategoryRules
+        : [];
+      const regionRules = Array.isArray(configState.salesRegionRules) ? configState.salesRegionRules : [];
+      const shouldComputeCategories = productCategoryRules.length > 0;
+      const shouldComputeRegions = regionRules.length > 0;
+
+      const DEFAULT_PRODUCT_CATEGORY = 'Overig';
+      const SERVICE_PRODUCT_CATEGORY = 'Service';
+      const UNKNOWN_PRODUCT_CATEGORY = 'Onbekend';
+      const UNKNOWN_REGION = 'Onbekend';
+
+      const resolveDealProductCategory = (deal) => {
+        if (!shouldComputeCategories) return '';
+        if (!deal || typeof deal !== 'object') return UNKNOWN_PRODUCT_CATEGORY;
+        if (isExcludedDeal(deal)) return SERVICE_PRODUCT_CATEGORY;
+        const title = String(deal?.title ?? '').toLowerCase();
+        for (const rule of productCategoryRules) {
+          const category = normalizeSalesRuleLabel(rule?.category);
+          const patterns = Array.isArray(rule?.patterns) ? rule.patterns : [];
+          if (!category || !patterns.length) continue;
+          if (patterns.some((pattern) => pattern && title.includes(pattern))) return category;
+        }
+        return DEFAULT_PRODUCT_CATEGORY;
+      };
+
+      const extractPostalCandidate = (value) => {
+        const text = toTrimmedText(value);
+        if (!text) return null;
+        const match = text.match(/(\d{4})/);
+        return match && match[1] ? match[1] : null;
+      };
+
+      const extractPostalFromObject = (obj) => {
+        if (!obj || typeof obj !== 'object') return null;
+        return (
+          extractPostalCandidate(obj.postal_code) ||
+          extractPostalCandidate(obj.postalCode) ||
+          extractPostalCandidate(obj.postcode) ||
+          extractPostalCandidate(obj.postalcode) ||
+          extractPostalCandidate(obj.zip) ||
+          extractPostalCandidate(obj.zip_code) ||
+          extractPostalCandidate(obj.zipCode) ||
+          extractPostalCandidate(obj.zipcode)
+        );
+      };
+
+      const extractPostalCodeFromTeamleaderRaw = (raw) => {
+        if (!raw || typeof raw !== 'object') return null;
+        const direct = extractPostalFromObject(raw);
+        if (direct) return direct;
+
+        const addressKeys = [
+          'address',
+          'primary_address',
+          'primaryAddress',
+          'invoice_address',
+          'invoiceAddress',
+          'billing_address',
+          'billingAddress',
+          'visit_address',
+          'visitAddress'
+        ];
+        for (const key of addressKeys) {
+          const candidate = extractPostalFromObject(raw[key]);
+          if (candidate) return candidate;
+        }
+
+        const addressesRaw = raw.addresses ?? raw.addresses_list ?? raw.addressList;
+        const addresses = Array.isArray(addressesRaw)
+          ? addressesRaw
+          : addressesRaw && typeof addressesRaw === 'object'
+            ? Object.values(addressesRaw)
+            : [];
+        for (const entry of addresses) {
+          const candidate = extractPostalFromObject(entry) || extractPostalFromObject(entry?.address);
+          if (candidate) return candidate;
+        }
+
+        return null;
+      };
+
+      const resolveRegionFromPostalCode = (postalCode) => {
+        const codeRaw = Number(extractPostalCandidate(postalCode));
+        if (!Number.isFinite(codeRaw) || codeRaw <= 0) return UNKNOWN_REGION;
+        const code = Math.floor(codeRaw);
+        for (const rule of regionRules) {
+          const region = normalizeSalesRuleLabel(rule?.region);
+          const ranges = Array.isArray(rule?.ranges) ? rule.ranges : [];
+          if (!region || !ranges.length) continue;
+          for (const range of ranges) {
+            if (!Array.isArray(range) || range.length < 2) continue;
+            const start = Number(range[0]);
+            const end = Number(range[1]);
+            if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
+            if (code >= start && code <= end) return region;
+          }
+        }
+        return UNKNOWN_REGION;
+      };
+
+      const contactRawById = new Map();
+      const companyRawById = new Map();
+      if (shouldComputeRegions) {
+        const neededContactIds = new Set();
+        const neededCompanyIds = new Set();
+        (Array.isArray(invoices) ? invoices : []).forEach((invoice) => {
+          if (!isIncludedInvoice(invoice)) return;
+          const dealId = toTrimmedText(invoice?.deal_id);
+          const deal = dealId ? dealsById.get(dealId) : null;
+          if (!deal) return;
+          const customerType = String(deal?.customer_type ?? '').trim().toLowerCase();
+          const customerId = toTrimmedText(deal?.customer_id);
+          if (!customerId) return;
+          if (customerType === 'contact') {
+            neededContactIds.add(customerId);
+          } else if (customerType === 'company') {
+            neededCompanyIds.add(customerId);
+          }
+        });
+
+        const fetchRawByIds = async (tableName, ids, targetMap) => {
+          if (!ids.length) return;
+          const chunkSize = 200;
+          for (let i = 0; i < ids.length; i += chunkSize) {
+            const chunk = ids.slice(i, i + chunkSize);
+            const query = supabase
+              .from(tableName)
+              .select('id,raw_data')
+              .eq('location_id', activeLocationId)
+              .in('id', chunk);
+            const { data: rows, error } = await withTimeout(
+              query,
+              12000,
+              `Supabase query timeout (${tableName} raw_data lookup).`
+            );
+            if (error) throw error;
+            (rows || []).forEach((row) => {
+              const id = toTrimmedText(row?.id);
+              if (!id) return;
+              targetMap.set(id, row?.raw_data ?? null);
+            });
+          }
+        };
+
+	        await Promise.all([
+	          fetchRawByIds('teamleader_contacts', Array.from(neededContactIds), contactRawById),
+	          fetchRawByIds('teamleader_companies', Array.from(neededCompanyIds), companyRawById)
+	        ]);
+
+        if (requestVersion !== metricsComputationVersion) return;
 	      }
-	    });
+
+      const resolveDealRegion = (deal) => {
+        if (!shouldComputeRegions) return '';
+        if (!deal || typeof deal !== 'object') return UNKNOWN_REGION;
+        const customerType = String(deal?.customer_type ?? '').trim().toLowerCase();
+        const customerId = toTrimmedText(deal?.customer_id);
+        if (!customerId) return UNKNOWN_REGION;
+        const raw =
+          customerType === 'company' ? companyRawById.get(customerId) : customerType === 'contact' ? contactRawById.get(customerId) : null;
+        const postalCode = extractPostalCodeFromTeamleaderRaw(raw);
+        return resolveRegionFromPostalCode(postalCode);
+      };
+
+      const bumpRevenueBreakdown = (map, label, amount, isSalesDeal) => {
+        if (!map) return;
+        const safeLabel = normalizeSalesRuleLabel(label) || 'Onbekend';
+        const entry = map.get(safeLabel) || { sales: 0, total: 0 };
+        entry.total += amount;
+        if (isSalesDeal) entry.sales += amount;
+        map.set(safeLabel, entry);
+      };
+
+      const categoryRevenueByLabel = shouldComputeCategories ? new Map() : null;
+      const regionRevenueByLabel = shouldComputeRegions ? new Map() : null;
+
+	      let invoiceRevenueTotal = 0;
+	      let invoiceRevenueSales = 0;
+	      const invoiceMonthlyTotal = new Map();
+	      const invoiceMonthlySales = new Map();
+	      const compareMonthlyTotal = new Map();
+	      const sellerRevenueById = {};
+
+      (Array.isArray(compareInvoices) ? compareInvoices : []).forEach((invoice) => {
+        if (!isIncludedInvoice(invoice)) return;
+        const amount = pickInvoiceAmount(invoice);
+        if (!Number.isFinite(amount)) return;
+        const monthKey = monthKeyFromYmd(invoice?.invoice_date);
+        bumpInvoiceMap(compareMonthlyTotal, monthKey, amount);
+      });
+
+	      (Array.isArray(invoices) ? invoices : []).forEach((invoice) => {
+	        if (!isIncludedInvoice(invoice)) return;
+	        const amount = pickInvoiceAmount(invoice);
+	        if (!Number.isFinite(amount)) return;
+	        invoiceRevenueTotal += amount;
+	        const monthKey = monthKeyFromYmd(invoice?.invoice_date);
+	        bumpInvoiceMap(invoiceMonthlyTotal, monthKey, amount);
+
+	        const dealId = toTrimmedText(invoice?.deal_id);
+	        const deal = dealId ? dealsById.get(dealId) : null;
+        const isSalesDeal = Boolean(deal) && !isExcludedDeal(deal);
+        bumpRevenueBreakdown(categoryRevenueByLabel, resolveDealProductCategory(deal), amount, isSalesDeal);
+        bumpRevenueBreakdown(regionRevenueByLabel, resolveDealRegion(deal), amount, isSalesDeal);
+        if (!isSalesDeal) return;
+
+	        invoiceRevenueSales += amount;
+	        bumpInvoiceMap(invoiceMonthlySales, monthKey, amount);
+	        const sellerId = String(deal?.responsible_user_id || 'unknown');
+	        sellerRevenueById[sellerId] = (sellerRevenueById[sellerId] || 0) + amount;
+	      });
+
+      const toBreakdownRows = (map) =>
+        map
+          ? Array.from(map.entries())
+              .map(([label, totals]) => ({
+                label,
+                sales: Number(totals?.sales ?? 0),
+                total: Number(totals?.total ?? 0)
+              }))
+              .sort(
+                (a, b) =>
+                  (b.sales ?? 0) - (a.sales ?? 0) ||
+                  (b.total ?? 0) - (a.total ?? 0) ||
+                  String(a.label).localeCompare(String(b.label))
+              )
+          : [];
+
+      data.breakdowns = {
+        categories: toBreakdownRows(categoryRevenueByLabel),
+        regions: toBreakdownRows(regionRevenueByLabel)
+      };
+
+	      const invoiceMonthKeys = buildMonthKeysBetween(spendStart, spendEnd);
+	      const invoiceMonthlyRows = invoiceMonthKeys
+	        .map((monthKey) => {
+	          const total = invoiceMonthlyTotal.get(monthKey) || 0;
+          const sales = invoiceMonthlySales.get(monthKey) || 0;
+          const [year, month] = monthKey.split('-').map(Number);
+          const compareKey =
+            Number.isFinite(year) && Number.isFinite(month) ? `${year - 3}-${pad2Number(month)}` : '';
+          const compareValue = compareKey && compareMonthlyTotal.has(compareKey) ? compareMonthlyTotal.get(compareKey) : undefined;
+          return {
+            key: monthKey,
+            label: formatMonthKeyLabel(monthKey),
+            sales,
+            total,
+            compareTotal: compareValue
+          };
+        })
+        .filter((row) => row.total !== 0 || row.sales !== 0 || Number.isFinite(Number(row.compareTotal)));
+
+      data.invoice = {
+        revenueSales: invoiceRevenueSales,
+        revenueTotal: invoiceRevenueTotal,
+        monthly: invoiceMonthlyRows
+      };
+      data.sellerRevenueById = sellerRevenueById;
+
+      const sellerMonthlyRevenueById = {};
+      (Array.isArray(currentMonthInvoices) ? currentMonthInvoices : []).forEach((invoice) => {
+        if (!isIncludedInvoice(invoice)) return;
+        const amount = pickInvoiceAmount(invoice);
+        if (!Number.isFinite(amount) || amount === 0) return;
+        const dealId = toTrimmedText(invoice?.deal_id);
+        const deal = dealId ? dealsById.get(dealId) : null;
+        if (!deal || isExcludedDeal(deal)) return;
+        const sellerId = String(deal?.responsible_user_id || 'unknown');
+        sellerMonthlyRevenueById[sellerId] = (sellerMonthlyRevenueById[sellerId] || 0) + amount;
+      });
+
+      const leadsMonthly = new Map();
+      const leadsBySource = new Map();
+      const leadsByCampaign = new Map();
+      let leadsTotal = 0;
+      let leadsRetour = 0;
+      const bumpLeadBreakdown = (map, label, isRetourLead) => {
+        const safeLabel = toTrimmedText(label) || 'Onbekend';
+        const entry = map.get(safeLabel) || { leads: 0, retour: 0 };
+        entry.leads += 1;
+        if (isRetourLead) entry.retour += 1;
+        map.set(safeLabel, entry);
+      };
+      const bumpLeadMonthly = (monthKey, isRetourLead) => {
+        if (!monthKey) return;
+        const entry = leadsMonthly.get(monthKey) || { leads: 0, retour: 0 };
+        entry.leads += 1;
+        if (isRetourLead) entry.retour += 1;
+        leadsMonthly.set(monthKey, entry);
+      };
+
+      const hookFieldId = toTrimmedText(configState.hookFieldId);
+      const campaignFieldId = toTrimmedText(configState.campaignFieldId);
+      (Array.isArray(opportunities) ? opportunities : []).forEach((opp) => {
+        leadsTotal += 1;
+        const monthKey = monthKeyFromYmd(opp?.created_at);
+        const stageName = toTrimmedText(opp?.pipeline_stage_name) || '';
+        const isRetourLead = stageName.toLowerCase().includes('retour');
+        if (isRetourLead) leadsRetour += 1;
+        bumpLeadMonthly(monthKey, isRetourLead);
+
+        const customFields = opp?.custom_fields ?? opp?.customFields ?? null;
+        const sourceGuess =
+          normalizeSourceValue(opp?.source_guess) || toTrimmedText(opp?.source_guess) || 'Onbekend';
+        const hookRaw = hookFieldId ? extractCustomFieldValue(customFields, hookFieldId) : null;
+        const sourceLabel = hookRaw ? normalizeHookValue(hookRaw, sourceGuess) : sourceGuess;
+        let campaignLabel = 'Onbekend';
+        if (campaignFieldId) {
+          const campaignRaw = extractCustomFieldValue(customFields, campaignFieldId);
+          if (campaignRaw) {
+            campaignLabel = normalizeHookValue(campaignRaw, 'Onbekend');
+          }
+        }
+
+        bumpLeadBreakdown(leadsBySource, sourceLabel, isRetourLead);
+        bumpLeadBreakdown(leadsByCampaign, campaignLabel, isRetourLead);
+      });
+
+      const leadMonthKeys = buildMonthKeysBetween(dateRange.start, dateRange.end);
+      const leadMonthlyRows = leadMonthKeys
+        .map((monthKey) => {
+          const bucket = leadsMonthly.get(monthKey) || { leads: 0, retour: 0 };
+          return {
+            key: monthKey,
+            label: formatMonthKeyLabel(monthKey),
+            leads: bucket.leads,
+            retour: bucket.retour,
+            retourRate: bucket.leads > 0 ? bucket.retour / bucket.leads : Number.NaN
+          };
+        })
+        .filter((row) => (row.leads ?? 0) > 0 || (row.retour ?? 0) > 0);
+
+      const toLeadRows = (map) =>
+        Array.from(map.entries())
+          .map(([label, counts]) => ({ label, leads: counts.leads || 0, retour: counts.retour || 0 }))
+          .sort((a, b) => (b.leads ?? 0) - (a.leads ?? 0) || String(a.label).localeCompare(String(b.label)))
+          .slice(0, 10);
+
+      data.leads = {
+        total: leadsTotal,
+        retour: leadsRetour,
+        retourRate: leadsTotal > 0 ? leadsRetour / leadsTotal : Number.NaN,
+        monthly: leadMonthlyRows,
+        sources: toLeadRows(leadsBySource),
+        campaigns: toLeadRows(leadsByCampaign)
+      };
 
 	    const filteredCurrentMonthAppointments = (currentMonthDeals || []).filter((deal) => !isExcludedDeal(deal));
 	    const currentMonthAppointmentsForKpi = debugMode
