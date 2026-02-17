@@ -40,7 +40,7 @@ Ports:
 - `.env` (repo root) is voor de lokale sync scripts in `src/` (tsx). Gebruik `.env.example` als template.
 - `dashboard/.env` is voor de Vite dashboard app (local dev en eventueel Netlify env). Wizard kan dit bestand schrijven.
 - `clients/<slug>/env.*.example` zijn de per-klant templates die onboarding/bootstrapping genereert.
-- `VITE_REQUIRE_AUTH` (dashboard): default `true`. Als `true` toont de dashboard UI eerst een login scherm (magic link) en verwacht je RLS "authenticated-only" policies in Supabase.
+- `VITE_REQUIRE_AUTH` (dashboard): default `true`. Als `true` toont de dashboard UI eerst een login scherm (email + password) en verwacht je RLS "authenticated-only" policies in Supabase.
 
 ## Onboarding Wizard (Local)
 
@@ -169,7 +169,10 @@ Layout/branding aanpassen (zonder code changes):
 - `pwsh ENOENT` / "PowerShell starten faalde": installeer PowerShell (`pwsh`), zet `ONBOARDING_POWERSHELL_BIN`, of forceer Node runner met `ONBOARDING_FORCE_NODE_BOOTSTRAP=1`.
 - `ERR_CONNECTION_REFUSED` op `http://localhost:8787/...`: onboarding server draait niet of crashte. Start met `npm run onboard` (of `npm run dev`).
 - Console errors `bootstrap-autofill-overlay.js`: komt van browser password-manager/autofill extensies, geen repo bug.
-- Dashboard login geeft error "User not found" of er komt geen sessie: `VITE_REQUIRE_AUTH=true` gebruikt invite-only magic links (`shouldCreateUser=false`). Oplossing: maak/invite de user in Supabase Auth (of zet `VITE_REQUIRE_AUTH=false` + public policies, niet aanbevolen).
+- Dashboard login faalt ("Invalid login credentials" / geen sessie): user bestaat niet of heeft geen password. Oplossing: seed een email+password user via `node scripts/admin_seed_password_user.js <client|all> user@domain.tld` (+ `DASHBOARD_USER_PASSWORD=...`) en check `public.dashboard_access` allowlist.
+- `Failed to invite user ... email rate limit exceeded`: Supabase Auth rate-limiteert uitgaande emails (invite/magic link). Oplossing: wacht tot de limiet reset of configureer custom SMTP; workaround zonder email: `node scripts/admin_magic_link.js belivert user@domain.tld https://<dashboard-url>` (maakt user aan, zet allowlist entry, en print een 1x magic link die je handmatig kan delen).
+- Magic link redirect naar localhost: Supabase Auth URL config mist je deploy URL (of `Site URL` staat nog op `http://localhost:5173`), waardoor Supabase fallbackt naar de `Site URL`. Oplossing: Supabase Dashboard → Authentication → URL Configuration: zet `Site URL` naar je productie dashboard URL en voeg die URL (plus `http://localhost:5173` voor local dev) toe aan `Redirect URLs`.
+- Onverwachte Auth settings na `supabase config push`: de CLI pusht een volledige Auth config; als je enkel `site_url`/redirects wil aanpassen kunnen defaults andere Auth flags overschrijven (bv. MFA TOTP of email confirmations). Oplossing: zet de relevante `[auth.*]` flags expliciet in `supabase/config.toml` (of pas het aan via Supabase Dashboard).
 - Dashboard login lukt maar je krijgt 401/403 bij data calls: check of de user in `public.dashboard_access` staat (allowlist). Oplossing: voeg email toe aan `public.dashboard_access` (of draai migratie `20260215180000_dashboard_access_allowlist.sql` opnieuw om bestaande auth users te seeden).
 
 ## Timezones / Off-by-One

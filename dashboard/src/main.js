@@ -1264,18 +1264,18 @@ const initAuth = async () => {
   supabase.auth.onAuthStateChange((_event, session) => {
     const hadSession = Boolean(authSession);
     authSession = session;
-    if (!session) {
-      authGateState.status = 'idle';
-      authGateState.message = '';
-      adminState.form.token = '';
-      adminState.message = '';
-      adminState.status = 'idle';
-      adminState.auth.status = 'idle';
-      adminState.auth.message = '';
-      adminState.auth.requested = false;
-      resetMappingState();
-      resetKpiState();
-      resetLostReasonsState();
+	    if (!session) {
+	      authGateState.status = 'idle';
+	      authGateState.message = '';
+	      adminState.form.token = '';
+	      adminState.message = '';
+	      adminState.status = 'idle';
+	      adminState.auth.status = 'idle';
+	      adminState.auth.message = '';
+	      adminState.auth.requested = false;
+	      resetMappingState();
+	      resetKpiState();
+	      resetLostReasonsState();
       resetSourceNormalizationState();
       resetLeadCostState();
       resetBillingState();
@@ -9524,29 +9524,33 @@ const renderAdminModal = () => {
                       </div>`
                     : ''
                 }`
-            : `<form class="admin-form" data-admin-login>
-                 <label class="admin-label">
-                   Email
-                   <input type="email" class="admin-input" value="${adminState.auth.email}" placeholder="jij@bedrijf.be" data-admin-email required />
-                 </label>
-                 ${
-                   adminState.auth.message
-                     ? `<div class="admin-message ${adminState.auth.status === 'error' ? 'error' : 'success'}">${escapeHtml(adminState.auth.message)}</div>`
-                     : ''
-                 }
-                 <button type="submit" class="admin-submit" ${adminState.auth.status === 'sending' ? 'disabled' : ''}>
-                   ${adminState.auth.status === 'sending' ? 'Aanvragen...' : 'Login aanvragen'}
-                 </button>
-                 ${
-                   !adminModeEnabled && adminState.auth.requested
-                     ? '<button type="button" class="admin-ghost" data-admin-login-cancel>Terug naar instellingen</button>'
-                     : ''
-                 }
-               </form>`
-        }
-      </div>
-    </div>
-  `;
+	            : `<form class="admin-form" data-admin-login>
+	                 <label class="admin-label">
+	                   Email
+	                   <input type="email" class="admin-input" value="${adminState.auth.email}" placeholder="jij@bedrijf.be" data-admin-email required />
+	                 </label>
+	                 <label class="admin-label">
+	                   Wachtwoord
+	                   <input type="password" class="admin-input" placeholder="••••••••" autocomplete="current-password" data-admin-password required />
+	                 </label>
+	                 ${
+	                   adminState.auth.message
+	                     ? `<div class="admin-message ${adminState.auth.status === 'error' ? 'error' : 'success'}">${escapeHtml(adminState.auth.message)}</div>`
+	                     : ''
+	                 }
+	                 <button type="submit" class="admin-submit" ${adminState.auth.status === 'sending' ? 'disabled' : ''}>
+	                   ${adminState.auth.status === 'sending' ? 'Inloggen...' : 'Inloggen'}
+	                 </button>
+	                 ${
+	                   !adminModeEnabled && adminState.auth.requested
+	                     ? '<button type="button" class="admin-ghost" data-admin-login-cancel>Terug naar instellingen</button>'
+	                     : ''
+	                 }
+	               </form>`
+	        }
+	      </div>
+	    </div>
+	  `;
 };
 
 const renderDrilldownValue = ({ value, kind, source, label, enabled, className, fallbackTag = 'span' }) => {
@@ -11864,41 +11868,52 @@ const buildAuthGateMarkup = () => {
     authGateState.status === 'error' ? 'text-rose-600' : authGateState.status === 'success' ? 'text-emerald-600' : '';
   const buttonDisabled = authGateState.status === 'sending';
 
-  return `
-    <div class="min-h-screen w-full bg-background flex items-center justify-center px-6">
-      <div class="w-full max-w-md rounded-2xl border border-border/60 bg-card/80 shadow-sm p-6">
-        <h1 class="text-xl font-semibold text-foreground">Inloggen vereist</h1>
-        <p class="mt-1 text-sm text-muted-foreground">
-          Dit dashboard is afgeschermd. Log in via een magic link.
-        </p>
-        <form class="mt-5 grid gap-3" data-auth-gate-form>
-          <label class="grid gap-1 text-sm font-medium text-foreground">
-            Email
+	  return `
+	    <div class="min-h-screen w-full bg-background flex items-center justify-center px-6">
+	      <div class="w-full max-w-md rounded-2xl border border-border/60 bg-card/80 shadow-sm p-6">
+	        <h1 class="text-xl font-semibold text-foreground">Inloggen vereist</h1>
+	        <p class="mt-1 text-sm text-muted-foreground">
+	          Dit dashboard is afgeschermd. Log in met je e-mailadres en wachtwoord.
+	        </p>
+	        <form class="mt-5 grid gap-3" data-auth-gate-form>
+	          <label class="grid gap-1 text-sm font-medium text-foreground">
+	            Email
             <input
               type="email"
               class="h-10 rounded-md border border-border bg-background px-3 text-sm"
               placeholder="naam@bedrijf.be"
               autocomplete="email"
               required
-              value="${escapeHtml(authGateState.email || '')}"
-              data-auth-gate-email
-            />
-          </label>
-          ${
-            authGateState.message
-              ? `<div class="text-sm ${statusTone}">${escapeHtml(authGateState.message)}</div>`
-              : ''
-          }
-          <button
-            type="submit"
-            class="h-10 rounded-md bg-primary text-primary-foreground font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
-            ${buttonDisabled ? 'disabled' : ''}
-          >
-            ${buttonDisabled ? 'Aanvragen...' : 'Login aanvragen'}
-          </button>
-          ${
-            accessRequestEmail
-              ? `
+	              value="${escapeHtml(authGateState.email || '')}"
+	              data-auth-gate-email
+	            />
+	          </label>
+	          <label class="grid gap-1 text-sm font-medium text-foreground">
+	            Wachtwoord
+	            <input
+	              type="password"
+	              class="h-10 rounded-md border border-border bg-background px-3 text-sm"
+	              placeholder="••••••••"
+	              autocomplete="current-password"
+	              required
+	              data-auth-gate-password
+	            />
+	          </label>
+	          ${
+	            authGateState.message
+	              ? `<div class="text-sm ${statusTone}">${escapeHtml(authGateState.message)}</div>`
+	              : ''
+	          }
+	          <button
+	            type="submit"
+	            class="h-10 rounded-md bg-primary text-primary-foreground font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
+	            ${buttonDisabled ? 'disabled' : ''}
+	          >
+	            ${buttonDisabled ? 'Inloggen...' : 'Inloggen'}
+	          </button>
+	          ${
+	            accessRequestEmail
+	              ? `
                 <div class="pt-3 mt-1 border-t border-border/60 grid gap-2">
                   <button
                     type="button"
@@ -11962,6 +11977,10 @@ const bindAuthGateInteractions = () => {
   if (form) {
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
+
+      const email = String(authGateState.email || '').trim();
+      const password = String(form.querySelector('[data-auth-gate-password]')?.value || '');
+
       authGateState.status = 'sending';
       authGateState.message = '';
       renderApp();
@@ -11973,7 +11992,6 @@ const bindAuthGateInteractions = () => {
         return;
       }
 
-      const email = String(authGateState.email || '').trim();
       if (!email) {
         authGateState.status = 'error';
         authGateState.message = 'Vul een geldig emailadres in.';
@@ -11981,19 +11999,24 @@ const bindAuthGateInteractions = () => {
         return;
       }
 
-      const { error } = await supabase.auth.signInWithOtp({
-        email,
-        // Prevent self-signups: users must be invited/created in Supabase Auth.
-        options: { emailRedirectTo: window.location.origin, shouldCreateUser: false }
-      });
-
-      // Avoid email enumeration and hide auth provider details.
-      if (error) {
-        console.warn('[auth] magic link request failed', error);
+      if (!password) {
+        authGateState.status = 'error';
+        authGateState.message = 'Vul je wachtwoord in.';
+        renderApp();
+        return;
       }
+
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        console.warn('[auth] password sign-in failed', error);
+        authGateState.status = 'error';
+        authGateState.message = 'Inloggen mislukt. Controleer e-mailadres en wachtwoord.';
+        renderApp();
+        return;
+      }
+
       authGateState.status = 'success';
-      authGateState.message =
-        'Als dit e-mailadres toegang heeft, ontvang je binnen enkele minuten een magic link. Check ook je spam.';
+      authGateState.message = '';
 
       renderApp();
     });
@@ -12576,14 +12599,14 @@ const bindInteractions = () => {
   if (settingsEnabled) {
     document.querySelectorAll('[data-admin-open]').forEach((button) => {
       button.addEventListener('click', () => {
-        adminState.open = true;
-        adminState.status = 'idle';
-        adminState.message = '';
-        adminState.auth.message = '';
-        adminState.auth.status = 'idle';
-        adminState.auth.requested = false;
-        adminState.loading = false;
-        adminState.kpi.message = '';
+	        adminState.open = true;
+	        adminState.status = 'idle';
+	        adminState.message = '';
+	        adminState.auth.message = '';
+	        adminState.auth.status = 'idle';
+	        adminState.auth.requested = false;
+	        adminState.loading = false;
+	        adminState.kpi.message = '';
         adminState.lostReasons.message = '';
         adminState.sources.message = '';
         adminState.leadCost.message = '';
@@ -12653,20 +12676,23 @@ const bindInteractions = () => {
       });
     }
 
-    const emailInput = document.querySelector('[data-admin-email]');
-    if (emailInput) {
-      emailInput.addEventListener('input', (event) => {
-        adminState.auth.email = event.target.value;
-      });
-    }
+	    const emailInput = document.querySelector('[data-admin-email]');
+	    if (emailInput) {
+	      emailInput.addEventListener('input', (event) => {
+	        adminState.auth.email = event.target.value;
+	      });
+	    }
 
-    const loginForm = document.querySelector('[data-admin-login]');
-    if (loginForm) {
-      loginForm.addEventListener('submit', async (event) => {
-        event.preventDefault();
-        adminState.auth.status = 'sending';
-        adminState.auth.message = '';
-        renderApp();
+	    const loginForm = document.querySelector('[data-admin-login]');
+	    if (loginForm) {
+	      loginForm.addEventListener('submit', async (event) => {
+	        event.preventDefault();
+
+	        const password = String(event.currentTarget?.querySelector?.('[data-admin-password]')?.value || '');
+
+	        adminState.auth.status = 'sending';
+	        adminState.auth.message = '';
+	        renderApp();
 
         if (!supabase) {
           adminState.auth.status = 'error';
@@ -12675,31 +12701,36 @@ const bindInteractions = () => {
           return;
         }
 
-        const email = adminState.auth.email.trim();
-        if (!email) {
-          adminState.auth.status = 'error';
-          adminState.auth.message = 'Vul een geldig emailadres in.';
-          renderApp();
-          return;
-        }
+	        const email = adminState.auth.email.trim();
+	        if (!email) {
+	          adminState.auth.status = 'error';
+	          adminState.auth.message = 'Vul een geldig emailadres in.';
+	          renderApp();
+	          return;
+	        }
 
-        const { error } = await supabase.auth.signInWithOtp({
-          email,
-          // Prevent self-signups: users must be invited/created in Supabase Auth.
-          options: { emailRedirectTo: window.location.origin, shouldCreateUser: false }
-        });
+	        if (!password) {
+	          adminState.auth.status = 'error';
+	          adminState.auth.message = 'Vul je wachtwoord in.';
+	          renderApp();
+	          return;
+	        }
 
-        // Avoid email enumeration and hide auth provider details.
-        if (error) {
-          console.warn('[admin-auth] magic link request failed', error);
-        }
-        adminState.auth.status = 'success';
-        adminState.auth.message =
-          'Als dit e-mailadres toegang heeft, ontvang je binnen enkele minuten een magic link. Check ook je spam.';
+	        const { error } = await supabase.auth.signInWithPassword({ email, password });
+	        if (error) {
+	          console.warn('[admin-auth] password sign-in failed', error);
+	          adminState.auth.status = 'error';
+	          adminState.auth.message = 'Inloggen mislukt. Controleer e-mailadres en wachtwoord.';
+	          renderApp();
+	          return;
+	        }
 
-        renderApp();
-      });
-    }
+	        adminState.auth.status = 'success';
+	        adminState.auth.message = 'Ingelogd.';
+
+	        renderApp();
+	      });
+	    }
 
     const form = document.querySelector('[data-admin-form]');
     if (form) {
