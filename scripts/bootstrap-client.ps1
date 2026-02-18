@@ -419,8 +419,9 @@ if (-not $NoLayout) {
     $selectedTabs = @('lead', 'sales', 'call-center')
   }
 
+  $leadEnabled = ($selectedTabs -contains 'lead') -and $themeKey -ne 'belivert'
   $dashboards = @(
-    [ordered]@{ id = 'lead'; label = 'Leadgeneratie'; enabled = $selectedTabs -contains 'lead' },
+    [ordered]@{ id = 'lead'; label = 'Leadgeneratie'; enabled = $leadEnabled },
     [ordered]@{ id = 'sales'; label = 'Sales Resultaten'; enabled = $selectedTabs -contains 'sales' },
     [ordered]@{ id = 'call-center'; label = 'Call Center'; enabled = $selectedTabs -contains 'call-center' }
   )
@@ -705,7 +706,7 @@ select
         headers := jsonb_build_object('Content-Type', 'application/json'),
         body := jsonb_build_object(
           'lookback_months', 12,
-          'entities', array['users','contacts','companies','deal_pipelines','deal_phases','lost_reasons','deals','meetings']
+          'entities', array['users','contacts','companies','deal_pipelines','deal_phases','lost_reasons','deals','invoices','meetings']
         )
       ) as request_id;
     $$

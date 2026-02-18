@@ -134,6 +134,11 @@ const parseMoney = (value: Record<string, unknown> | null | undefined) => {
   return { amount, currency };
 };
 
+const isModuleAccessDeniedError = (error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return message.includes('Teamleader API 403') && message.includes('You have no access to this module');
+};
+
 class TeamleaderClient {
   private accessToken: string;
 
@@ -1197,37 +1202,45 @@ const syncInvoices = async (client: TeamleaderClient, locationId: string, cutoff
   const syncedAt = new Date().toISOString();
   const rows: Record<string, unknown>[] = [];
 
-  await paginateWithUpdatedSince<Record<string, unknown>>(client, '/invoices.list', {
-    filter: {
-      invoice_date_after: toDateString(cutoff)
-    }
-  }, sinceDate, sinceDateTime, async (items) => {
-    for (const item of items) {
-      const id = item.id as string | undefined;
-      if (!id) continue;
-      const totals = item.total as Record<string, unknown> | undefined;
-      const taxExclusive = parseMoney(totals?.tax_exclusive as Record<string, unknown> | undefined);
-      const taxInclusive = parseMoney(totals?.tax_inclusive as Record<string, unknown> | undefined);
-      const deal = item.deal as Record<string, unknown> | undefined;
+  try {
+    await paginateWithUpdatedSince<Record<string, unknown>>(client, '/invoices.list', {
+      filter: {
+        invoice_date_after: toDateString(cutoff)
+      }
+    }, sinceDate, sinceDateTime, async (items) => {
+      for (const item of items) {
+        const id = item.id as string | undefined;
+        if (!id) continue;
+        const totals = item.total as Record<string, unknown> | undefined;
+        const taxExclusive = parseMoney(totals?.tax_exclusive as Record<string, unknown> | undefined);
+        const taxInclusive = parseMoney(totals?.tax_inclusive as Record<string, unknown> | undefined);
+        const deal = item.deal as Record<string, unknown> | undefined;
 
-      rows.push({
-        id,
-        location_id: locationId,
-        deal_id: deal?.id ?? null,
-        status: item.status ?? null,
-        invoice_number: item.invoice_number ?? null,
-        invoice_date: item.invoice_date ?? null,
-        due_on: item.due_on ?? null,
-        total_tax_exclusive: taxExclusive.amount,
-        total_tax_inclusive: taxInclusive.amount,
-        currency: taxInclusive.currency ?? taxExclusive.currency,
-        created_at: item.created_at ?? null,
-        updated_at: item.updated_at ?? null,
-        raw_data: item,
-        synced_at: syncedAt
-      });
+        rows.push({
+          id,
+          location_id: locationId,
+          deal_id: deal?.id ?? null,
+          status: item.status ?? null,
+          invoice_number: item.invoice_number ?? null,
+          invoice_date: item.invoice_date ?? null,
+          due_on: item.due_on ?? null,
+          total_tax_exclusive: taxExclusive.amount,
+          total_tax_inclusive: taxInclusive.amount,
+          currency: taxInclusive.currency ?? taxExclusive.currency,
+          created_at: item.created_at ?? null,
+          updated_at: item.updated_at ?? null,
+          raw_data: item,
+          synced_at: syncedAt
+        });
+      }
+    });
+  } catch (error) {
+    if (isModuleAccessDeniedError(error)) {
+      console.warn(`[teamleader-sync] Invoices module not accessible for location ${locationId}; skipping invoice sync.`);
+      return;
     }
-  });
+    throw error;
+  }
 
   await upsertRows('teamleader_invoices', rows);
   await saveSyncState('teamleader_invoices', locationId, syncedAt);
@@ -1293,7 +1306,8 @@ const parseRequestConfig = async (req: Request) => {
     'deal_phases',
     'deal_sources',
     'lost_reasons',
-    'deals'
+    'deals',
+    'invoices'
   ];
 
   if (!rawEntities) {

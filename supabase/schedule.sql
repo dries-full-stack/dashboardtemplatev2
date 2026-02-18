@@ -27,7 +27,7 @@ select
         headers := jsonb_build_object('Content-Type', 'application/json'),
         body := jsonb_build_object(
           'lookback_months', 12,
-          'entities', array['users','contacts','companies','deal_pipelines','deal_phases','lost_reasons','deals','meetings']
+          'entities', array['users','contacts','companies','deal_pipelines','deal_phases','lost_reasons','deals','invoices','meetings']
         )
       ) as request_id;
     $$

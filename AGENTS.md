@@ -55,6 +55,9 @@ Wat het doet:
 - Health check (`/api/health-check`): controleert tables/RPC's en of sync data aanwezig is.
 - Cron install (`/api/cron-install`): roept RPC `setup_cron_jobs` aan (vereist migrations + `pg_cron` + `pg_net`).
 
+Belivert defaults:
+- Belivert is sales-only: de wizard genereert `dashboard_layout.dashboards` met `lead.enabled = false` wanneer `theme=belivert` gedetecteerd wordt (ook als Leadgeneratie aangevinkt staat).
+
 PowerShell vs Node runner:
 - Default runner is `scripts/bootstrap-client.ps1` (PowerShell).
 - Op machines zonder `pwsh` (Mac/Linux zonder PowerShell) valt de wizard automatisch terug op een Node runner.
@@ -99,6 +102,7 @@ Migrations:
 - Base schema: `supabase/migrations/20260204160000_base.sql` (o.a. `dashboard_config` singleton row `id=1`).
 - Billing tables: `supabase/migrations/20260207170000_billing_subscription_tracking.sql` (o.a. `billing_customers`).
 - Cron RPC's: `supabase/migrations/20260209153000_cron_jobs_rpc.sql` (RPC `setup_cron_jobs`, `cron_health`).
+- Cron RPC invoices patch: `supabase/migrations/20260218170000_cron_jobs_rpc_include_teamleader_invoices.sql` (voegt `invoices` toe aan Teamleader cron entities in `setup_cron_jobs`).
 - Security hardening (RLS/auth): `supabase/migrations/20260215170000_security_hardening_auth_rls.sql` (verwijdert anon "customer mode", vereist dashboard login).
 - Dashboard access allowlist (RLS): `supabase/migrations/20260215180000_dashboard_access_allowlist.sql` (voegt allowlist toe zodat "authenticated" niet genoeg is als signups aan staan).
 - Teamleader deals close-date index: `supabase/migrations/20260217120000_teamleader_deals_closed_at_index.sql` (index op `closed_at` voor filtering op gewonnen/verloren deals).
@@ -112,6 +116,7 @@ Scheduling:
 - `supabase/schedule.sql` bevat placeholders; vervang `PROJECT_REF`.
 - `clients/<slug>/schedule.sql` wordt door onboarding gegenereerd met de juiste `PROJECT_REF`.
 - Aanbevolen: gebruik RPC `setup_cron_jobs` via onboarding (`/api/cron-install`) om consistent schedules te krijgen.
+- Teamleader schedules gebruiken standaard entities inclusief `invoices` (naast deals/contacten/meetings), zodat factuur-KPI's gevuld blijven.
 - Als je `SYNC_SECRET`/`META_SYNC_SECRET` gebruikt en je runt handmatig `schedule.sql`: voeg `x-sync-secret` toe aan de `net.http_post(... headers := ...)` calls (of gebruik `setup_cron_jobs`).
 
 ## Core Data Model (High Level)
@@ -186,6 +191,8 @@ Layout/branding aanpassen (zonder code changes):
 - Sales dashboard: afspraken tonen `--`: `teamleader_deals.had_appointment_phase` is nog niet gedeployed (migraties ontbreken). Oplossing: `supabase db push` + (optioneel) trigger `teamleader-sync` voor deals.
 - Sales dashboard: afspraken tonen `123+ (nog X)`: `had_appointment_phase` is `NULL` voor sommige deals terwijl phase history nog bezig is (sync/backfill). Oplossing: wacht of trigger `teamleader-sync` (deals reconcile) zodat `/deals.info` markers gevuld worden.
 - Sales dashboard: cyclustijden lijken "te snel" of "te traag": check of marker columns `appointment_phase_first_started_at` en `quote_phase_first_started_at` bestaan en gevuld worden (migraties + sync). Zonder markers wordt er gefallbackt op `created_at`/`updated_at`.
+- Sales dashboard: factuur-omzet blijft leeg ondanks correcte Teamleader OAuth scopes: Teamleader sync draaide zonder `invoices` in de `entities` payload (oude cron/schedule defaults). Oplossing: `supabase db push` (migratie `20260218170000_cron_jobs_rpc_include_teamleader_invoices.sql`), run daarna opnieuw `Cron install` en trigger één manuele `teamleader-sync` met `entities=invoices`.
+- Sales dashboard: Teamleader invoice sync geeft `403 You have no access to this module` ondanks `invoices` scope in `teamleader_integrations`: de geautoriseerde Teamleader user/account mist module-rechten op Facturen. Oplossing: autoriseer opnieuw met een Teamleader user die toegang heeft tot de Invoices module (of activeer die module/rechten), en trigger daarna opnieuw `teamleader-sync` met `entities=invoices`.
 
 ## Timezones / Off-by-One
 
@@ -214,7 +221,8 @@ Layout/branding aanpassen (zonder code changes):
 Waar komen de cijfers vandaan?
 - Basis: `public.teamleader_deals` (Teamleader Focus deals).
 - Funnel/ratio/cyclustijden + "avg deal value" zijn deal-based (`teamleader_deals.*`).
-- **Behaalde omzet** KPI's + maandtabel zijn invoice-based: `public.teamleader_invoices` (`invoice_date`, `total_tax_exclusive`).
+- **Behaalde omzet** KPI's + maandtabel zijn standaard invoice-based: `public.teamleader_invoices` (`invoice_date`, `total_tax_exclusive`).
+- Tijdelijke Belivert fallback: als factuurmodule/sync niet bruikbaar is, worden omzet-KPI's en maandtabel berekend op gewonnen/goedgekeurde offertes (`public.teamleader_deals.estimated_value`) met hetzelfde service-exclusie keywordfilter.
 - Sales vs service split gebeurt via `dashboard_config.sales_excluded_deal_keywords` (match op `teamleader_deals.title` via gekoppelde `deal_id` in de factuur).
 - Breakdown rules (optioneel, Belivert):
   - `dashboard_config.sales_product_category_rules` (match op `teamleader_deals.title`)

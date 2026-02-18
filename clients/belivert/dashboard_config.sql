@@ -24,11 +24,6 @@ values (
 {
     "dashboards":  [
                        {
-                           "id":  "lead",
-                           "label":  "Leadgeneratie",
-                           "enabled":  false
-                       },
-                       {
                            "id":  "sales",
                            "label":  "Sales Resultaten",
                            "enabled":  true

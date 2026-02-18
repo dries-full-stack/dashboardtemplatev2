@@ -794,8 +794,9 @@ const buildDashboardLayout = (payload, themeKey, brandPrimaryValue, brandSeconda
     .filter(Boolean);
 
   const enabledTabs = selectedTabs.length ? selectedTabs : ['lead', 'sales', 'call-center'];
+  const leadEnabled = enabledTabs.includes('lead') && themeKey !== 'belivert';
   const dashboards = [
-    { id: 'lead', label: 'Leadgeneratie', enabled: enabledTabs.includes('lead') },
+    { id: 'lead', label: 'Leadgeneratie', enabled: leadEnabled },
     { id: 'sales', label: 'Sales Resultaten', enabled: enabledTabs.includes('sales') },
     { id: 'call-center', label: 'Call Center', enabled: enabledTabs.includes('call-center') }
   ];
@@ -980,7 +981,7 @@ select
         headers := jsonb_build_object('Content-Type', 'application/json'),
         body := jsonb_build_object(
           'lookback_months', 12,
-          'entities', array['users','contacts','companies','deal_pipelines','deal_phases','lost_reasons','deals','meetings']
+          'entities', array['users','contacts','companies','deal_pipelines','deal_phases','lost_reasons','deals','invoices','meetings']
         )
       ) as request_id;
     $$
