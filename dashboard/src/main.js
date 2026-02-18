@@ -862,6 +862,7 @@ const writeCachedSalesDateField = (value) => {
 
 let metricsDebugModeEnabled = readCachedMetricsDebugMode();
 let salesDateField = readCachedSalesDateField();
+let salesInvoiceYearFilter = null;
 let metricsComputationVersion = 0;
 const isMetricsDebugModeEnabled = () => metricsDebugModeEnabled;
 const bumpMetricsComputationVersion = () => {
@@ -7111,7 +7112,10 @@ const buildSalesMetrics = (
     return parseDate(deal?.closed_at) || parseDate(deal?.updated_at);
   };
   const getDealRangeDate = (deal) => {
-    if (effectiveDealDateField === 'closed_at') return getDealCloseDate(deal);
+    if (effectiveDealDateField === 'closed_at') {
+      // Keep pending/open trajectories visible in close-date mode by falling back to trajectory start.
+      return getDealCloseDate(deal) || parseDate(deal?.created_at);
+    }
     return parseDate(deal?.created_at);
   };
   const monthBuckets = buildMonthBuckets(range.start, range.end);
@@ -7307,7 +7311,8 @@ const buildSalesMetrics = (
 	  const toSalesRecord = (deal) => {
 	    const createdAt = parseDate(deal.created_at);
 	    if (!createdAt) return null;
-	    const occurredAt = effectiveDealDateField === 'closed_at' ? getDealCloseDate(deal) : createdAt;
+	    const occurredAt =
+	      effectiveDealDateField === 'closed_at' ? getDealCloseDate(deal) || createdAt : createdAt;
 	    if (!occurredAt) return null;
 
     const status = normalizeStatus(deal.status);
@@ -7919,11 +7924,11 @@ const buildFunnelMarkup = (funnel) => {
   `;
 };
 
-const buildSalesInvoiceMonthlyRows = (rows) => {
+const buildSalesInvoiceMonthlyRows = (rows, emptyText = 'Geen facturen gevonden.') => {
   if (!Array.isArray(rows) || rows.length === 0) {
     return `
       <tr class="border-b">
-        <td colspan="4" class="p-4 text-sm text-muted-foreground">Geen facturen gevonden.</td>
+        <td colspan="3" class="p-4 text-sm text-muted-foreground">${escapeHtml(emptyText)}</td>
       </tr>
     `;
   }
@@ -7933,16 +7938,13 @@ const buildSalesInvoiceMonthlyRows = (rows) => {
       const month = escapeHtml(String(row?.label ?? row?.key ?? '--'));
       const salesValue = Number(row?.sales);
       const totalValue = Number(row?.total);
-      const compareValue = Number(row?.compareTotal);
       const sales = Number.isFinite(salesValue) ? formatCurrency(salesValue, 0) : '--';
       const total = Number.isFinite(totalValue) ? formatCurrency(totalValue, 0) : '--';
-      const compare = Number.isFinite(compareValue) ? formatCurrency(compareValue, 0) : '--';
       return `
         <tr class="border-b transition-colors data-[state=selected]:bg-muted hover:bg-muted/50">
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 font-medium">${month}</td>
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${sales}</td>
           <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right">${total}</td>
-          <td class="p-4 align-middle [&:has([role=checkbox])]:pr-0 text-right text-muted-foreground">${compare}</td>
         </tr>
       `;
     })
@@ -8002,7 +8004,12 @@ const buildSalesLeadBreakdownRows = (rows) => {
     .join('');
 };
 
-const buildSalesRevenueBreakdownRows = (rows, emptyText = 'Geen data.') => {
+const buildSalesRevenueBreakdownRows = (rows, emptyText = 'Geen data.', options = {}) => {
+  const dimensionKey = String(options?.dimension || '')
+    .trim()
+    .toLowerCase();
+  const dimension = dimensionKey === 'category' || dimensionKey === 'region' ? dimensionKey : '';
+
   if (!Array.isArray(rows) || rows.length === 0) {
     return `
       <tr class="border-b">
@@ -8011,13 +8018,29 @@ const buildSalesRevenueBreakdownRows = (rows, emptyText = 'Geen data.') => {
     `;
   }
 
+  const buildDrillValue = (rawLabel, numericValue, scopeKey) => {
+    if (!Number.isFinite(numericValue)) return '--';
+    const formatted = formatCurrency(numericValue, 0);
+    if (!dimension || !rawLabel || numericValue === 0) return formatted;
+    const labelSafe = escapeHtml(rawLabel);
+    return `<span
+      data-sales-drill="all"
+      data-sales-drill-label="${escapeHtml(`Facturen (${scopeKey === 'sales' ? 'sales' : 'totaal'}) - ${rawLabel}`)}"
+      data-sales-record-source="invoice"
+      data-sales-breakdown-dimension="${escapeHtml(dimension)}"
+      data-sales-breakdown-label="${labelSafe}"
+      data-sales-scope="${escapeHtml(scopeKey)}"
+    >${formatted}</span>`;
+  };
+
   return rows
     .map((row) => {
-      const label = escapeHtml(String(row?.label ?? 'Onbekend'));
+      const rawLabel = normalizeSalesRuleLabel(row?.label) || 'Onbekend';
+      const label = escapeHtml(rawLabel);
       const salesValue = Number(row?.sales);
       const totalValue = Number(row?.total);
-      const sales = Number.isFinite(salesValue) ? formatCurrency(salesValue, 0) : '--';
-      const total = Number.isFinite(totalValue) ? formatCurrency(totalValue, 0) : '--';
+      const sales = buildDrillValue(rawLabel, salesValue, 'sales');
+      const total = buildDrillValue(rawLabel, totalValue, 'total');
       return `
         <tr class="border-b last:border-0">
           <td class="py-2 text-sm text-foreground">${label}</td>
@@ -8027,6 +8050,86 @@ const buildSalesRevenueBreakdownRows = (rows, emptyText = 'Geen data.') => {
       `;
     })
     .join('');
+};
+
+const escapeCsvCell = (value) => {
+  const raw = String(value ?? '');
+  if (!raw) return '';
+  if (/["\n,]/.test(raw)) {
+    return `"${raw.replace(/"/g, '""')}"`;
+  }
+  return raw;
+};
+
+const buildCsv = (headers, rows) => {
+  const safeHeaders = Array.isArray(headers) ? headers : [];
+  const safeRows = Array.isArray(rows) ? rows : [];
+  const headerLine = safeHeaders.map((header) => escapeCsvCell(header)).join(',');
+  const bodyLines = safeRows.map((row) =>
+    safeHeaders.map((header) => escapeCsvCell(row?.[header])).join(',')
+  );
+  return [headerLine, ...bodyLines].join('\r\n');
+};
+
+const downloadCsv = (filename, csvContent) => {
+  const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+};
+
+const updateOverigExportUi = (overigRows) => {
+  const rows = Array.isArray(overigRows) ? overigRows : [];
+  const button = document.querySelector('[data-sales-overig-export]');
+  const hint = document.querySelector('[data-sales-overig-export-hint]');
+  const count = rows.length;
+  const omzet = rows.reduce((sum, row) => sum + (Number(row?.omzet_excl_btw) || 0), 0);
+
+  if (button) {
+    button.disabled = count === 0;
+    button.title =
+      count > 0
+        ? `Exporteer ${formatNumber(count)} Overig deals naar CSV voor Google Sheets.`
+        : 'Geen Overig deals in de geselecteerde periode.';
+  }
+
+  if (hint) {
+    hint.textContent =
+      count > 0
+        ? `${formatNumber(count)} Overig deals (${formatCurrency(
+            omzet,
+            0
+          )}) gevonden. Exporteer en vul kolom "productcategorie" in Google Sheets.`
+        : 'Geen Overig deals in de geselecteerde periode.';
+  }
+};
+
+const exportOverigProductCategoryCsv = () => {
+  const rows = Array.isArray(salesState.data?.overigExportRows) ? salesState.data.overigExportRows : [];
+  if (!rows.length) return;
+
+  const headers = [
+    'deal_id',
+    'deal_titel',
+    'klant',
+    'verkoper',
+    'laatste_factuurdatum',
+    'facturen_aantal',
+    'omzet_excl_btw',
+    'huidige_categorie',
+    'regio',
+    'productcategorie'
+  ];
+  const csv = buildCsv(headers, rows);
+  const from = String(dateRange?.start || '').replace(/[^0-9-]/g, '');
+  const to = String(dateRange?.end || '').replace(/[^0-9-]/g, '');
+  const filename = `belivert-overig-productcategorie-${from}_tot_${to}.csv`;
+  downloadCsv(filename, csv);
 };
 
 const buildSellerRows = (sellers, options = {}) => {
@@ -8450,16 +8553,35 @@ const getSalesRecordsForFilter = (records, filter, options = {}) => {
     rows = rows.filter((record) => normalizeSalesKey(record.loss_reason) === target);
   }
 
+  const scope = normalizeSalesKey(options.scope);
+  if (scope === 'sales') {
+    rows = rows.filter((record) => record?.is_sales_deal === true);
+  }
+
+  const breakdownDimension = normalizeSalesKey(options.breakdownDimension);
+  const breakdownLabel = normalizeSalesKey(options.breakdownLabel);
+  if (breakdownLabel) {
+    if (breakdownDimension === 'category') {
+      rows = rows.filter((record) => normalizeSalesKey(record?.product_category) === breakdownLabel);
+    } else if (breakdownDimension === 'region') {
+      rows = rows.filter((record) => normalizeSalesKey(record?.sales_region) === breakdownLabel);
+    }
+  }
+
   return rows;
 };
 
 const openSalesDrilldownByFilter = (filter, options = {}) => {
-  if (!salesState.data?.records) return;
+  if (!salesState.data) return;
   const effectiveFilter = filter || 'all';
+  const useInvoiceRecords = normalizeSalesKey(options.recordSource) === 'invoice';
   const sourceRows =
-    options.bundleKey && Array.isArray(salesState.data.detailRecords)
+    useInvoiceRecords && Array.isArray(salesState.data.invoiceRecords)
+      ? salesState.data.invoiceRecords
+      : options.bundleKey && Array.isArray(salesState.data.detailRecords)
       ? salesState.data.detailRecords
       : salesState.data.records;
+  if (!Array.isArray(sourceRows)) return;
   const rows = getSalesRecordsForFilter(sourceRows, effectiveFilter, options);
 
   let title = options.label || SALES_FILTER_LABELS[effectiveFilter] || 'Deals';
@@ -8469,6 +8591,14 @@ const openSalesDrilldownByFilter = (filter, options = {}) => {
     title = `Deals - ${options.sellerName}`;
   } else if (options.lossReason) {
     title = `Verliesreden - ${options.lossReason}`;
+  } else if (options.breakdownLabel) {
+    const breakdownDimension = normalizeSalesKey(options.breakdownDimension);
+    const scope = normalizeSalesKey(options.scope) === 'sales' ? 'Sales' : 'Totaal';
+    if (breakdownDimension === 'region') {
+      title = `Regio - ${options.breakdownLabel} (${scope})`;
+    } else {
+      title = `Productcategorie - ${options.breakdownLabel} (${scope})`;
+    }
   }
 
   drilldownState.open = true;
@@ -8505,7 +8635,11 @@ const bindSalesClicks = () => {
           recordId: element.getAttribute('data-sales-record-id'),
           recordLabel: element.getAttribute('data-sales-record-label'),
           bundleKey: element.getAttribute('data-sales-bundle-key'),
-          lossReason: element.getAttribute('data-sales-loss-reason')
+          lossReason: element.getAttribute('data-sales-loss-reason'),
+          recordSource: element.getAttribute('data-sales-record-source'),
+          breakdownDimension: element.getAttribute('data-sales-breakdown-dimension'),
+          breakdownLabel: element.getAttribute('data-sales-breakdown-label'),
+          scope: element.getAttribute('data-sales-scope')
         });
         return;
       }
@@ -8548,6 +8682,55 @@ const applySalesData = (data) => {
   setKpi('open_total_value', data.totals.openValue ? `${formatCurrency(data.totals.openValue, 0)} totaal` : '--');
 
   const invoice = data?.invoice && typeof data.invoice === 'object' ? data.invoice : {};
+  const invoiceSourceMode = normalizeSalesKey(invoice.sourceMode) === 'won_deals' ? 'won_deals' : 'invoice';
+  const usingWonDealsFallback = invoiceSourceMode === 'won_deals';
+  const invoiceSourceBadgeLabel = usingWonDealsFallback ? 'Goedgekeurde offertes' : 'Facturen';
+  const invoiceSalesLabel = usingWonDealsFallback ? 'Behaalde Omzet (Sales, proxy)' : 'Behaalde Omzet (Sales)';
+  const invoiceSalesSubtext = usingWonDealsFallback
+    ? 'Goedgekeurde offertes excl. service'
+    : 'Facturen excl. service';
+  const invoiceTotalSubtext = usingWonDealsFallback
+    ? 'Goedgekeurde offertes incl. service'
+    : 'Facturen incl. service';
+  const invoiceMonthlyTitle = usingWonDealsFallback
+    ? 'Omzet per maand (Goedgekeurde offertes)'
+    : 'Omzet per maand (Facturen)';
+  const invoiceMonthlyDescription = usingWonDealsFallback
+    ? 'Fallback actief: geen Teamleader facturen in periode, daarom op basis van goedgekeurde offertes (estimated_value).'
+    : 'Behaald = Teamleader facturen (invoice_date).';
+  const invoiceSalesInfoText = usingWonDealsFallback
+    ? 'Behaalde omzet op basis van goedgekeurde Teamleader deals (estimated_value), exclusief service-werken (filter op uitgesloten deal keywords).'
+    : 'Behaalde omzet op basis van Teamleader facturen (excl. BTW), exclusief service-werken (filter op uitgesloten deal keywords).';
+  const invoiceTotalInfoText = usingWonDealsFallback
+    ? 'Behaalde omzet op basis van goedgekeurde Teamleader deals (estimated_value), inclusief service-werken.'
+    : 'Behaalde omzet op basis van Teamleader facturen (excl. BTW), inclusief service-werken.';
+
+  const invoiceSalesLabelEl = document.querySelector('[data-sales-invoice-sales-label]');
+  if (invoiceSalesLabelEl) invoiceSalesLabelEl.textContent = invoiceSalesLabel;
+  const invoiceSalesSubtextEl = document.querySelector('[data-sales-invoice-sales-subtext]');
+  if (invoiceSalesSubtextEl) invoiceSalesSubtextEl.textContent = invoiceSalesSubtext;
+  const invoiceTotalSubtextEl = document.querySelector('[data-sales-invoice-total-subtext]');
+  if (invoiceTotalSubtextEl) invoiceTotalSubtextEl.textContent = invoiceTotalSubtext;
+  const invoiceMonthlyTitleEl = document.querySelector('[data-sales-monthly-revenue-title]');
+  if (invoiceMonthlyTitleEl) invoiceMonthlyTitleEl.textContent = invoiceMonthlyTitle;
+  const invoiceMonthlyDescriptionEl = document.querySelector('[data-sales-monthly-revenue-description]');
+  if (invoiceMonthlyDescriptionEl) invoiceMonthlyDescriptionEl.textContent = invoiceMonthlyDescription;
+  const invoiceSourceBadgeEl = document.querySelector('[data-sales-revenue-source-badge]');
+  if (invoiceSourceBadgeEl) invoiceSourceBadgeEl.textContent = invoiceSourceBadgeLabel;
+
+  const invoiceSalesInfoEl = document.querySelector('[data-sales-invoice-sales-info]');
+  if (invoiceSalesInfoEl) {
+    invoiceSalesInfoEl.setAttribute('data-metric-info-text', invoiceSalesInfoText);
+    invoiceSalesInfoEl.setAttribute('aria-label', invoiceSalesInfoText);
+    invoiceSalesInfoEl.setAttribute('title', invoiceSalesInfoText);
+  }
+  const invoiceTotalInfoEl = document.querySelector('[data-sales-invoice-total-info]');
+  if (invoiceTotalInfoEl) {
+    invoiceTotalInfoEl.setAttribute('data-metric-info-text', invoiceTotalInfoText);
+    invoiceTotalInfoEl.setAttribute('aria-label', invoiceTotalInfoText);
+    invoiceTotalInfoEl.setAttribute('title', invoiceTotalInfoText);
+  }
+
   setKpi(
     'invoice_revenue_sales',
     Number.isFinite(Number(invoice.revenueSales)) ? formatCurrency(Number(invoice.revenueSales), 0) : '--'
@@ -8557,10 +8740,75 @@ const applySalesData = (data) => {
     Number.isFinite(Number(invoice.revenueTotal)) ? formatCurrency(Number(invoice.revenueTotal), 0) : '--'
   );
 
-  const invoiceMonthlyRows = Array.isArray(invoice.monthly) ? invoice.monthly : [];
+  const invoiceMonthlyRowsAll = Array.isArray(invoice.monthly) ? invoice.monthly : [];
+  const parseMonthlyYear = (row) => {
+    const monthKey = toTrimmedText(row?.key);
+    if (!monthKey) return null;
+    const year = Number(monthKey.slice(0, 4));
+    return Number.isFinite(year) ? year : null;
+  };
+  const availableInvoiceYears = Array.from(
+    new Set(invoiceMonthlyRowsAll.map((row) => parseMonthlyYear(row)).filter((year) => Number.isFinite(year)))
+  ).sort((a, b) => b - a);
+  const fallbackInvoiceYear = Number(String(dateRange?.end || '').slice(0, 4)) || new Date().getFullYear();
+  if (!availableInvoiceYears.length) availableInvoiceYears.push(fallbackInvoiceYear);
+  if (
+    !Number.isFinite(Number(salesInvoiceYearFilter)) ||
+    !availableInvoiceYears.includes(Number(salesInvoiceYearFilter))
+  ) {
+    salesInvoiceYearFilter = availableInvoiceYears[0];
+  }
+  const selectedInvoiceYear = Number(salesInvoiceYearFilter);
+  const currentMonthKey = String(getTodayYmd(dashboardTimeZone) || '').slice(0, 7);
+  const invoiceMonthlyRows = invoiceMonthlyRowsAll.filter((row) => {
+    if (parseMonthlyYear(row) !== selectedInvoiceYear) return false;
+    const monthKey = toTrimmedText(row?.key);
+    if (!monthKey || !currentMonthKey) return true;
+    // Hide months that have not occurred yet.
+    return monthKey <= currentMonthKey;
+  });
+  const invoiceYearSelect = document.querySelector('[data-sales-invoice-year-select]');
+  if (invoiceYearSelect) {
+    invoiceYearSelect.innerHTML = availableInvoiceYears
+      .map(
+        (year) =>
+          `<option value="${escapeHtml(String(year))}"${year === selectedInvoiceYear ? ' selected' : ''}>${escapeHtml(
+            String(year)
+          )}</option>`
+      )
+      .join('');
+    invoiceYearSelect.value = String(selectedInvoiceYear);
+  }
+  const invoiceYearNote = document.querySelector('[data-sales-invoice-year-note]');
+  if (invoiceYearNote) {
+    const hasRowsForSelectedYear = invoiceMonthlyRows.some((row) => {
+      const total = Number(row?.total);
+      const sales = Number(row?.sales);
+      return total !== 0 || sales !== 0;
+    });
+    if (!hasRowsForSelectedYear) {
+      const note =
+        invoiceMonthlyRowsAll.length > 0
+          ? `Geen omzetgegevens voor ${selectedInvoiceYear}.`
+          : usingWonDealsFallback
+            ? 'Geen goedgekeurde offertes gevonden.'
+            : 'Geen facturen gevonden.';
+      invoiceYearNote.textContent = note;
+      invoiceYearNote.classList.remove('hidden');
+    } else {
+      invoiceYearNote.textContent = '';
+      invoiceYearNote.classList.add('hidden');
+    }
+  }
   const invoiceMonthlyTable = document.querySelector('[data-sales-invoice-monthly-rows]');
   if (invoiceMonthlyTable) {
-    invoiceMonthlyTable.innerHTML = buildSalesInvoiceMonthlyRows(invoiceMonthlyRows);
+    const invoiceMonthlyEmptyText =
+      invoiceMonthlyRowsAll.length > 0
+        ? `Geen omzetgegevens voor ${selectedInvoiceYear}.`
+        : usingWonDealsFallback
+          ? 'Geen goedgekeurde offertes gevonden.'
+          : 'Geen facturen gevonden.';
+    invoiceMonthlyTable.innerHTML = buildSalesInvoiceMonthlyRows(invoiceMonthlyRows, invoiceMonthlyEmptyText);
   }
 
   const leads = data?.leads && typeof data.leads === 'object' ? data.leads : {};
@@ -8591,16 +8839,19 @@ const applySalesData = (data) => {
   if (categoryTable) {
     categoryTable.innerHTML = buildSalesRevenueBreakdownRows(
       Array.isArray(breakdowns.categories) ? breakdowns.categories : [],
-      'Geen categorie-mapping ingesteld.'
+      'Geen categorie-mapping ingesteld.',
+      { dimension: 'category' }
     );
   }
   const regionTable = document.querySelector('[data-sales-region-rows]');
   if (regionTable) {
     regionTable.innerHTML = buildSalesRevenueBreakdownRows(
       Array.isArray(breakdowns.regions) ? breakdowns.regions : [],
-      'Geen regio-mapping ingesteld.'
+      'Geen regio-mapping ingesteld.',
+      { dimension: 'region' }
     );
   }
+  updateOverigExportUi(data?.overigExportRows);
 
   setKpi('deals_this_month', formatNumber(data.target.current));
   setKpi('deals_target', formatNumber(data.target.target));
@@ -8705,7 +8956,11 @@ const applySalesData = (data) => {
   }
 
   setKpi('summary_won_deals', formatNumber(data.summary.wonDeals));
-  setKpi('summary_revenue', data.summary.revenue ? formatCurrency(data.summary.revenue, 0) : '--');
+  const summaryRevenueTotal =
+    Number.isFinite(Number(invoice.revenueTotal)) && Number(invoice.revenueTotal) >= 0
+      ? Number(invoice.revenueTotal)
+      : Number(data.summary?.revenue);
+  setKpi('summary_revenue', Number.isFinite(summaryRevenueTotal) ? formatCurrency(summaryRevenueTotal, 0) : '--');
   setKpi('summary_conversion', formatPercent(data.summary.conversion, 1));
   setKpi('summary_cycle', data.summary.avgCycleDays ? `${formatNumber(data.summary.avgCycleDays, 1)} d` : '--');
 
@@ -8732,6 +8987,18 @@ const renderSalesDateControls = () => {
       button.classList.toggle('text-muted-foreground', !active);
       button.setAttribute('aria-pressed', active ? 'true' : 'false');
     });
+  }
+
+  const modeHint = controls.querySelector('[data-sales-date-mode-hint]');
+  if (modeHint) {
+    if (salesDateField === 'closed_at') {
+      modeHint.textContent =
+        'Afsluitdatum actief: hangende offertes worden meegenomen op trajectstart (created_at).';
+      modeHint.classList.remove('hidden');
+    } else {
+      modeHint.textContent = '';
+      modeHint.classList.add('hidden');
+    }
   }
 
   const quickRangeControls = controls.querySelector('[data-quick-range-controls]');
@@ -8943,14 +9210,19 @@ const ensureSalesData = async () => {
           .lte('invoice_date', endDate)
           .order('invoice_date', { ascending: true })
           .order('id', { ascending: true });
-      const compareSpendStart = shiftYmdByYears(spendStart, -3);
-      const compareSpendEnd = shiftYmdByYears(spendEnd, -3);
+      const buildInvoicesAllQuery = () => () =>
+        supabase
+          .from('teamleader_invoices')
+          .select(invoicesSelect)
+          .eq('location_id', activeLocationId)
+          .order('invoice_date', { ascending: true })
+          .order('id', { ascending: true });
       const invoicesPromise = fetchAllRows(buildInvoicesQuery(spendStart, spendEnd)).catch((error) => {
         console.warn('Unable to load Teamleader invoices for omzet KPIs', error);
         return [];
       });
-      const invoicesComparePromise = fetchAllRows(buildInvoicesQuery(compareSpendStart, compareSpendEnd)).catch((error) => {
-        console.warn('Unable to load Teamleader invoices (3j terug) for omzet KPIs', error);
+      const allInvoicesPromise = fetchAllRows(buildInvoicesAllQuery()).catch((error) => {
+        console.warn('Unable to load Teamleader invoices for monthly overzicht', error);
         return [];
       });
       const currentMonthInvoicesPromise = fetchAllRows(
@@ -8976,7 +9248,7 @@ const ensureSalesData = async () => {
         return [];
       });
 
-      const [
+      let [
         deals,
         currentMonthDeals,
         users,
@@ -8987,7 +9259,7 @@ const ensureSalesData = async () => {
         spendRows,
         lostReasonsLookup,
         invoices,
-        compareInvoices,
+        allInvoices,
         currentMonthInvoices,
         opportunities
       ] = await Promise.all([
@@ -9035,12 +9307,56 @@ const ensureSalesData = async () => {
             return data || [];
           }),
         invoicesPromise,
-        invoicesComparePromise,
+        allInvoicesPromise,
         currentMonthInvoicesPromise,
         opportunitiesPromise
       ]);
 
     if (requestVersion !== metricsComputationVersion) return;
+
+    if (salesDateField === 'closed_at') {
+      const isOpenStatusDeal = (deal) => {
+        const status = normalizeStatus(deal?.status);
+        return status && !isWonStatus(status) && !isLostStatus(status);
+      };
+      const mergeDealsById = (baseRows, extraRows) => {
+        const merged = new Map();
+        (Array.isArray(baseRows) ? baseRows : []).forEach((deal) => {
+          const id = toTrimmedText(deal?.id);
+          if (!id) return;
+          merged.set(id, deal);
+        });
+        (Array.isArray(extraRows) ? extraRows : []).forEach((deal) => {
+          const id = toTrimmedText(deal?.id);
+          if (!id || merged.has(id)) return;
+          if (!isOpenStatusDeal(deal)) return;
+          merged.set(id, deal);
+        });
+        return Array.from(merged.values());
+      };
+
+      const buildOpenDealsByCreatedRangeQuery = (start, endExclusive) => () =>
+        supabase
+          .from('teamleader_deals')
+          .select(dealsSelectBase)
+          .eq('location_id', activeLocationId)
+          .gte('created_at', start)
+          .lt('created_at', endExclusive)
+          .order('created_at', { ascending: true })
+          .order('id', { ascending: true });
+
+      try {
+        const [openDealsInRange, openDealsCurrentMonth] = await Promise.all([
+          fetchAllRows(buildOpenDealsByCreatedRangeQuery(startIso, endExclusiveIso)),
+          fetchAllRows(buildOpenDealsByCreatedRangeQuery(currentMonthStartIso, currentMonthEndIso))
+        ]);
+        if (requestVersion !== metricsComputationVersion) return;
+        deals = mergeDealsById(deals, openDealsInRange);
+        currentMonthDeals = mergeDealsById(currentMonthDeals, openDealsCurrentMonth);
+      } catch (error) {
+        console.warn('Unable to include open Teamleader deals by created_at for close-date mode', error);
+      }
+    }
 
     const debugMode = isMetricsDebugModeEnabled();
     const effectiveSalesMonthlyDealsTarget = debugMode ? null : configState.salesMonthlyDealsTarget;
@@ -9166,6 +9482,10 @@ const ensureSalesData = async () => {
         const dealId = toTrimmedText(invoice?.deal_id);
         if (dealId) invoiceDealIds.add(dealId);
       });
+      (Array.isArray(allInvoices) ? allInvoices : []).forEach((invoice) => {
+        const dealId = toTrimmedText(invoice?.deal_id);
+        if (dealId) invoiceDealIds.add(dealId);
+      });
       const missingDealIds = Array.from(invoiceDealIds).filter((dealId) => dealId && !dealsById.has(dealId));
       if (missingDealIds.length) {
         const chunkSize = 200;
@@ -9210,6 +9530,12 @@ const ensureSalesData = async () => {
           status.includes('void')
         );
       };
+      const includedInvoices = (Array.isArray(invoices) ? invoices : []).filter((invoice) => {
+        if (!isIncludedInvoice(invoice)) return false;
+        const amount = pickInvoiceAmount(invoice);
+        return Number.isFinite(amount);
+      });
+      const useInvoiceRevenue = includedInvoices.length > 0;
       const bumpInvoiceMap = (map, monthKey, amount) => {
         if (!monthKey) return;
         map.set(monthKey, (map.get(monthKey) || 0) + amount);
@@ -9326,10 +9652,7 @@ const ensureSalesData = async () => {
       if (shouldComputeRegions) {
         const neededContactIds = new Set();
         const neededCompanyIds = new Set();
-        (Array.isArray(invoices) ? invoices : []).forEach((invoice) => {
-          if (!isIncludedInvoice(invoice)) return;
-          const dealId = toTrimmedText(invoice?.deal_id);
-          const deal = dealId ? dealsById.get(dealId) : null;
+        const collectCustomerFromDeal = (deal) => {
           if (!deal) return;
           const customerType = String(deal?.customer_type ?? '').trim().toLowerCase();
           const customerId = toTrimmedText(deal?.customer_id);
@@ -9339,7 +9662,22 @@ const ensureSalesData = async () => {
           } else if (customerType === 'company') {
             neededCompanyIds.add(customerId);
           }
-        });
+        };
+        if (useInvoiceRevenue) {
+          (Array.isArray(invoices) ? invoices : []).forEach((invoice) => {
+            if (!isIncludedInvoice(invoice)) return;
+            const dealId = toTrimmedText(invoice?.deal_id);
+            const deal = dealId ? dealsById.get(dealId) : null;
+            collectCustomerFromDeal(deal);
+          });
+        } else {
+          (Array.isArray(deals) ? deals : []).forEach((deal) => {
+            if (!isQuoteDeal(deal)) return;
+            const status = normalizeStatus(deal?.status);
+            if (!isWonStatus(status)) return;
+            collectCustomerFromDeal(deal);
+          });
+        }
 
         const fetchRawByIds = async (tableName, ids, targetMap) => {
           if (!ids.length) return;
@@ -9396,42 +9734,245 @@ const ensureSalesData = async () => {
 
       const categoryRevenueByLabel = shouldComputeCategories ? new Map() : null;
       const regionRevenueByLabel = shouldComputeRegions ? new Map() : null;
+      const overigDealExports = new Map();
+      const invoiceRecords = [];
+      const overigCategoryKey = normalizeSalesKey(DEFAULT_PRODUCT_CATEGORY);
+      const companyById = new Map(
+        (Array.isArray(companies) ? companies : [])
+          .map((company) => {
+            const id = toTrimmedText(company?.id);
+            if (!id) return null;
+            return [id, { name: toTrimmedText(company?.name) || 'Onbekend', email: toTrimmedText(company?.email) }];
+          })
+          .filter(Boolean)
+      );
+      const contactById = new Map(
+        (Array.isArray(contacts) ? contacts : [])
+          .map((contact) => {
+            const id = toTrimmedText(contact?.id);
+            if (!id) return null;
+            const email = toTrimmedText(contact?.email);
+            const phone = toTrimmedText(contact?.phone);
+            return [
+              id,
+              {
+                name:
+                  formatFullName(
+                    toTrimmedText(contact?.first_name),
+                    toTrimmedText(contact?.last_name),
+                    email || phone || 'Onbekend'
+                  ) || 'Onbekend',
+                email
+              }
+            ];
+          })
+          .filter(Boolean)
+      );
+      const sellerNameById = new Map(
+        (Array.isArray(users) ? users : [])
+          .map((user) => {
+            const id = toTrimmedText(user?.id);
+            if (!id) return null;
+            return [
+              id,
+              formatFullName(
+                toTrimmedText(user?.first_name),
+                toTrimmedText(user?.last_name),
+                toTrimmedText(user?.email) || toTrimmedText(user?.phone) || 'Onbekend'
+              )
+            ];
+          })
+          .filter(Boolean)
+      );
+      const resolveCustomerForDeal = (deal) => {
+        if (!deal || typeof deal !== 'object') {
+          return { name: 'Onbekend', email: '' };
+        }
+        const customerType = String(deal?.customer_type ?? '').trim().toLowerCase();
+        const customerId = toTrimmedText(deal?.customer_id);
+        if (customerType === 'company' && customerId && companyById.has(customerId)) {
+          const company = companyById.get(customerId);
+          return {
+            name: toTrimmedText(company?.name) || toTrimmedText(deal?.title) || 'Onbekend',
+            email: toTrimmedText(company?.email)
+          };
+        }
+        if (customerType === 'contact' && customerId && contactById.has(customerId)) {
+          const contact = contactById.get(customerId);
+          return {
+            name: toTrimmedText(contact?.name) || toTrimmedText(deal?.title) || 'Onbekend',
+            email: toTrimmedText(contact?.email)
+          };
+        }
+        return {
+          name: toTrimmedText(deal?.title) || 'Onbekend',
+          email: ''
+        };
+      };
 
 	      let invoiceRevenueTotal = 0;
 	      let invoiceRevenueSales = 0;
 	      const invoiceMonthlyTotal = new Map();
 	      const invoiceMonthlySales = new Map();
-	      const compareMonthlyTotal = new Map();
 	      const sellerRevenueById = {};
-
-      (Array.isArray(compareInvoices) ? compareInvoices : []).forEach((invoice) => {
-        if (!isIncludedInvoice(invoice)) return;
-        const amount = pickInvoiceAmount(invoice);
+      const monthKeyFromDate = (value) => {
+        const dt = value instanceof Date ? value : parseDate(value);
+        if (!dt || Number.isNaN(dt.getTime())) return '';
+        return `${dt.getUTCFullYear()}-${pad2Number(dt.getUTCMonth() + 1)}`;
+      };
+      const addRevenueRow = ({
+        amount,
+        monthKey,
+        deal,
+        recordId,
+        recordType,
+        status,
+        currency,
+        occurredAt,
+        invoiceDateLabel,
+        factuurCountIncrement = 1
+      }) => {
         if (!Number.isFinite(amount)) return;
-        const monthKey = monthKeyFromYmd(invoice?.invoice_date);
-        bumpInvoiceMap(compareMonthlyTotal, monthKey, amount);
-      });
+        const resolvedMonthKey = monthKey || monthKeyFromDate(occurredAt);
+        invoiceRevenueTotal += amount;
+        bumpInvoiceMap(invoiceMonthlyTotal, resolvedMonthKey, amount);
 
-	      (Array.isArray(invoices) ? invoices : []).forEach((invoice) => {
-	        if (!isIncludedInvoice(invoice)) return;
-	        const amount = pickInvoiceAmount(invoice);
-	        if (!Number.isFinite(amount)) return;
-	        invoiceRevenueTotal += amount;
-	        const monthKey = monthKeyFromYmd(invoice?.invoice_date);
-	        bumpInvoiceMap(invoiceMonthlyTotal, monthKey, amount);
-
-	        const dealId = toTrimmedText(invoice?.deal_id);
-	        const deal = dealId ? dealsById.get(dealId) : null;
         const isSalesDeal = Boolean(deal) && !isExcludedDeal(deal);
-        bumpRevenueBreakdown(categoryRevenueByLabel, resolveDealProductCategory(deal), amount, isSalesDeal);
-        bumpRevenueBreakdown(regionRevenueByLabel, resolveDealRegion(deal), amount, isSalesDeal);
-        if (!isSalesDeal) return;
+        const productCategory = normalizeSalesRuleLabel(resolveDealProductCategory(deal)) || UNKNOWN_PRODUCT_CATEGORY;
+        const salesRegion = normalizeSalesRuleLabel(resolveDealRegion(deal)) || UNKNOWN_REGION;
+        bumpRevenueBreakdown(categoryRevenueByLabel, productCategory, amount, isSalesDeal);
+        bumpRevenueBreakdown(regionRevenueByLabel, salesRegion, amount, isSalesDeal);
 
-	        invoiceRevenueSales += amount;
-	        bumpInvoiceMap(invoiceMonthlySales, monthKey, amount);
-	        const sellerId = String(deal?.responsible_user_id || 'unknown');
-	        sellerRevenueById[sellerId] = (sellerRevenueById[sellerId] || 0) + amount;
-	      });
+        const customer = resolveCustomerForDeal(deal);
+        const sellerId = toTrimmedText(deal?.responsible_user_id) || 'unknown';
+        const sellerName = sellerId === 'unknown' ? 'Onbekend' : sellerNameById.get(sellerId) || 'Onbekend';
+        const occurredAtIso =
+          occurredAt instanceof Date
+            ? occurredAt.toISOString()
+            : toTrimmedText(occurredAt) || toTrimmedText(deal?.created_at);
+        const statusText = toTrimmedText(status) || (recordType === 'factuur' ? 'factuur' : 'won');
+        const normalizedStatus = normalizeStatus(statusText);
+        const statusType = isWonStatus(normalizedStatus)
+          ? 'won'
+          : isLostStatus(normalizedStatus)
+            ? 'lost'
+            : 'open';
+        const invoiceDate = toTrimmedText(invoiceDateLabel) || '';
+        const fallbackInvoiceDate =
+          invoiceDate ||
+          (occurredAt instanceof Date && !Number.isNaN(occurredAt.getTime()) ? formatIsoDate(occurredAt) : '');
+        const safeRecordId = toTrimmedText(recordId);
+        const dealId = toTrimmedText(deal?.id);
+        const exportKey = dealId || safeRecordId;
+        invoiceRecords.push({
+          record_id: safeRecordId || dealId || '',
+          record_type: recordType || 'factuur',
+          occurred_at: occurredAtIso || '',
+          contact_name: customer.name || 'Onbekend',
+          contact_email: customer.email || '',
+          source: productCategory || 'Onbekend',
+          status: statusText,
+          statusType,
+          deal_title: toTrimmedText(deal?.title) || null,
+          phase_label: null,
+          estimated_value: amount,
+          estimated_currency: toTrimmedText(currency) || 'EUR',
+          monthKey: resolvedMonthKey,
+          seller_id: sellerId || null,
+          seller_name: sellerName || null,
+          loss_reason: null,
+          bundle_key: deal ? pickDealBundleKey(deal) : `record:${safeRecordId || 'unknown'}`,
+          bundle_count: 1,
+          record_url: deal ? buildTeamleaderDealUrl(deal.id, deal.raw_data) : '',
+          is_sales_deal: isSalesDeal,
+          invoice_scope: isSalesDeal ? 'sales' : 'service',
+          product_category: productCategory,
+          sales_region: salesRegion,
+          invoice_date: fallbackInvoiceDate || null
+        });
+
+        if (normalizeSalesKey(productCategory) === overigCategoryKey && exportKey) {
+          const existing = overigDealExports.get(exportKey) || {
+            deal_id: dealId || '',
+            deal_titel: toTrimmedText(deal?.title),
+            klant: customer.name || 'Onbekend',
+            verkoper: sellerName || '',
+            laatste_factuurdatum: fallbackInvoiceDate || '',
+            facturen_aantal: 0,
+            omzet_excl_btw: 0,
+            huidige_categorie: productCategory || DEFAULT_PRODUCT_CATEGORY,
+            regio: salesRegion || '',
+            productcategorie: ''
+          };
+          existing.facturen_aantal = Number(existing.facturen_aantal || 0) + Math.max(0, Number(factuurCountIncrement) || 0);
+          existing.omzet_excl_btw = Number(existing.omzet_excl_btw || 0) + amount;
+          if (
+            fallbackInvoiceDate &&
+            (!existing.laatste_factuurdatum || fallbackInvoiceDate > existing.laatste_factuurdatum)
+          ) {
+            existing.laatste_factuurdatum = fallbackInvoiceDate;
+          }
+          if (!existing.deal_titel) existing.deal_titel = toTrimmedText(deal?.title);
+          if (!existing.klant) existing.klant = customer.name || 'Onbekend';
+          if (!existing.verkoper) existing.verkoper = sellerName || '';
+          if (!existing.regio) existing.regio = salesRegion || '';
+          overigDealExports.set(exportKey, existing);
+        }
+
+        if (!isSalesDeal) return;
+        invoiceRevenueSales += amount;
+        bumpInvoiceMap(invoiceMonthlySales, resolvedMonthKey, amount);
+        sellerRevenueById[sellerId] = (sellerRevenueById[sellerId] || 0) + amount;
+      };
+
+      if (useInvoiceRevenue) {
+        includedInvoices.forEach((invoice) => {
+          const amount = pickInvoiceAmount(invoice);
+          const dealId = toTrimmedText(invoice?.deal_id);
+          const deal = dealId ? dealsById.get(dealId) : null;
+          const invoiceDate = toTrimmedText(invoice?.invoice_date);
+          const monthKey = monthKeyFromYmd(invoiceDate);
+          const occurredAt =
+            invoiceDate ? toUtcStart(invoiceDate) : toTrimmedText(invoice?.created_at) || toTrimmedText(deal?.created_at);
+          addRevenueRow({
+            amount,
+            monthKey,
+            deal,
+            recordId: toTrimmedText(invoice?.id) || dealId,
+            recordType: 'factuur',
+            status: toTrimmedText(invoice?.status) || 'factuur',
+            currency: toTrimmedText(invoice?.currency) || 'EUR',
+            occurredAt,
+            invoiceDateLabel: invoiceDate,
+            factuurCountIncrement: 1
+          });
+        });
+      } else {
+        (Array.isArray(deals) ? deals : []).forEach((deal) => {
+          if (!isQuoteDeal(deal)) return;
+          const status = normalizeStatus(deal?.status);
+          if (!isWonStatus(status)) return;
+          const amount = Number(deal?.estimated_value);
+          if (!Number.isFinite(amount)) return;
+          const occurredAt =
+            salesDateField === 'closed_at'
+              ? parseDate(deal?.closed_at) || parseDate(deal?.updated_at) || parseDate(deal?.created_at)
+              : parseDate(deal?.created_at);
+          if (!occurredAt || Number.isNaN(occurredAt.getTime())) return;
+          addRevenueRow({
+            amount,
+            monthKey: monthKeyFromDate(occurredAt),
+            deal,
+            recordId: toTrimmedText(deal?.id),
+            recordType: 'deal',
+            status: toTrimmedText(deal?.status) || 'won',
+            currency: toTrimmedText(deal?.estimated_value_currency) || 'EUR',
+            occurredAt,
+            invoiceDateLabel: formatIsoDate(occurredAt),
+            factuurCountIncrement: 1
+          });
+        });
+      }
 
       const toBreakdownRows = (map) =>
         map
@@ -9453,44 +9994,124 @@ const ensureSalesData = async () => {
         categories: toBreakdownRows(categoryRevenueByLabel),
         regions: toBreakdownRows(regionRevenueByLabel)
       };
+      data.invoiceRecords = invoiceRecords;
+      data.overigExportRows = Array.from(overigDealExports.values()).sort(
+        (a, b) =>
+          Number(b?.omzet_excl_btw ?? 0) - Number(a?.omzet_excl_btw ?? 0) ||
+          String(a?.deal_titel || '').localeCompare(String(b?.deal_titel || ''))
+      );
 
-	      const invoiceMonthKeys = buildMonthKeysBetween(spendStart, spendEnd);
+      const allInvoiceMonthlyTotal = new Map();
+      const allInvoiceMonthlySales = new Map();
+      (Array.isArray(allInvoices) ? allInvoices : []).forEach((invoice) => {
+        if (!isIncludedInvoice(invoice)) return;
+        const amount = pickInvoiceAmount(invoice);
+        if (!Number.isFinite(amount)) return;
+        const monthKey = monthKeyFromYmd(invoice?.invoice_date);
+        if (!monthKey) return;
+        bumpInvoiceMap(allInvoiceMonthlyTotal, monthKey, amount);
+        const dealId = toTrimmedText(invoice?.deal_id);
+        const deal = dealId ? dealsById.get(dealId) : null;
+        if (deal && !isExcludedDeal(deal)) {
+          bumpInvoiceMap(allInvoiceMonthlySales, monthKey, amount);
+        }
+      });
+      let monthlyTotalsMap = allInvoiceMonthlyTotal;
+      let monthlySalesMap = allInvoiceMonthlySales;
+      if (!monthlyTotalsMap.size) {
+        const fallbackMonthlyTotal = new Map();
+        const fallbackMonthlySales = new Map();
+        try {
+          const allDealsForMonthly = await fetchAllRows(() =>
+            supabase
+              .from('teamleader_deals')
+              .select(dealsSelectBase)
+              .eq('location_id', activeLocationId)
+              .order('created_at', { ascending: true })
+              .order('id', { ascending: true })
+          );
+          if (requestVersion !== metricsComputationVersion) return;
+          (Array.isArray(allDealsForMonthly) ? allDealsForMonthly : []).forEach((deal) => {
+            if (!isQuoteDeal(deal)) return;
+            const status = normalizeStatus(deal?.status);
+            if (!isWonStatus(status)) return;
+            const amount = Number(deal?.estimated_value);
+            if (!Number.isFinite(amount)) return;
+            const occurredAt =
+              salesDateField === 'closed_at'
+                ? parseDate(deal?.closed_at) || parseDate(deal?.updated_at) || parseDate(deal?.created_at)
+                : parseDate(deal?.created_at);
+            const monthKey = monthKeyFromDate(occurredAt);
+            if (!monthKey) return;
+            bumpInvoiceMap(fallbackMonthlyTotal, monthKey, amount);
+            if (!isExcludedDeal(deal)) {
+              bumpInvoiceMap(fallbackMonthlySales, monthKey, amount);
+            }
+          });
+        } catch (error) {
+          console.warn('Unable to load full Teamleader deals history for monthly omzet fallback', error);
+        }
+        monthlyTotalsMap = fallbackMonthlyTotal;
+        monthlySalesMap = fallbackMonthlySales;
+      }
+      const allMonthKeys = Array.from(monthlyTotalsMap.keys());
+      const allYears = Array.from(
+        new Set(
+          allMonthKeys
+            .map((monthKey) => Number(String(monthKey).slice(0, 4)))
+            .filter((year) => Number.isFinite(year))
+        )
+      ).sort((a, b) => a - b);
+      const currentYear = Number(String(getTodayYmd(dashboardTimeZone) || '').slice(0, 4)) || new Date().getFullYear();
+      const minYear = allYears.length ? allYears[0] : currentYear;
+      const maxYear = allYears.length ? allYears[allYears.length - 1] : currentYear;
+      const invoiceMonthKeys =
+        Number.isFinite(minYear) && Number.isFinite(maxYear)
+          ? buildMonthKeysBetween(`${minYear}-01`, `${maxYear}-12`)
+          : buildMonthKeysBetween(`${currentYear}-01`, `${currentYear}-12`);
 	      const invoiceMonthlyRows = invoiceMonthKeys
 	        .map((monthKey) => {
-	          const total = invoiceMonthlyTotal.get(monthKey) || 0;
-          const sales = invoiceMonthlySales.get(monthKey) || 0;
-          const [year, month] = monthKey.split('-').map(Number);
-          const compareKey =
-            Number.isFinite(year) && Number.isFinite(month) ? `${year - 3}-${pad2Number(month)}` : '';
-          const compareValue = compareKey && compareMonthlyTotal.has(compareKey) ? compareMonthlyTotal.get(compareKey) : undefined;
+	          const total = monthlyTotalsMap.get(monthKey) || 0;
+          const sales = monthlySalesMap.get(monthKey) || 0;
           return {
             key: monthKey,
             label: formatMonthKeyLabel(monthKey),
             sales,
-            total,
-            compareTotal: compareValue
+            total
           };
-        })
-        .filter((row) => row.total !== 0 || row.sales !== 0 || Number.isFinite(Number(row.compareTotal)));
+        });
 
       data.invoice = {
         revenueSales: invoiceRevenueSales,
         revenueTotal: invoiceRevenueTotal,
-        monthly: invoiceMonthlyRows
+        monthly: invoiceMonthlyRows,
+        sourceMode: useInvoiceRevenue ? 'invoice' : 'won_deals'
       };
       data.sellerRevenueById = sellerRevenueById;
 
       const sellerMonthlyRevenueById = {};
-      (Array.isArray(currentMonthInvoices) ? currentMonthInvoices : []).forEach((invoice) => {
-        if (!isIncludedInvoice(invoice)) return;
-        const amount = pickInvoiceAmount(invoice);
-        if (!Number.isFinite(amount) || amount === 0) return;
-        const dealId = toTrimmedText(invoice?.deal_id);
-        const deal = dealId ? dealsById.get(dealId) : null;
-        if (!deal || isExcludedDeal(deal)) return;
-        const sellerId = String(deal?.responsible_user_id || 'unknown');
-        sellerMonthlyRevenueById[sellerId] = (sellerMonthlyRevenueById[sellerId] || 0) + amount;
-      });
+      if (useInvoiceRevenue) {
+        (Array.isArray(currentMonthInvoices) ? currentMonthInvoices : []).forEach((invoice) => {
+          if (!isIncludedInvoice(invoice)) return;
+          const amount = pickInvoiceAmount(invoice);
+          if (!Number.isFinite(amount) || amount === 0) return;
+          const dealId = toTrimmedText(invoice?.deal_id);
+          const deal = dealId ? dealsById.get(dealId) : null;
+          if (!deal || isExcludedDeal(deal)) return;
+          const sellerId = String(deal?.responsible_user_id || 'unknown');
+          sellerMonthlyRevenueById[sellerId] = (sellerMonthlyRevenueById[sellerId] || 0) + amount;
+        });
+      } else {
+        (Array.isArray(currentMonthDeals) ? currentMonthDeals : []).forEach((deal) => {
+          if (!isQuoteDeal(deal)) return;
+          const status = normalizeStatus(deal?.status);
+          if (!isWonStatus(status) || isExcludedDeal(deal)) return;
+          const amount = Number(deal?.estimated_value);
+          if (!Number.isFinite(amount) || amount === 0) return;
+          const sellerId = String(deal?.responsible_user_id || 'unknown');
+          sellerMonthlyRevenueById[sellerId] = (sellerMonthlyRevenueById[sellerId] || 0) + amount;
+        });
+      }
 
       const leadsMonthly = new Map();
       const leadsBySource = new Map();
@@ -11722,6 +12343,9 @@ const buildNonFinanceDrilldownColumns = (rows, options = {}) => ({
   showStatusType: hasDrilldownFieldValue(rows, 'statusType'),
   showSeller: hasDrilldownFieldValue(rows, 'seller_name'),
   showLossReason: hasDrilldownFieldValue(rows, 'loss_reason'),
+  showInvoiceDate: hasDrilldownFieldValue(rows, 'invoice_date'),
+  showProductCategory: hasDrilldownFieldValue(rows, 'product_category'),
+  showSalesRegion: hasDrilldownFieldValue(rows, 'sales_region'),
   showContactPhone: hasDrilldownFieldValue(rows, 'contact_phone'),
   showPipeline: hasDrilldownFieldValue(rows, 'pipeline_name'),
   showPipelineStage: hasDrilldownFieldValue(rows, 'pipeline_stage_name'),
@@ -11850,6 +12474,9 @@ const renderDrilldownRows = (rows, options = {}) =>
       const source = row.source ? escapeHtml(row.source) : 'Onbekend';
       const status = row.status ? escapeHtml(row.status) : '--';
       const statusType = formatDrilldownStatusType(row?.statusType);
+      const invoiceDate = row?.invoice_date ? formatDisplayDate(row.invoice_date) : '--';
+      const productCategory = row?.product_category ? escapeHtml(row.product_category) : '--';
+      const salesRegion = row?.sales_region ? escapeHtml(row.sales_region) : '--';
       const sellerName = row?.seller_name ? escapeHtml(row.seller_name) : '--';
       const lossReason = row?.loss_reason ? escapeHtml(row.loss_reason) : '--';
       const type = row.record_type ? escapeHtml(row.record_type) : 'record';
@@ -11870,6 +12497,15 @@ const renderDrilldownRows = (rows, options = {}) =>
         : '';
       const lossReasonCell = columns.showLossReason
         ? `<td class="px-3 py-2 text-sm text-muted-foreground">${lossReason}</td>`
+        : '';
+      const invoiceDateCell = columns.showInvoiceDate
+        ? `<td class="px-3 py-2 text-sm text-muted-foreground">${invoiceDate}</td>`
+        : '';
+      const productCategoryCell = columns.showProductCategory
+        ? `<td class="px-3 py-2 text-sm text-muted-foreground">${productCategory}</td>`
+        : '';
+      const salesRegionCell = columns.showSalesRegion
+        ? `<td class="px-3 py-2 text-sm text-muted-foreground">${salesRegion}</td>`
         : '';
       const dealTitleCell = columns.showDealTitle
         ? `<td class="px-3 py-2 text-sm text-foreground">${row?.deal_title ? escapeHtml(row.deal_title) : '--'}</td>`
@@ -11930,6 +12566,9 @@ const renderDrilldownRows = (rows, options = {}) =>
           ${pipelineStageCell}
           ${assignedToCell}
           ${opportunityValueCell}
+          ${invoiceDateCell}
+          ${productCategoryCell}
+          ${salesRegionCell}
           ${dealTitleCell}
           ${phaseCell}
           ${estimatedValueCell}
@@ -11963,6 +12602,9 @@ const renderDrilldownModal = () => {
   const showTeamleaderLink = !isFinance && String(drilldownState.kind || '').startsWith('sales_');
   const drilldownRows = Array.isArray(drilldownState.rows) ? drilldownState.rows : [];
   const nonFinanceColumns = buildNonFinanceDrilldownColumns(drilldownRows, { showTeamleader: showTeamleaderLink });
+  const showBundleHint =
+    isSalesDrilldown &&
+    drilldownRows.some((row) => Number.isFinite(Number(row?.bundle_count)) && Number(row?.bundle_count) > 1);
   const financeSummary = summarizeFinanceDrilldown(drilldownRows);
   const financeCplValue = financeSummary.leads > 0 ? financeSummary.spend / financeSummary.leads : Number.NaN;
   const financeSummaryMarkup = isFinance
@@ -12047,7 +12689,7 @@ const renderDrilldownModal = () => {
     body = `
       ${recordsSummaryMarkup}
       ${
-        isSalesDrilldown
+        showBundleHint
           ? '<div class="px-1 pb-3 text-xs text-muted-foreground">Rijen zijn gebundeld per klant. <span class="font-semibold">Bundel xN</span> toont hoeveel offertes/deals voor die klant samengevoegd zijn.</div>'
           : ''
       }
@@ -12064,6 +12706,9 @@ const renderDrilldownModal = () => {
               ${nonFinanceColumns.showPipelineStage ? '<th>Pipeline fase</th>' : ''}
               ${nonFinanceColumns.showAssignedTo ? '<th>Assignee</th>' : ''}
               ${nonFinanceColumns.showOpportunityValue ? '<th class="text-right">Opportunity Waarde</th>' : ''}
+              ${nonFinanceColumns.showInvoiceDate ? '<th>Factuurdatum</th>' : ''}
+              ${nonFinanceColumns.showProductCategory ? '<th>Productcategorie</th>' : ''}
+              ${nonFinanceColumns.showSalesRegion ? '<th>Regio</th>' : ''}
               ${nonFinanceColumns.showDealTitle ? '<th>Titel</th>' : ''}
               ${nonFinanceColumns.showPhase ? '<th>Fase</th>' : ''}
               ${nonFinanceColumns.showEstimatedValue ? '<th class="text-right">Waarde</th>' : ''}
@@ -13904,6 +14549,23 @@ const bindInteractions = () => {
       renderApp();
     });
   });
+
+  const overigExportButton = document.querySelector('[data-sales-overig-export]');
+  if (overigExportButton) {
+    overigExportButton.addEventListener('click', () => {
+      if (overigExportButton.disabled) return;
+      exportOverigProductCategoryCsv();
+    });
+  }
+
+  const invoiceYearSelect = document.querySelector('[data-sales-invoice-year-select]');
+  if (invoiceYearSelect) {
+    invoiceYearSelect.addEventListener('change', (event) => {
+      const raw = Number(event?.target?.value);
+      salesInvoiceYearFilter = Number.isFinite(raw) ? Math.round(raw) : null;
+      if (salesState.data) applySalesData(salesState.data);
+    });
+  }
 
   const leadPipelineFilter = document.querySelector('[data-lead-pipeline-filter]');
   if (leadPipelineFilter) {

@@ -28,6 +28,7 @@
 <button class="sales-date-field-option inline-flex items-center justify-center h-8 px-3 rounded-md text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground" type="button" data-sales-date-field="created_at">Trajectstart</button>
 <button class="sales-date-field-option inline-flex items-center justify-center h-8 px-3 rounded-md text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground" type="button" data-sales-date-field="closed_at">Afsluitdatum</button>
 </div>
+<div class="hidden w-full rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-700" data-sales-date-mode-hint></div>
 <div class="flex items-center gap-2 flex-wrap justify-end" data-quick-range-controls></div>
 <div data-sales-date-picker></div>
 </div>
@@ -347,8 +348,8 @@
 <div class="flex items-start justify-between gap-2">
 <div class="flex-1 min-w-0">
 <div class="flex items-center gap-1">
-<p class="metric-label truncate">Behaalde Omzet (Sales)</p>
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-info w-3 h-3 text-muted-foreground hover:text-foreground cursor-help flex-shrink-0" data-state="closed">
+<p class="metric-label truncate" data-sales-invoice-sales-label>Behaalde Omzet (Sales)</p>
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-info w-3 h-3 text-muted-foreground hover:text-foreground cursor-help flex-shrink-0" data-state="closed" data-sales-invoice-sales-info>
 <circle cx="12" cy="12" r="10">
 </circle>
 <path d="M12 16v-4">
@@ -359,7 +360,7 @@
 </div>
 <p class="metric-value mt-2" data-sales-kpi="invoice_revenue_sales" data-sales-static="true">--</p>
 <div class="flex items-center gap-2 mt-2">
-<span class="text-xs text-muted-foreground">Facturen excl. service</span>
+<span class="text-xs text-muted-foreground" data-sales-invoice-sales-subtext>Facturen excl. service</span>
 </div>
 </div>
 <div class="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0">
@@ -379,7 +380,7 @@
 <div class="flex-1 min-w-0">
 <div class="flex items-center gap-1">
 <p class="metric-label truncate">Behaalde Omzet (Totaal)</p>
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-info w-3 h-3 text-muted-foreground hover:text-foreground cursor-help flex-shrink-0" data-state="closed">
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-info w-3 h-3 text-muted-foreground hover:text-foreground cursor-help flex-shrink-0" data-state="closed" data-sales-invoice-total-info>
 <circle cx="12" cy="12" r="10">
 </circle>
 <path d="M12 16v-4">
@@ -390,7 +391,7 @@
 </div>
 <p class="metric-value mt-2" data-sales-kpi="invoice_revenue_total" data-sales-static="true">--</p>
 <div class="flex items-center gap-2 mt-2">
-<span class="text-xs text-muted-foreground">Facturen incl. service</span>
+<span class="text-xs text-muted-foreground" data-sales-invoice-total-subtext>Facturen incl. service</span>
 </div>
 </div>
 <div class="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0">
@@ -644,10 +645,15 @@
 <path d="M16 8H8"></path>
 <path d="M16 12H8"></path>
 <path d="M12 16H8"></path>
-</svg>Omzet per maand (Facturen)</h3>
+</svg><span data-sales-monthly-revenue-title>Omzet per maand (Facturen)</span></h3>
+<div class="flex items-center gap-2 flex-wrap justify-end">
+<label class="text-xs text-muted-foreground font-medium" for="sales-invoice-year-select">Jaar</label>
+<select id="sales-invoice-year-select" class="h-8 min-w-[110px] rounded-md border border-input bg-background px-2 text-xs text-foreground" data-sales-invoice-year-select></select>
 <div class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80" data-sales-static="true">Excl. BTW</div>
 </div>
-<p class="text-sm text-muted-foreground">Behaald = Teamleader facturen (invoice_date).</p>
+</div>
+<p class="text-sm text-muted-foreground" data-sales-monthly-revenue-description>Behaald = Teamleader facturen (invoice_date).</p>
+<p class="hidden text-xs font-medium text-amber-700" data-sales-invoice-year-note></p>
 </div>
 <div class="p-6 pt-0">
 <div class="relative w-full overflow-auto">
@@ -657,109 +663,14 @@
 <th class="h-12 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0">Maand</th>
 <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Sales</th>
 <th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Totaal</th>
-<th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">3j terug</th>
 </tr>
 </thead>
 <tbody class="[&_tr:last-child]:border-0" data-sales-invoice-monthly-rows>
 <tr class="border-b">
-<td colspan="4" class="p-4 text-sm text-muted-foreground">Geen facturen gevonden.</td>
+<td colspan="3" class="p-4 text-sm text-muted-foreground">Geen facturen gevonden.</td>
 </tr>
 </tbody>
 </table>
-</div>
-</div>
-</div>
-<div class="rounded-lg border bg-card text-card-foreground shadow-sm">
-<div class="flex flex-col space-y-1.5 p-6 pb-2">
-<div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-<h3 class="tracking-tight text-lg font-semibold flex items-center gap-2">
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-megaphone w-5 h-5 text-primary">
-<path d="m3 11 18-5v12L3 14v-3z"></path>
-<path d="M11.6 16.8a3 3 0 1 1-5.6-1.6"></path>
-</svg>Lead generatoren (GHL)</h3>
-<div class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80" data-sales-static="true">Retour = fase</div>
-</div>
-<p class="text-sm text-muted-foreground">Aangekocht = leads aangemaakt. Retour = pipeline fase die "retour" bevat.</p>
-</div>
-<div class="p-6 pt-0 space-y-6">
-<div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-<div class="text-center p-3 rounded-lg bg-muted/50">
-<p class="text-2xl font-bold text-foreground" data-sales-kpi="leads_total" data-sales-static="true">--</p>
-<p class="text-xs text-muted-foreground mt-1">Leads</p>
-</div>
-<div class="text-center p-3 rounded-lg bg-muted/50">
-<p class="text-2xl font-bold text-foreground" data-sales-kpi="leads_retour" data-sales-static="true">--</p>
-<p class="text-xs text-muted-foreground mt-1">Retour</p>
-</div>
-<div class="text-center p-3 rounded-lg bg-muted/50">
-<p class="text-2xl font-bold text-foreground" data-sales-kpi="leads_retour_rate" data-sales-static="true">--</p>
-<p class="text-xs text-muted-foreground mt-1">Retour %</p>
-</div>
-</div>
-<div class="relative w-full overflow-auto">
-<table class="w-full caption-bottom text-sm">
-<thead class="[&_tr]:border-b">
-<tr class="border-b transition-colors data-[state=selected]:bg-muted hover:bg-muted/50">
-<th class="h-12 px-4 text-left align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0">Maand</th>
-<th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Leads</th>
-<th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">Retour</th>
-<th class="h-12 px-4 align-middle font-medium text-muted-foreground [&:has([role=checkbox])]:pr-0 text-right">%</th>
-</tr>
-</thead>
-<tbody class="[&_tr:last-child]:border-0" data-sales-lead-monthly-rows>
-<tr class="border-b">
-<td colspan="4" class="p-4 text-sm text-muted-foreground">Geen leads gevonden.</td>
-</tr>
-</tbody>
-</table>
-</div>
-<div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-<div class="rounded-lg border border-border/60 bg-muted/30">
-<div class="p-4 pb-2">
-<h4 class="text-sm font-semibold text-foreground">Per bron</h4>
-</div>
-<div class="px-4 pb-4">
-<div class="relative w-full overflow-auto">
-<table class="w-full caption-bottom text-sm">
-<thead class="[&_tr]:border-b">
-<tr class="border-b">
-<th class="h-10 text-left align-middle text-xs font-medium text-muted-foreground">Bron</th>
-<th class="h-10 text-right align-middle text-xs font-medium text-muted-foreground">Leads</th>
-<th class="h-10 text-right align-middle text-xs font-medium text-muted-foreground">Retour</th>
-</tr>
-</thead>
-<tbody class="[&_tr:last-child]:border-0" data-sales-lead-source-rows>
-<tr class="border-b">
-<td colspan="3" class="py-2 text-sm text-muted-foreground">Geen data.</td>
-</tr>
-</tbody>
-</table>
-</div>
-</div>
-</div>
-<div class="rounded-lg border border-border/60 bg-muted/30">
-<div class="p-4 pb-2">
-<h4 class="text-sm font-semibold text-foreground">Per campagne</h4>
-</div>
-<div class="px-4 pb-4">
-<div class="relative w-full overflow-auto">
-<table class="w-full caption-bottom text-sm">
-<thead class="[&_tr]:border-b">
-<tr class="border-b">
-<th class="h-10 text-left align-middle text-xs font-medium text-muted-foreground">Campagne</th>
-<th class="h-10 text-right align-middle text-xs font-medium text-muted-foreground">Leads</th>
-<th class="h-10 text-right align-middle text-xs font-medium text-muted-foreground">Retour</th>
-</tr>
-</thead>
-<tbody class="[&_tr:last-child]:border-0" data-sales-lead-campaign-rows>
-<tr class="border-b">
-<td colspan="3" class="py-2 text-sm text-muted-foreground">Geen data.</td>
-</tr>
-</tbody>
-</table>
-</div>
-</div>
-</div>
 </div>
 </div>
 </div>
@@ -774,9 +685,13 @@
 <path d="M2 12.5l8.17 3.63a2 2 0 0 0 1.66 0L20 12.5"></path>
 <path d="M2 17.5l8.17 3.63a2 2 0 0 0 1.66 0L20 17.5"></path>
 </svg>Sales per productcategorie</h3>
-<div class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80" data-sales-static="true">Facturen</div>
+<div class="flex flex-wrap items-center gap-2">
+<div class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80" data-sales-static="true" data-sales-revenue-source-badge>Facturen</div>
+<button type="button" class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors border-border bg-background text-foreground hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed" data-sales-overig-export disabled>Export Overig (Google Sheets)</button>
+</div>
 </div>
 <p class="text-sm text-muted-foreground">Afgeleid uit Teamleader deal titles (config rules).</p>
+<p class="text-xs text-muted-foreground" data-sales-overig-export-hint>Geen Overig deals in de geselecteerde periode.</p>
 </div>
 <div class="p-6 pt-0">
 <div class="relative w-full overflow-auto">
@@ -1586,8 +1501,8 @@
 <p class="text-xs text-muted-foreground mt-1">Totaal Deals</p>
 </div>
 <div class="text-center p-3 rounded-lg bg-muted/50">
-<p class="text-2xl font-bold text-foreground" data-sales-kpi="summary_revenue">EUR 399.500</p>
-<p class="text-xs text-muted-foreground mt-1">Totaal Omzet</p>
+<p class="text-2xl font-bold text-foreground" data-sales-kpi="summary_revenue" data-sales-static="true">EUR 399.500</p>
+<p class="text-xs text-muted-foreground mt-1">Totaal Omzet (incl. service)</p>
 </div>
 <div class="text-center p-3 rounded-lg bg-muted/50">
 <p class="text-2xl font-bold text-foreground" data-sales-kpi="summary_conversion">23.4%</p>
