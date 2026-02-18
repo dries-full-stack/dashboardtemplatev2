@@ -1,0 +1,14 @@
+{
+  "dashboards": [
+    {
+      "id": "lead",
+      "label": "Leadgeneratie",
+      "enabled": true
+    },
+    {
+      "id": "sales",
+      "label": "Sales Resultaten",
+      "enabled": false
+    }
+  ]
+}
