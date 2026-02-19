@@ -817,6 +817,24 @@ const DEBUG_ENABLED = false;
 const METRICS_DEBUG_MODE_STORAGE_KEY = 'dashboard_metrics_debug_mode';
 const SALES_DATE_FIELD_STORAGE_KEY = 'dashboard_sales_date_field';
 
+const isBelivertThemeHint = () => {
+  const candidate = [envDashboardTheme, envDashboardTitle, envDashboardSubtitle, envDashboardLogoUrl]
+    .map((value) => String(value || '').trim().toLowerCase())
+    .join(' ');
+  return candidate.includes('belivert') || candidate.includes('belivet');
+};
+
+const getDefaultSalesDateField = () => (isBelivertThemeHint() ? 'closed_at' : 'created_at');
+
+const hasCachedSalesDateField = () => {
+  try {
+    const raw = localStorage.getItem(SALES_DATE_FIELD_STORAGE_KEY);
+    return typeof raw === 'string' && raw.trim().length > 0;
+  } catch (_error) {
+    return false;
+  }
+};
+
 const readCachedMetricsDebugMode = () => {
   try {
     const raw = localStorage.getItem(METRICS_DEBUG_MODE_STORAGE_KEY);
@@ -846,9 +864,13 @@ const normalizeSalesDateField = (value) => {
 
 const readCachedSalesDateField = () => {
   try {
-    return normalizeSalesDateField(localStorage.getItem(SALES_DATE_FIELD_STORAGE_KEY));
+    const raw = localStorage.getItem(SALES_DATE_FIELD_STORAGE_KEY);
+    if (typeof raw !== 'string' || !raw.trim()) {
+      return getDefaultSalesDateField();
+    }
+    return normalizeSalesDateField(raw);
   } catch (_error) {
-    return 'created_at';
+    return getDefaultSalesDateField();
   }
 };
 
@@ -1433,6 +1455,10 @@ const loadLocationConfig = async () => {
   configState.dashboardSubtitle = data?.dashboard_subtitle || null;
   configState.dashboardLogoUrl = data?.dashboard_logo_url || null;
   configState.dashboardLayout = data?.dashboard_layout || null;
+  if (!hasCachedSalesDateField() && resolveBrandTheme() === 'belivert') {
+    salesDateField = 'closed_at';
+    writeCachedSalesDateField('closed_at');
+  }
 
   const hookChanged =
     prevHookFieldId !== configState.hookFieldId || prevCampaignFieldId !== configState.campaignFieldId;
