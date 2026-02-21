@@ -8633,14 +8633,17 @@ const buildSellerRows = (sellers, options = {}) => {
       const sellerId = escapeHtml(sellerIdRaw);
       const sellerName = escapeHtml(seller.name);
       const sellerAttrs = `data-sales-drill="all" data-sales-seller-id="${sellerId}" data-sales-seller-name="${sellerName}"`;
-      const appointmentLabel = formatNumber(seller.appointments || 0);
+      const hasMonthlyAppointmentsMap = Boolean(sellerMonthlyAppointmentsById);
       const mappedMonthlyAppointments = sellerIdRaw
         ? Number(sellerMonthlyAppointmentsById?.[sellerIdRaw])
         : Number.NaN;
-      const monthlyAppointmentsRaw = Number.isFinite(mappedMonthlyAppointments)
-        ? mappedMonthlyAppointments
+      const monthlyAppointmentsRaw = hasMonthlyAppointmentsMap
+        ? Number.isFinite(mappedMonthlyAppointments)
+          ? mappedMonthlyAppointments
+          : 0
         : Number(seller.appointments) || 0;
       const monthlyAppointments = appointmentsSupported ? monthlyAppointmentsRaw : 0;
+      const appointmentLabel = formatNumber(seller.appointments || 0);
       const monthlyAppointmentsRatio = safeDivide(monthlyAppointments, SALES_SELLER_MONTHLY_APPOINTMENTS_TARGET);
       const monthlyAppointmentsLabel = `${formatNumber(monthlyAppointments, 0)}/${formatNumber(
         SALES_SELLER_MONTHLY_APPOINTMENTS_TARGET
@@ -8814,14 +8817,17 @@ const buildSellerCards = (sellers, options = {}) => {
       const sellerName = escapeHtml(seller.name);
       const sellerAttrs = `data-sales-drill=\"all\" data-sales-seller-id=\"${sellerId}\" data-sales-seller-name=\"${sellerName}\"`;
 
-      const appointmentLabel = formatNumber(seller.appointments || 0);
+      const hasMonthlyAppointmentsMap = Boolean(sellerMonthlyAppointmentsById);
       const mappedMonthlyAppointments = sellerIdRaw
         ? Number(sellerMonthlyAppointmentsById?.[sellerIdRaw])
         : Number.NaN;
-      const monthlyAppointmentsRaw = Number.isFinite(mappedMonthlyAppointments)
-        ? mappedMonthlyAppointments
+      const monthlyAppointmentsRaw = hasMonthlyAppointmentsMap
+        ? Number.isFinite(mappedMonthlyAppointments)
+          ? mappedMonthlyAppointments
+          : 0
         : Number(seller.appointments) || 0;
       const monthlyAppointments = appointmentsSupported ? monthlyAppointmentsRaw : 0;
+      const appointmentLabel = formatNumber(seller.appointments || 0);
       const monthlyAppointmentsRatio = safeDivide(monthlyAppointments, SALES_SELLER_MONTHLY_APPOINTMENTS_TARGET);
       const monthlyAppointmentsLabel = `${formatNumber(monthlyAppointments, 0)}/${formatNumber(
         SALES_SELLER_MONTHLY_APPOINTMENTS_TARGET
@@ -9773,27 +9779,19 @@ const ensureSalesData = async () => {
 		      'quote_phase_first_started_at'
 		    ];
 		    let appointmentsSupported = true;
+		    let dealsSelectClause = dealsSelectBase;
 		    const dealDateField = salesDateField === 'closed_at' ? 'closed_at' : 'created_at';
 
-	    const buildDealsQuery = (selectClause) => () =>
-	      supabase
-		        .from('teamleader_deals')
-		        .select(selectClause)
-	        .eq('location_id', activeLocationId)
-	        .gte(dealDateField, startIso)
-	        .lt(dealDateField, endExclusiveIso)
-	        // Stable pagination: without explicit ordering, `.range()` can skip/duplicate rows when data changes mid-fetch.
-		        .order(dealDateField, { ascending: true })
-		        .order('id', { ascending: true });
-
-	    const dealsPromise = (async () => {
+	    const fetchDealsWithOptionalColumns = async (buildQueryBySelectClause) => {
 	      let optionalColumns = [...dealsOptionalColumns];
 	      while (true) {
 	        const selectClause = optionalColumns.length
 	          ? `${dealsSelectBase},${optionalColumns.join(',')}`
 	          : dealsSelectBase;
 	        try {
-	          return await fetchAllRows(buildDealsQuery(selectClause));
+	          const rows = await fetchAllRows(buildQueryBySelectClause(selectClause));
+	          dealsSelectClause = selectClause;
+	          return rows;
 	        } catch (error) {
 	          const message = error instanceof Error ? error.message : String(error);
 	          const missingColumn = optionalColumns.find(
@@ -9808,19 +9806,36 @@ const ensureSalesData = async () => {
 	          }
 	          optionalColumns = optionalColumns.filter((column) => column !== missingColumn);
 	          if (!optionalColumns.length) {
-	            return await fetchAllRows(buildDealsQuery(dealsSelectBase));
+	            const rows = await fetchAllRows(buildQueryBySelectClause(dealsSelectBase));
+	            dealsSelectClause = dealsSelectBase;
+	            return rows;
 	          }
 	        }
 	      }
-	    })();
-	    const buildCurrentMonthDealsQuery = () =>
+	    };
+
+	    const buildDealsQuery = (selectClause) => () =>
+	      supabase
+		        .from('teamleader_deals')
+		        .select(selectClause)
+	        .eq('location_id', activeLocationId)
+	        .gte(dealDateField, startIso)
+	        .lt(dealDateField, endExclusiveIso)
+	        // Stable pagination: without explicit ordering, `.range()` can skip/duplicate rows when data changes mid-fetch.
+		        .order(dealDateField, { ascending: true })
+		        .order('id', { ascending: true });
+
+	    const dealsPromise = fetchDealsWithOptionalColumns((selectClause) => buildDealsQuery(selectClause));
+	    const buildCurrentMonthDealsQuery = (selectClause) =>
 	      supabase
 	        .from('teamleader_deals')
-	        .select(dealsSelectBase)
+	        .select(selectClause)
 	        .eq('location_id', activeLocationId)
 	        .gte(dealDateField, currentMonthStartIso)
 	        .lt(dealDateField, currentMonthEndIso);
-    const currentMonthDealsPromise = fetchAllRows(buildCurrentMonthDealsQuery).catch((error) => {
+    const currentMonthDealsPromise = fetchDealsWithOptionalColumns((selectClause) =>
+      buildCurrentMonthDealsQuery(selectClause)
+    ).catch((error) => {
       console.warn('Unable to load current-month Teamleader deals for seller KPI', error);
       return [];
     });
@@ -9995,13 +10010,13 @@ const ensureSalesData = async () => {
         return Array.from(merged.values());
       };
 
-      const buildOpenDealsByCreatedRangeQuery = (start, endExclusive) => () =>
-        supabase
-          .from('teamleader_deals')
-          .select(dealsSelectBase)
-          .eq('location_id', activeLocationId)
-          .gte('created_at', start)
-          .lt('created_at', endExclusive)
+	      const buildOpenDealsByCreatedRangeQuery = (start, endExclusive) => () =>
+	        supabase
+	          .from('teamleader_deals')
+	          .select(dealsSelectClause)
+	          .eq('location_id', activeLocationId)
+	          .gte('created_at', start)
+	          .lt('created_at', endExclusive)
           .order('created_at', { ascending: true })
           .order('id', { ascending: true });
 
@@ -10114,6 +10129,18 @@ const ensureSalesData = async () => {
       if (!Number.isFinite(amount)) return false;
       return amount < effectiveSalesMinQuoteAmount;
     };
+    const getOpenQuoteStartedAt = (deal) =>
+      parseDate(deal?.quote_phase_first_started_at) || parseDate(deal?.created_at) || parseDate(deal?.updated_at);
+    const isStalePendingQuoteForKpi = (deal) => {
+      const status = normalizeStatus(deal?.status);
+      if (isWonStatus(status) || isLostStatus(status)) return false;
+      const startedAt = getOpenQuoteStartedAt(deal);
+      if (!startedAt) return false;
+      const ageDays = diffDays(new Date(), startedAt);
+      return Number.isFinite(ageDays) && ageDays > effectiveSalesPendingQuoteMaxDays;
+    };
+    const hasHardAppointmentEvidence = (deal) =>
+      deal?.had_appointment_phase === true || Boolean(parseDate(deal?.appointment_phase_first_started_at));
     const pickDealBundleKey = (deal) => {
       const customerType = typeof deal?.customer_type === 'string' ? deal.customer_type.trim() : '';
       const customerId = typeof deal?.customer_id === 'string' ? deal.customer_id.trim() : '';
@@ -10143,6 +10170,7 @@ const ensureSalesData = async () => {
       if (isExcludedDeal(deal)) return false;
       if (!isQuoteDeal(deal)) return false;
       if (isBelowMinQuoteAmount(deal)) return false;
+      if (isStalePendingQuoteForKpi(deal)) return false;
       return true;
     });
     const currentMonthDealsForKpi = debugMode
@@ -10911,8 +10939,8 @@ const ensureSalesData = async () => {
         campaigns: toLeadRows(leadsByCampaign)
       };
 
-    const filteredCurrentMonthAppointments = (currentMonthDeals || []).filter(
-      (deal) => !isExcludedDeal(deal) && !isBelowMinQuoteAmount(deal)
+    const filteredCurrentMonthAppointments = filteredCurrentMonthDeals.filter((deal) =>
+      appointmentsSupported ? hasHardAppointmentEvidence(deal) : true
     );
 	    const currentMonthAppointmentsForKpi = debugMode
 	      ? filteredCurrentMonthAppointments

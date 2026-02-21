@@ -258,8 +258,9 @@ Benodigde Teamleader markers:
 Seller KPI targets (hardcoded in UI):
 - Omzet KPI per verkoper: EUR 75.000/maand (`SALES_SELLER_MONTHLY_REVENUE_TARGET`).
 - Afspraken KPI per verkoper: 52/maand (`SALES_SELLER_MONTHLY_APPOINTMENTS_TARGET`).
-- In de verkoperstabel/-kaarten zijn de KPI-subregels (`.../m • ...% KPI`) en "op KPI"-tellers voor omzet/afspraken gebaseerd op de **huidige maand** (onafhankelijk van de gekozen datumfilter); de grote omzetwaarde zelf blijft periode-gefilterd.
-- Opgelet: afspraken KPI is momenteel een proxy (aantal trajecten in huidige maand). Als de klant "ingeplande afspraken" letterlijk bedoelt, moeten we afspraken-events expliciet syncen/relateren.
+- In de verkoperstabel/-kaarten zijn de KPI-subregels (`.../m • ...% KPI`) en "op KPI"-tellers voor omzet/afspraken gebaseerd op de **huidige maand** (onafhankelijk van de gekozen datumfilter); de grote omzetwaarde blijft periode-gefilterd.
+- In de kolom `Afspraken` blijft het grote getal datumfilter-gebonden; enkel de KPI-subregel eronder gebruikt huidige maand.
+- Afspraken-KPI gebruikt nu dezelfde harde afspraakdefinitie als de tabel (`had_appointment_phase=true` of `appointment_phase_first_started_at`), maar dan op huidige maand i.p.v. datumfilter.
 
 Meeting notes / roadmap:
 - Zie `docs/meeting-notes/2026-02-17-belivert-sales-dashboard.md` voor de lijst met klantvragen (Nick D) + implementatie-opties.
