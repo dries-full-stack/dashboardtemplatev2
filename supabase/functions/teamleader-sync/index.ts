@@ -854,12 +854,11 @@ const computePhaseFirstStartedAt = (phaseHistory: Record<string, unknown>[], tar
 
 const shouldCheckAppointmentPhase = (deal: Record<string, unknown>) => {
   if (deal.had_appointment_phase === true) return false;
-  if (deal.had_appointment_phase === false) return true;
 
   const updatedAt = parseIso(deal.updated_at as string | null) ?? parseIso(deal.created_at as string | null);
   const checkedAt = parseIso(deal.appointment_phase_last_checked_at as string | null);
   if (!checkedAt) return true;
-  if (!updatedAt) return true;
+  if (!updatedAt) return false;
   return checkedAt < updatedAt;
 };
 

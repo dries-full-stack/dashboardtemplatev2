@@ -103,6 +103,9 @@ Migrations:
 - Billing tables: `supabase/migrations/20260207170000_billing_subscription_tracking.sql` (o.a. `billing_customers`).
 - Cron RPC's: `supabase/migrations/20260209153000_cron_jobs_rpc.sql` (RPC `setup_cron_jobs`, `cron_health`).
 - Cron RPC invoices patch: `supabase/migrations/20260218170000_cron_jobs_rpc_include_teamleader_invoices.sql` (voegt `invoices` toe aan Teamleader cron entities in `setup_cron_jobs`).
+- Sales pending quote max-days: `supabase/migrations/20260220103000_dashboard_config_sales_pending_quote_max_days.sql` (voegt `sales_pending_quote_max_days` toe aan `dashboard_config`, default `30`).
+- Sales min quote amount: `supabase/migrations/20260220143000_dashboard_config_sales_min_quote_amount.sql` (voegt `sales_min_quote_amount` toe aan `dashboard_config`, default `1000`).
+- Sales quote->close outlier max-days: `supabase/migrations/20260220153000_dashboard_config_sales_max_quote_to_close_days.sql` (voegt `sales_max_quote_to_close_days` toe aan `dashboard_config`, default `30`).
 - Security hardening (RLS/auth): `supabase/migrations/20260215170000_security_hardening_auth_rls.sql` (verwijdert anon "customer mode", vereist dashboard login).
 - Dashboard access allowlist (RLS): `supabase/migrations/20260215180000_dashboard_access_allowlist.sql` (voegt allowlist toe zodat "authenticated" niet genoeg is als signups aan staan).
 - Teamleader deals close-date index: `supabase/migrations/20260217120000_teamleader_deals_closed_at_index.sql` (index op `closed_at` voor filtering op gewonnen/verloren deals).
@@ -189,7 +192,7 @@ Layout/branding aanpassen (zonder code changes):
 - Onverwachte Auth settings na `supabase config push`: de CLI pusht een volledige Auth config; als je enkel `site_url`/redirects wil aanpassen kunnen defaults andere Auth flags overschrijven (bv. MFA TOTP of email confirmations). Oplossing: zet de relevante `[auth.*]` flags expliciet in `supabase/config.toml` (of pas het aan via Supabase Dashboard).
 - Dashboard login lukt maar je krijgt 401/403 bij data calls: check of de user in `public.dashboard_access` staat (allowlist). Oplossing: voeg email toe aan `public.dashboard_access` (of draai migratie `20260215180000_dashboard_access_allowlist.sql` opnieuw om bestaande auth users te seeden).
 - Sales dashboard: afspraken tonen `--`: `teamleader_deals.had_appointment_phase` is nog niet gedeployed (migraties ontbreken). Oplossing: `supabase db push` + (optioneel) trigger `teamleader-sync` voor deals.
-- Sales dashboard: afspraken tonen `123+ (nog X)`: `had_appointment_phase` is `NULL` voor sommige deals terwijl phase history nog bezig is (sync/backfill). Oplossing: wacht of trigger `teamleader-sync` (deals reconcile) zodat `/deals.info` markers gevuld worden.
+- Sales dashboard: afspraken lijken te laag voor sommige verkopers: `had_appointment_phase`/`appointment_phase_first_started_at` ontbreekt nog voor een deel van de deals. Oplossing: trigger `teamleader-sync` (deals + `/deals.info` marker backfill). De UI toont alleen harde afspraak-evidence en geen `nog X` pending-indicator meer.
 - Sales dashboard: cyclustijden lijken "te snel" of "te traag": check of marker columns `appointment_phase_first_started_at` en `quote_phase_first_started_at` bestaan en gevuld worden (migraties + sync). Zonder markers wordt er gefallbackt op `created_at`/`updated_at`.
 - Sales dashboard: factuur-omzet blijft leeg ondanks correcte Teamleader OAuth scopes: Teamleader sync draaide zonder `invoices` in de `entities` payload (oude cron/schedule defaults). Oplossing: `supabase db push` (migratie `20260218170000_cron_jobs_rpc_include_teamleader_invoices.sql`), run daarna opnieuw `Cron install` en trigger één manuele `teamleader-sync` met `entities=invoices`.
 - Sales dashboard: Teamleader invoice sync geeft `403 You have no access to this module` ondanks `invoices` scope in `teamleader_integrations`: de geautoriseerde Teamleader user/account mist module-rechten op Facturen. Oplossing: autoriseer opnieuw met een Teamleader user die toegang heeft tot de Invoices module (of activeer die module/rechten), en trigger daarna opnieuw `teamleader-sync` met `entities=invoices`.
@@ -222,8 +225,10 @@ Waar komen de cijfers vandaan?
 - Basis: `public.teamleader_deals` (Teamleader Focus deals).
 - Funnel/ratio/cyclustijden + "avg deal value" zijn deal-based (`teamleader_deals.*`).
 - **Behaalde omzet** KPI's + maandtabel zijn standaard invoice-based: `public.teamleader_invoices` (`invoice_date`, `total_tax_exclusive`).
+- Omzet KPI-kaarten tonen `Behaalde Omzet (Sales)` (excl. service) en `Behaalde Omzet (Servicecontracten)` (service-only) i.p.v. een aparte "totaal"-kaart.
 - Tijdelijke Belivert fallback: als factuurmodule/sync niet bruikbaar is, worden omzet-KPI's en maandtabel berekend op gewonnen/goedgekeurde offertes (`public.teamleader_deals.estimated_value`) met hetzelfde service-exclusie keywordfilter.
 - Sales vs service split gebeurt via `dashboard_config.sales_excluded_deal_keywords` (match op `teamleader_deals.title` via gekoppelde `deal_id` in de factuur).
+- Exportknop bij "Sales per productcategorie" exporteert een CSV met **enkel ongecategoriseerde producten** (`product`, `productcategorie`) om mappings aan te vullen; geen volledige "Overig deals"-dump meer.
 - Breakdown rules (optioneel, Belivert):
   - `dashboard_config.sales_product_category_rules` (match op `teamleader_deals.title`)
   - `dashboard_config.sales_region_rules` (postcode uit `teamleader_contacts/raw_data` of `teamleader_companies/raw_data`)
@@ -231,6 +236,10 @@ Waar komen de cijfers vandaan?
 Offertes tellen (Belivert workflow):
 - 1 klant kan meerdere offerteversies krijgen. KPI's bundelen daarom per klant (`customer_type` + `customer_id`) zodat dit 1 traject telt.
 - Vanaf wanneer telt iets als "offerte": `dashboard_config.sales_quotes_from_phase_id` (fase threshold; gebruikt `sort_order`, fallback `probability`).
+- Open offertes ouder dan `dashboard_config.sales_pending_quote_max_days` (default `30`) worden als outlier genegeerd in Sales KPI's en Sales drilldowns.
+- Offertes met `estimated_value` lager dan `dashboard_config.sales_min_quote_amount` (default `1000`) worden genegeerd in deal-gebaseerde Sales KPI's en sales-drilldowns; service-omzet (facturen/servicedeals) blijft meetellen.
+- Gewonnen offertes met `offerte->close` duur groter dan `dashboard_config.sales_max_quote_to_close_days` (default `30`, `0` = uit) worden uitgesloten uit de KPI "Gem. Offerte → Close" (globaal + per verkoper). Dashboard toont ook een outlier-melding met de uitgesloten deals.
+- In `Afsluitdatum`-modus toont de Sales Funnel als eerste stap `Leads / Deals` (grootste basis in periode) i.p.v. `Afspraken`, zodat de funnel visueel en ratio-matig aflopend blijft.
 
 Uitsluiten service/deeltrajecten:
 - `dashboard_config.sales_excluded_deal_keywords` (bv. `["service"]`) exclude deals op titel voor de sales KPI's.
@@ -244,10 +253,12 @@ Cyclustijden (edge-marker aware):
 Benodigde Teamleader markers:
 - Migrations: `supabase/migrations/20260207150000_teamleader_deals_appointment_phase.sql`, `supabase/migrations/20260207231000_teamleader_deals_quote_phase_marker.sql`.
 - Sync populatie: `supabase/functions/teamleader-sync/index.ts` vult markers via phase history (`/deals.info`).
+- Recheck policy: rows met `had_appointment_phase=false/null` worden alleen opnieuw gecheckt als `updated_at` nieuwer is dan `appointment_phase_last_checked_at` (vermijdt oneindige herchecks).
 
 Seller KPI targets (hardcoded in UI):
 - Omzet KPI per verkoper: EUR 75.000/maand (`SALES_SELLER_MONTHLY_REVENUE_TARGET`).
 - Afspraken KPI per verkoper: 52/maand (`SALES_SELLER_MONTHLY_APPOINTMENTS_TARGET`).
+- In de verkoperstabel/-kaarten zijn de KPI-subregels (`.../m • ...% KPI`) en "op KPI"-tellers voor omzet/afspraken gebaseerd op de **huidige maand** (onafhankelijk van de gekozen datumfilter); de grote omzetwaarde zelf blijft periode-gefilterd.
 - Opgelet: afspraken KPI is momenteel een proxy (aantal trajecten in huidige maand). Als de klant "ingeplande afspraken" letterlijk bedoelt, moeten we afspraken-events expliciet syncen/relateren.
 
 Meeting notes / roadmap:

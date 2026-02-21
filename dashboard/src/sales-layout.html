@@ -33,6 +33,14 @@
 <div data-sales-date-picker></div>
 </div>
 </div>
+<div class="hidden rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800" data-sales-outlier-notice>
+<p class="font-semibold" data-sales-outlier-title></p>
+<p class="mt-1" data-sales-outlier-summary></p>
+<details class="mt-2" data-sales-outlier-details>
+<summary class="cursor-pointer select-none font-semibold text-amber-900">Toon uitgesloten deals</summary>
+<ul class="mt-2 list-disc space-y-1 pl-4" data-sales-outlier-list></ul>
+</details>
+</div>
 <div class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
 <div class="kpi-card animate-slide-up">
 <div class="flex items-start justify-between gap-2">
@@ -267,7 +275,7 @@
 </div>
 <p class="metric-value mt-2" data-sales-kpi="cost_per_customer">EUR  246</p>
 <div class="flex items-center gap-2 mt-2">
-<span class="text-xs text-muted-foreground">Acquisitiekost</span>
+<span class="text-xs text-muted-foreground">Acquisitiekost excl. servicecontracten</span>
 </div>
 </div>
 <div class="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0">
@@ -331,7 +339,7 @@
 </div>
 <p class="metric-value mt-2" data-sales-kpi="avg_quote_to_close">--</p>
 <div class="flex items-center gap-2 mt-2">
-<span class="text-xs text-muted-foreground">Offerte → Deal</span>
+<span class="text-xs text-muted-foreground" data-sales-kpi="avg_quote_to_close_subtext">Offerte → Deal</span>
 </div>
 </div>
 <div class="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0">
@@ -358,7 +366,7 @@
 </path>
 </svg>
 </div>
-<p class="metric-value mt-2" data-sales-kpi="invoice_revenue_sales" data-sales-static="true">--</p>
+<p class="metric-value mt-2" data-sales-kpi="invoice_revenue_sales">--</p>
 <div class="flex items-center gap-2 mt-2">
 <span class="text-xs text-muted-foreground" data-sales-invoice-sales-subtext>Facturen excl. service</span>
 </div>
@@ -379,8 +387,8 @@
 <div class="flex items-start justify-between gap-2">
 <div class="flex-1 min-w-0">
 <div class="flex items-center gap-1">
-<p class="metric-label truncate">Behaalde Omzet (Totaal)</p>
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-info w-3 h-3 text-muted-foreground hover:text-foreground cursor-help flex-shrink-0" data-state="closed" data-sales-invoice-total-info>
+<p class="metric-label truncate">Behaalde Omzet (Servicecontracten)</p>
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-info w-3 h-3 text-muted-foreground hover:text-foreground cursor-help flex-shrink-0" data-state="closed" data-sales-invoice-service-info>
 <circle cx="12" cy="12" r="10">
 </circle>
 <path d="M12 16v-4">
@@ -389,9 +397,9 @@
 </path>
 </svg>
 </div>
-<p class="metric-value mt-2" data-sales-kpi="invoice_revenue_total" data-sales-static="true">--</p>
+<p class="metric-value mt-2" data-sales-kpi="invoice_revenue_service">--</p>
 <div class="flex items-center gap-2 mt-2">
-<span class="text-xs text-muted-foreground" data-sales-invoice-total-subtext>Facturen incl. service</span>
+<span class="text-xs text-muted-foreground" data-sales-invoice-service-subtext>Facturen servicecontracten</span>
 </div>
 </div>
 <div class="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0">
@@ -687,11 +695,11 @@
 </svg>Sales per productcategorie</h3>
 <div class="flex flex-wrap items-center gap-2">
 <div class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80" data-sales-static="true" data-sales-revenue-source-badge>Facturen</div>
-<button type="button" class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors border-border bg-background text-foreground hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed" data-sales-overig-export disabled>Export Overig (Google Sheets)</button>
+<button type="button" class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors border-border bg-background text-foreground hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed" data-sales-overig-export disabled>Export Ongecategoriseerde Producten</button>
 </div>
 </div>
 <p class="text-sm text-muted-foreground">Afgeleid uit Teamleader deal titles (config rules).</p>
-<p class="text-xs text-muted-foreground" data-sales-overig-export-hint>Geen Overig deals in de geselecteerde periode.</p>
+<p class="text-xs text-muted-foreground" data-sales-overig-export-hint>Geen ongecategoriseerde producten in de geselecteerde periode.</p>
 </div>
 <div class="p-6 pt-0">
 <div class="relative w-full overflow-auto">
@@ -830,11 +838,21 @@
 <circle cx="16" cy="16" r="6">
 </circle>
 </svg>Hangende Offertes</h3>
+<div class="flex items-center gap-2 flex-wrap justify-end">
 <div class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 text-foreground" data-sales-kpi="open_total_value">EUR 156.750 totaal</div>
+<select class="h-8 min-w-[210px] rounded-md border border-input bg-background px-2 text-xs text-foreground" data-sales-open-deals-sort>
+<option value="value_desc">Waarde: hoog -> laag</option>
+<option value="value_asc">Waarde: laag -> hoog</option>
+<option value="days_desc">Dagen: langst open</option>
+<option value="days_asc">Dagen: kortst open</option>
+<option value="probability_desc">Kans: hoog -> laag</option>
+<option value="name_asc">Klant: A -> Z</option>
+</select>
+</div>
 </div>
 </div>
 <div class="p-6 pt-0">
-<div class="relative w-full overflow-auto">
+<div class="relative w-full overflow-auto max-h-[28rem]" data-sales-open-deals-scroll>
 <table class="w-full caption-bottom text-sm">
 <thead class="[&_tr]:border-b">
 <tr class="border-b transition-colors data-[state=selected]:bg-muted hover:bg-muted/50">
@@ -888,6 +906,14 @@
 </tbody>
 </table>
 </div>
+<div class="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between" data-sales-open-deals-pagination>
+<p class="text-xs text-muted-foreground" data-sales-open-deals-page-meta>0 resultaten</p>
+<div class="flex items-center gap-2">
+<button type="button" class="inline-flex items-center rounded-md border border-input bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed" data-sales-open-deals-prev disabled>Vorige</button>
+<span class="text-xs text-muted-foreground min-w-[7rem] text-center" data-sales-open-deals-page-info>Geen resultaten</span>
+<button type="button" class="inline-flex items-center rounded-md border border-input bg-background px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed" data-sales-open-deals-next disabled>Volgende</button>
+</div>
+</div>
 </div>
 </div>
 </div>
@@ -904,7 +930,7 @@
 <path d="M16 3.13a4 4 0 0 1 0 7.75">
 </path>
 </svg>Sales Funnel</h3>
-<p class="text-sm text-muted-foreground">Conversie van afspraken naar getekende deals</p>
+<p class="text-sm text-muted-foreground" data-sales-funnel-subtitle>Conversie van afspraken naar getekende deals</p>
 </div>
 <div class="p-6 pt-0" data-sales-funnel>
 <div class="flex flex-col items-center py-4">
