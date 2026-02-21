@@ -9826,7 +9826,7 @@ const ensureSalesData = async () => {
 		        .order('id', { ascending: true });
 
 	    const dealsPromise = fetchDealsWithOptionalColumns((selectClause) => buildDealsQuery(selectClause));
-	    const buildCurrentMonthDealsQuery = (selectClause) =>
+	    const buildCurrentMonthDealsQuery = (selectClause) => () =>
 	      supabase
 	        .from('teamleader_deals')
 	        .select(selectClause)
