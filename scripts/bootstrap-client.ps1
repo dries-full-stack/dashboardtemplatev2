@@ -577,9 +577,7 @@ $hasTeamleaderSecrets = -not [string]::IsNullOrWhiteSpace($TeamleaderClientId) `
   -or -not [string]::IsNullOrWhiteSpace($TeamleaderScopes)
 
 if ($hasTeamleaderSecrets) {
-  if ([string]::IsNullOrWhiteSpace($AccessToken)) {
-    Write-Host 'Skip Teamleader secrets: Supabase access token ontbreekt.'
-  } elseif ([string]::IsNullOrWhiteSpace($TeamleaderClientId) -or [string]::IsNullOrWhiteSpace($TeamleaderClientSecret)) {
+  if ([string]::IsNullOrWhiteSpace($TeamleaderClientId) -or [string]::IsNullOrWhiteSpace($TeamleaderClientSecret)) {
     Write-Host 'Skip Teamleader secrets: client id/secret ontbreken.'
   } else {
     if ([string]::IsNullOrWhiteSpace($TeamleaderRedirectUrl)) {
@@ -596,14 +594,15 @@ if ($hasTeamleaderSecrets) {
     }
 
     & supabase secrets set --project-ref $ProjectRef @secretArgs
+    if ($LASTEXITCODE -ne 0) {
+      throw 'Teamleader secrets zetten faalde. Controleer Supabase CLI login of geef een geldig AccessToken door.'
+    }
     Write-Host 'Teamleader secrets gezet via Supabase.'
   }
 }
 
 if ($EnableMetaSpend) {
-  if ([string]::IsNullOrWhiteSpace($AccessToken)) {
-    Write-Host 'Skip Meta secrets: Supabase access token ontbreekt.'
-  } elseif ([string]::IsNullOrWhiteSpace($MetaAccessToken) -or [string]::IsNullOrWhiteSpace($MetaAdAccountId)) {
+  if ([string]::IsNullOrWhiteSpace($MetaAccessToken) -or [string]::IsNullOrWhiteSpace($MetaAdAccountId)) {
     Write-Host 'Skip Meta secrets: access token of ad account ID ontbreken.'
   } else {
     $secretArgs = @(
@@ -615,15 +614,16 @@ if ($EnableMetaSpend) {
       $secretArgs += "META_TIMEZONE=$MetaTimezone"
     }
     & supabase secrets set --project-ref $ProjectRef @secretArgs
+    if ($LASTEXITCODE -ne 0) {
+      throw 'Meta secrets zetten faalde. Controleer Supabase CLI login of geef een geldig AccessToken door.'
+    }
     Write-Host 'Meta secrets gezet via Supabase.'
   }
 }
 
 $googleMode = if ([string]::IsNullOrWhiteSpace($GoogleSpendMode)) { 'none' } else { $GoogleSpendMode.Trim().ToLower() }
 if ($googleMode -eq 'api') {
-  if ([string]::IsNullOrWhiteSpace($AccessToken)) {
-    Write-Host 'Skip Google Ads secrets: Supabase access token ontbreekt.'
-  } elseif (
+  if (
     [string]::IsNullOrWhiteSpace($GoogleDeveloperToken) -or
     [string]::IsNullOrWhiteSpace($GoogleClientId) -or
     [string]::IsNullOrWhiteSpace($GoogleClientSecret) -or
@@ -647,12 +647,13 @@ if ($googleMode -eq 'api') {
       $secretArgs += "GOOGLE_TIMEZONE=$GoogleTimezone"
     }
     & supabase secrets set --project-ref $ProjectRef @secretArgs
+    if ($LASTEXITCODE -ne 0) {
+      throw 'Google Ads secrets zetten faalde. Controleer Supabase CLI login of geef een geldig AccessToken door.'
+    }
     Write-Host 'Google Ads secrets gezet via Supabase.'
   }
 } elseif ($googleMode -eq 'sheet') {
-  if ([string]::IsNullOrWhiteSpace($AccessToken)) {
-    Write-Host 'Skip Google Sheet secrets: Supabase access token ontbreekt.'
-  } elseif ([string]::IsNullOrWhiteSpace($SheetCsvUrl)) {
+  if ([string]::IsNullOrWhiteSpace($SheetCsvUrl)) {
     Write-Host 'Skip Google Sheet secrets: CSV URL ontbreekt.'
   } else {
     $secretArgs = @(
@@ -663,6 +664,9 @@ if ($googleMode -eq 'api') {
       $secretArgs += "SHEET_HEADER_ROW=$SheetHeaderRow"
     }
     & supabase secrets set --project-ref $ProjectRef @secretArgs
+    if ($LASTEXITCODE -ne 0) {
+      throw 'Google Sheet secrets zetten faalde. Controleer Supabase CLI login of geef een geldig AccessToken door.'
+    }
     Write-Host 'Google Sheet secrets gezet via Supabase.'
   }
 }

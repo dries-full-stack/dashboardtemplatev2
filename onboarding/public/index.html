@@ -365,7 +365,7 @@
 
           <h3>Supabase toegang</h3>
           <p class="muted">
-            Access token is nodig om automatisch keys/secrets te zetten. De secret key is alleen server-side.
+            Access token is optioneel als deze machine al is ingelogd via Supabase CLI. De secret key is alleen server-side.
           </p>
 
           <div class="options">
@@ -378,12 +378,12 @@
           <div class="grid">
             <label>
               Supabase access token
-              <span class="hint">Laat leeg om .env.local te gebruiken.</span>
+              <span class="hint">Laat leeg om .env.local of je bestaande Supabase CLI login te gebruiken.</span>
               <input name="accessToken" type="password" placeholder="sbp_..." />
             </label>
             <label data-db-password>
               DB password
-              <span class="hint">Enkel nodig om tabellen aan te maken (db push).</span>
+              <span class="hint">Optioneel als Supabase CLI op deze machine al toegang heeft; anders nodig voor link/db push.</span>
               <input name="dbPassword" type="password" placeholder="database password" />
             </label>
             <label>

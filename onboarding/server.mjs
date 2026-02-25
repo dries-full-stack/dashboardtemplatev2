@@ -471,8 +471,8 @@ const fetchSupabaseKeys = async (projectRef, accessToken) => {
     }
   }
 
-  const env = accessToken
-    ? { ...process.env, SUPABASE_ACCESS_TOKEN: accessToken }
+  const env = token
+    ? { ...process.env, SUPABASE_ACCESS_TOKEN: token }
     : process.env;
 
   const result = await runCommand(
@@ -539,6 +539,37 @@ const pickSupabaseKeys = (keys) => {
     publishableKey: publishable ? apiKeyValue(publishable) : '',
     serviceRoleKey: serviceRole ? apiKeyValue(serviceRole) : ''
   };
+};
+
+const isServiceRoleKeyLike = (value) => {
+  const trimmed = sanitizeString(value);
+  return trimmed.startsWith('sb_secret_') || trimmed.startsWith('eyJ');
+};
+
+const tryAutoFetchServiceRoleKey = async (projectRef, accessToken) => {
+  const ref = sanitizeString(projectRef);
+  const token = sanitizeString(accessToken);
+  if (!ref) {
+    return { serviceRoleKey: '', error: '' };
+  }
+
+  try {
+    const keys = await fetchSupabaseKeys(ref, token);
+    const picked = pickSupabaseKeys(keys);
+    const key = sanitizeString(picked.serviceRoleKey);
+    if (!isServiceRoleKeyLike(key)) {
+      return {
+        serviceRoleKey: '',
+        error: 'Service role key niet gevonden in Supabase API keys.'
+      };
+    }
+    return { serviceRoleKey: key, error: '' };
+  } catch (error) {
+    return {
+      serviceRoleKey: '',
+      error: error instanceof Error ? error.message : 'Onbekende fout bij auto-fetch van server key.'
+    };
+  }
 };
 
 const buildArgs = (payload) => {
@@ -652,15 +683,7 @@ const validatePayload = (payload) => {
     errors.push('Selecteer minstens een dashboard.');
   }
 
-  const needsCli = payload.linkProject || payload.pushSchema || payload.deployFunctions;
-  if (needsCli && !payload.accessToken) {
-    errors.push('Access token is vereist voor CLI acties (link/push/deploy).');
-  }
-  const needsDbPassword = payload.linkProject || payload.pushSchema;
-  if (needsDbPassword && !payload.dbPassword) {
-    errors.push('DB password is vereist voor link/push.');
-  }
-  const canAutoFetchKeys = payload.autoFetchKeys && payload.accessToken;
+  const canAutoFetchServiceRole = Boolean(payload.autoFetchKeys && payload.projectRef);
   const serviceRoleKey = payload.serviceRoleKey || '';
   const trimmedServerKey = serviceRoleKey.trim();
   const isAccessToken = trimmedServerKey.startsWith('sbp_');
@@ -669,14 +692,11 @@ const validatePayload = (payload) => {
   if (isAccessToken) {
     errors.push('Gebruik hier geen access token (sbp_). Gebruik sb_secret_ of legacy eyJ.');
   }
-  if ((payload.applyConfig || payload.ghlPrivateIntegrationToken) && !hasServerKey) {
+  if ((payload.applyConfig || payload.ghlPrivateIntegrationToken) && !hasServerKey && !canAutoFetchServiceRole) {
     errors.push('Secret key (sb_secret_) of legacy service_role JWT (eyJ) is vereist voor Apply config/GHL opslag.');
   }
   const wantsTeamleader = Boolean(payload.teamleaderEnabled);
   if (wantsTeamleader) {
-    if (!payload.accessToken) {
-      errors.push('Supabase access token is vereist om Teamleader secrets te zetten.');
-    }
     if (!payload.teamleaderClientId) {
       errors.push('Teamleader client ID is verplicht (zet de checkbox uit als je dit niet wil).');
     }
@@ -687,9 +707,6 @@ const validatePayload = (payload) => {
 
   const wantsMeta = Boolean(payload.metaEnabled);
   if (wantsMeta) {
-    if (!payload.accessToken) {
-      errors.push('Supabase access token is vereist om Meta secrets te zetten.');
-    }
     if (!payload.metaAccessToken) {
       errors.push('Meta access token is verplicht (zet de toggle uit als je dit niet wil).');
     }
@@ -700,18 +717,12 @@ const validatePayload = (payload) => {
 
   const googleMode = sanitizeString(payload.googleSpendMode).toLowerCase() || 'none';
   if (googleMode === 'api') {
-    if (!payload.accessToken) {
-      errors.push('Supabase access token is vereist om Google Ads secrets te zetten.');
-    }
     if (!payload.googleDeveloperToken) errors.push('Google developer token is verplicht (of kies een andere Google methode).');
     if (!payload.googleClientId) errors.push('Google client id is verplicht (of kies een andere Google methode).');
     if (!payload.googleClientSecret) errors.push('Google client secret is verplicht (of kies een andere Google methode).');
     if (!payload.googleRefreshToken) errors.push('Google refresh token is verplicht (of kies een andere Google methode).');
     if (!payload.googleCustomerId) errors.push('Google Ads customer id is verplicht (of kies een andere Google methode).');
   } else if (googleMode === 'sheet') {
-    if (!payload.accessToken) {
-      errors.push('Supabase access token is vereist om Google Sheet secrets te zetten.');
-    }
     if (!payload.sheetCsvUrl) errors.push('Google Sheet CSV URL is verplicht (of kies geen Google kosten sync).');
   } else if (googleMode !== 'none') {
     errors.push('Google spend mode is ongeldig.');
@@ -1154,23 +1165,31 @@ const runNodeBootstrap = async (payload) => {
 
   if (payload.linkProject) {
     log('[supabase] Link project...');
+    const linkArgs = ['link', '--project-ref', payload.projectRef];
+    if (payload.dbPassword) {
+      linkArgs.push('--password', payload.dbPassword);
+    }
     const result = await runCommandDirect(
       'supabase',
-      ['link', '--project-ref', payload.projectRef, '--password', payload.dbPassword],
+      linkArgs,
       repoRoot,
       { env }
     );
     safeAppendOutput(result);
     if (!result.ok) {
-      throw new Error('Supabase link faalde. Controleer project ref + DB password.');
+      throw new Error('Supabase link faalde. Controleer project ref en CLI login (of vul DB password in).');
     }
   }
 
   if (payload.pushSchema) {
     log('[supabase] Push base schema (db push)...');
+    const pushArgs = ['db', 'push', '--yes'];
+    if (payload.dbPassword) {
+      pushArgs.push('--password', payload.dbPassword);
+    }
     const result = await runCommandDirect(
       'supabase',
-      ['db', 'push', '--yes', '--password', payload.dbPassword],
+      pushArgs,
       repoRoot,
       { env }
     );
@@ -1347,7 +1366,7 @@ const server = createServer(async (req, res) => {
           sanitizeString(data.accessToken) ||
           process.env.SUPABASE_ACCESS_TOKEN ||
           '';
-        if (context.projectRef && accessToken) {
+        if (context.projectRef) {
           try {
             const keys = await fetchSupabaseKeys(context.projectRef, accessToken);
             const picked = pickSupabaseKeys(keys);
@@ -1359,7 +1378,10 @@ const server = createServer(async (req, res) => {
       }
 
       if (!serviceRoleKey) {
-        sendJson(res, 400, { ok: false, error: 'Service role key ontbreekt (vul server key in of zet access token).' });
+        sendJson(res, 400, {
+          ok: false,
+          error: 'Service role key ontbreekt (vul server key in, gebruik PAT, of log in via Supabase CLI op deze machine).'
+        });
         return;
       }
 
@@ -1545,12 +1567,36 @@ const server = createServer(async (req, res) => {
         context.locationId ? context.locationId : 'Location ID ontbreekt.'
       );
 
-      if (context.projectRef && payload.accessToken) {
+      let autoFetchedServiceRoleKey = '';
+      let autoFetchServiceRoleError = '';
+
+      const supabaseAccessToken = sanitizeString(payload.accessToken) || process.env.SUPABASE_ACCESS_TOKEN || '';
+      const googleSpendMode = sanitizeString(payload.googleSpendMode).toLowerCase() || 'none';
+      const needsCliAuth =
+        payload.linkProject ||
+        payload.pushSchema ||
+        payload.deployFunctions ||
+        payload.teamleaderEnabled ||
+        payload.metaEnabled ||
+        googleSpendMode === 'api' ||
+        googleSpendMode === 'sheet';
+
+      if (context.projectRef) {
         try {
-          const keys = await fetchSupabaseKeys(context.projectRef, payload.accessToken);
-          addCheck('access-token', 'Access token', 'ok', `Kan Supabase API keys lezen (${keys.length} keys).`);
+          const keys = await fetchSupabaseKeys(context.projectRef, supabaseAccessToken);
+          addCheck(
+            'access-token',
+            'Access token',
+            'ok',
+            supabaseAccessToken
+              ? `Kan Supabase API keys lezen (${keys.length} keys).`
+              : `Supabase CLI login actief (kan API keys lezen: ${keys.length} keys).`
+          );
+          const picked = pickSupabaseKeys(keys);
+          if (isServiceRoleKeyLike(picked.serviceRoleKey)) {
+            autoFetchedServiceRoleKey = picked.serviceRoleKey;
+          }
           if (payload.autoFetchKeys) {
-            const picked = pickSupabaseKeys(keys);
             addCheck(
               'auto-fetch-keys',
               'Auto fetch keys',
@@ -1561,29 +1607,47 @@ const server = createServer(async (req, res) => {
             );
           }
         } catch (error) {
+          autoFetchServiceRoleError = error instanceof Error ? error.message : 'Supabase API keys ophalen faalde.';
+          const needsAuthForRun =
+            needsCliAuth || payload.autoFetchKeys || payload.applyConfig || payload.installCronSchedules || payload.autoHealthCheck;
           addCheck(
             'access-token',
             'Access token',
-            'error',
-            error instanceof Error ? error.message : 'Supabase API keys ophalen faalde.'
+            needsAuthForRun ? 'error' : 'warn',
+            autoFetchServiceRoleError
           );
         }
-      } else if (payload.accessToken || process.env.SUPABASE_ACCESS_TOKEN) {
+      } else if (supabaseAccessToken) {
         addCheck('access-token', 'Access token', 'warn', 'Project ref ontbreekt, kan token niet testen.');
-      } else if (payload.deployFunctions || payload.runMigrations) {
-        addCheck('access-token', 'Access token', 'warn', 'Geen access token ingevuld (CLI acties zullen falen).');
+      } else if (needsCliAuth || payload.autoFetchKeys) {
+        addCheck(
+          'access-token',
+          'Access token',
+          'warn',
+          'Geen PAT ingevuld. Wizard gebruikt je bestaande Supabase CLI login op deze machine (als die actief is).'
+        );
       } else {
         addCheck('access-token', 'Access token', 'ok', 'Niet nodig voor deze run (geen CLI acties).');
       }
 
-      const serviceRoleKey = payload.serviceRoleKey || context.serviceRoleKey || '';
-      if (context.supabaseUrl && serviceRoleKey) {
+      let serviceRoleKey = payload.serviceRoleKey || context.serviceRoleKey || '';
+      if (!isServiceRoleKeyLike(serviceRoleKey) && autoFetchedServiceRoleKey) {
+        serviceRoleKey = autoFetchedServiceRoleKey;
+      }
+      if (context.supabaseUrl && isServiceRoleKeyLike(serviceRoleKey)) {
         const probe = await fetchRestCount(context.supabaseUrl, serviceRoleKey, 'dashboard_config', {
           select: 'id',
           limit: '1'
         });
         if (probe.ok) {
-          addCheck('service-role', 'Server key', 'ok', 'Supabase REST access OK.');
+          addCheck(
+            'service-role',
+            'Server key',
+            'ok',
+            autoFetchedServiceRoleKey && serviceRoleKey === autoFetchedServiceRoleKey
+              ? 'Supabase REST access OK (server key auto-fetched via Supabase auth).'
+              : 'Supabase REST access OK.'
+          );
         } else if (probe.status === 404) {
           addCheck('service-role', 'Server key', 'warn', 'dashboard_config ontbreekt (run base schema).');
         } else if (probe.status === 401 || probe.status === 403) {
@@ -1592,7 +1656,15 @@ const server = createServer(async (req, res) => {
           addCheck('service-role', 'Server key', 'warn', `Supabase REST probe faalde (${probe.status}).`);
         }
       } else if (payload.applyConfig || payload.installCronSchedules || payload.autoHealthCheck) {
-        addCheck('service-role', 'Server key', 'error', 'Server key ontbreekt (nodig voor config/cron/health checks).');
+        const autoFetchHint = autoFetchServiceRoleError
+          ? ` Auto-fetch faalde: ${firstLine(autoFetchServiceRoleError)}`
+          : ' Vul server key in, of gebruik een geldig Supabase access token (sbp_...) / bestaande Supabase CLI login voor auto-fetch.';
+        addCheck(
+          'service-role',
+          'Server key',
+          'error',
+          `Server key ontbreekt (nodig voor config/cron/health checks).${autoFetchHint}`
+        );
       } else {
         addCheck('service-role', 'Server key', 'ok', 'Niet ingevuld (ok zolang je geen config/health checks nodig hebt).');
       }
@@ -1602,12 +1674,14 @@ const server = createServer(async (req, res) => {
         addCheck(
           'db-password',
           'DB password',
-          hasDbPassword ? 'ok' : 'error',
-          hasDbPassword ? 'Ingevuld.' : 'DB password ontbreekt (nodig voor supabase link/db push).'
+          hasDbPassword ? 'ok' : 'warn',
+          hasDbPassword
+            ? 'Ingevuld.'
+            : 'Niet ingevuld. Wizard probeert link/db push via bestaande Supabase CLI sessie (als die al toegang heeft).'
         );
       }
 
-      if (payload.installCronSchedules && context.supabaseUrl && serviceRoleKey) {
+      if (payload.installCronSchedules && context.supabaseUrl && isServiceRoleKeyLike(serviceRoleKey)) {
         const cronProbe = await callRpc(context.supabaseUrl, serviceRoleKey, 'cron_health', {});
         if (cronProbe.ok && cronProbe.data?.ok) {
           addCheck(
@@ -1728,12 +1802,10 @@ const server = createServer(async (req, res) => {
         return;
       }
 
-      if (
-        payload.autoFetchKeys &&
-        payload.accessToken
-      ) {
+      if (payload.autoFetchKeys && payload.projectRef) {
+        const accessToken = payload.accessToken || process.env.SUPABASE_ACCESS_TOKEN || '';
         try {
-          const keys = await fetchSupabaseKeys(payload.projectRef, payload.accessToken);
+          const keys = await fetchSupabaseKeys(payload.projectRef, accessToken);
           const picked = pickSupabaseKeys(keys);
           if (!payload.publishableKey && picked.publishableKey) {
             payload.publishableKey = picked.publishableKey;
@@ -1749,7 +1821,10 @@ const server = createServer(async (req, res) => {
         } catch (error) {
           const message = error instanceof Error ? error.message : 'Onbekende fout';
           if (payload.applyConfig && !payload.serviceRoleKey) {
-            sendJson(res, 400, { error: 'Supabase keys ophalen faalde', details: [message] });
+            sendJson(res, 400, {
+              error: 'Supabase keys ophalen faalde',
+              details: [message, 'Tip: log in via `supabase login` op deze machine of vul een geldig PAT (sbp_...) in.']
+            });
             return;
           }
           console.warn('Supabase keys ophalen faalde:', message);
@@ -1903,15 +1978,30 @@ const server = createServer(async (req, res) => {
         return;
       }
 
-      const serviceRoleKey =
+      const accessToken = sanitizeString(data.accessToken) || process.env.SUPABASE_ACCESS_TOKEN || '';
+      let serviceRoleKey =
         sanitizeString(data.serviceRoleKey) ||
         context.serviceRoleKey ||
         process.env.SUPABASE_SERVICE_ROLE_JWT ||
         process.env.SUPABASE_SECRET_KEY ||
         '';
+      let autoFetchError = '';
 
-      if (!serviceRoleKey) {
-        sendJson(res, 400, { ok: false, error: 'Server key ontbreekt (sb_secret_ of legacy eyJ).' });
+      if (!isServiceRoleKeyLike(serviceRoleKey) && context.projectRef) {
+        const autoFetched = await tryAutoFetchServiceRoleKey(context.projectRef, accessToken);
+        if (isServiceRoleKeyLike(autoFetched.serviceRoleKey)) {
+          serviceRoleKey = autoFetched.serviceRoleKey;
+        } else if (autoFetched.error) {
+          autoFetchError = autoFetched.error;
+        }
+      }
+
+      if (!isServiceRoleKeyLike(serviceRoleKey)) {
+        sendJson(res, 400, {
+          ok: false,
+          error: 'Server key ontbreekt (sb_secret_ of legacy eyJ). Vul server key in, log in via Supabase CLI op deze machine, of gebruik een geldig Supabase access token (sbp_...) voor auto-fetch.',
+          details: autoFetchError ? [autoFetchError] : undefined
+        });
         return;
       }
 
@@ -1960,12 +2050,14 @@ const server = createServer(async (req, res) => {
       const context = resolveOnboardingContext(data);
 
       const locationId = sanitizeString(data.locationId) || context.locationId || '';
-      const serviceRoleKey =
+      const accessToken = sanitizeString(data.accessToken) || process.env.SUPABASE_ACCESS_TOKEN || '';
+      let serviceRoleKey =
         sanitizeString(data.serviceRoleKey) ||
         context.serviceRoleKey ||
         process.env.SUPABASE_SERVICE_ROLE_JWT ||
         process.env.SUPABASE_SECRET_KEY ||
         '';
+      let autoFetchServiceRoleError = '';
 
       const wantsTeamleader = Boolean(data.teamleaderEnabled);
       const wantsMeta = Boolean(data.metaEnabled);
@@ -1984,14 +2076,26 @@ const server = createServer(async (req, res) => {
         return;
       }
 
+      if (!isServiceRoleKeyLike(serviceRoleKey) && context.projectRef) {
+        const autoFetched = await tryAutoFetchServiceRoleKey(context.projectRef, accessToken);
+        if (isServiceRoleKeyLike(autoFetched.serviceRoleKey)) {
+          serviceRoleKey = autoFetched.serviceRoleKey;
+        } else if (autoFetched.error) {
+          autoFetchServiceRoleError = autoFetched.error;
+        }
+      }
+
       if (!locationId) {
         addCheck('location', 'Location ID', 'error', 'Location ID ontbreekt.');
       } else {
         addCheck('location', 'Location ID', 'ok', locationId);
       }
 
-      if (!serviceRoleKey) {
-        addCheck('server-key', 'Server key', 'error', 'Server key ontbreekt (sb_secret_ of legacy eyJ).');
+      if (!isServiceRoleKeyLike(serviceRoleKey)) {
+        const hint = autoFetchServiceRoleError
+          ? ` Auto-fetch faalde: ${autoFetchServiceRoleError}`
+          : ' Vul server key in, log in via Supabase CLI op deze machine, of zet SUPABASE_ACCESS_TOKEN (sbp_...) voor auto-fetch.';
+        addCheck('server-key', 'Server key', 'error', `Server key ontbreekt (sb_secret_ of legacy eyJ).${hint}`);
         sendJson(res, 200, { ok: true, checks });
         return;
       }
@@ -2474,8 +2578,28 @@ const server = createServer(async (req, res) => {
         sendJson(res, 400, { ok: false, error: 'Supabase URL en location ID zijn vereist.' });
         return;
       }
-      if (!context.serviceRoleKey) {
-        sendJson(res, 400, { ok: false, error: 'Service role key ontbreekt.' });
+      const accessToken = sanitizeString(data.accessToken) || process.env.SUPABASE_ACCESS_TOKEN || '';
+      let serviceRoleKey =
+        context.serviceRoleKey ||
+        process.env.SUPABASE_SERVICE_ROLE_JWT ||
+        process.env.SUPABASE_SECRET_KEY ||
+        '';
+      let autoFetchError = '';
+      if (!isServiceRoleKeyLike(serviceRoleKey) && context.projectRef) {
+        const autoFetched = await tryAutoFetchServiceRoleKey(context.projectRef, accessToken);
+        if (isServiceRoleKeyLike(autoFetched.serviceRoleKey)) {
+          serviceRoleKey = autoFetched.serviceRoleKey;
+        } else if (autoFetched.error) {
+          autoFetchError = autoFetched.error;
+        }
+      }
+
+      if (!isServiceRoleKeyLike(serviceRoleKey)) {
+        sendJson(res, 400, {
+          ok: false,
+          error: 'Service role key ontbreekt. Vul server key in, log in via Supabase CLI op deze machine, of gebruik een geldig Supabase access token (sbp_...) voor auto-fetch.',
+          details: autoFetchError ? [autoFetchError] : undefined
+        });
         return;
       }
 
@@ -2485,7 +2609,7 @@ const server = createServer(async (req, res) => {
       url.searchParams.set('limit', '1');
 
       const response = await fetch(url.toString(), {
-        headers: buildSupabaseRestHeaders(context.serviceRoleKey)
+        headers: buildSupabaseRestHeaders(serviceRoleKey)
       });
       const payload = await response.json();
 

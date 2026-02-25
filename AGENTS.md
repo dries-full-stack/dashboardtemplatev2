@@ -54,6 +54,7 @@ Wat het doet:
 - Run onboarding (`/api/onboard`): scaffold schrijven in `clients/<slug>/`, optioneel migrations pushen, secrets zetten, edge functions deployen, `dashboard_config` upserten, GHL token opslaan.
 - Health check (`/api/health-check`): controleert tables/RPC's en of sync data aanwezig is.
 - Cron install (`/api/cron-install`): roept RPC `setup_cron_jobs` aan (vereist migrations + `pg_cron` + `pg_net`).
+- Bij ontbrekende `Server key` proberen preflight/health/cron/teamleader-status automatisch een service role key op te halen via `Supabase access token` (`sbp_...`) of bestaande Supabase CLI login + project ref.
 
 Belivert defaults:
 - Belivert is sales-only: de wizard genereert `dashboard_layout.dashboards` met `lead.enabled = false` wanneer `theme=belivert` gedetecteerd wordt (ook als Leadgeneratie aangevinkt staat).
@@ -154,6 +155,8 @@ Onboarding wizard velden:
 
 Belangrijk:
 - PAT (`sbp_...`) is account-level en blijft meestal hetzelfde tot je hem revoke/rotate. Het is niet "per project".
+- `Supabase access token` veld is optioneel als je op die machine al bent ingelogd met `supabase login`.
+- Aanrader: zet je PAT 1x in `.env.local` als `SUPABASE_ACCESS_TOKEN` zodat de wizard hem automatisch hergebruikt.
 - `sb_secret_...` is project-level en mag nooit naar de browser/frontend.
 - `sb_publishable_...` (of legacy anon `eyJ...`) is ok voor frontend en hoort in `VITE_SUPABASE_PUBLISHABLE_KEY`.
 
@@ -163,7 +166,7 @@ Nieuwe klant (dashboard):
 1. Maak een nieuw Supabase project aan (noteer `projectRef`, `supabaseUrl`, DB password).
 2. Start wizard: `npm run onboard` en open `http://localhost:8787`.
 3. Vul minimaal in: slug (liefst lowercase), Supabase URL of project ref, GHL location ID.
-4. Als je CLI stappen wil (link/db push/functions deploy): vul ook `Supabase access token` (`sbp_...`) en `DB password`.
+4. Als je CLI stappen wil (link/db push/functions deploy): zorg dat de machine is ingelogd met `supabase login` of vul `Supabase access token` (`sbp_...`) in. `DB password` is enkel nodig als je CLI sessie geen db-toegang heeft.
 5. Als je config wil schrijven (`dashboard_config`/cron/health): vul ook `Server key` (`sb_secret_...` of legacy `eyJ...`) of gebruik auto-fetch keys.
 6. Run `Preflight` in de wizard, fix warnings, en run daarna onboarding.
 7. Als Teamleader aan staat: open de `/functions/v1/teamleader-oauth/start?location_id=...` link en autoriseer.
@@ -179,6 +182,9 @@ Layout/branding aanpassen (zonder code changes):
 - Preflight `401` met `"JWT could not be decoded"` bij access token: meestal werd een project key (`sb_secret_...`, `sb_publishable_...` of `eyJ...`) in het PAT veld geplakt. Oplossing: zet `sbp_...` in `Supabase access token`; project service key hoort in `Server key`.
 - `pwsh ENOENT` / "PowerShell starten faalde": installeer PowerShell (`pwsh`), zet `ONBOARDING_POWERSHELL_BIN`, of forceer Node runner met `ONBOARDING_FORCE_NODE_BOOTSTRAP=1`.
 - `ERR_CONNECTION_REFUSED` op `http://localhost:8787/...`: onboarding server draait niet of crashte. Start met `npm run onboard` (of `npm run dev`).
+- Health/Cron check meldt "Server key ontbreekt" terwijl je wel een PAT hebt: meestal staat `autoFetchKeys` uit of ontbreekt `SUPABASE_ACCESS_TOKEN` in `.env.local`. Oplossing: zet `autoFetchKeys` aan en/of configureer `SUPABASE_ACCESS_TOKEN=sbp_...` zodat server key auto-fetch werkt.
+- Auto-fetch van keys/secrets faalt zonder PAT: meestal is Supabase CLI niet (meer) ingelogd op die machine. Oplossing: run `supabase login` of vul tijdelijk een PAT (`sbp_...`) in.
+- Preflight geeft DB password waarschuwing: zonder `DB password` probeert onboarding link/db push via bestaande CLI sessie. Oplossing: laat zo als je CLI toegang werkt; anders vul `DB password` in.
 - Console errors `bootstrap-autofill-overlay.js`: komt van browser password-manager/autofill extensies, geen repo bug.
 - Sidebar chevron (desktop) doet niets of sidebar blijft "ingeklapt": in oudere builds toggelde `toggleSidebar()` enkel op mobile. Fix: update/deploy dashboard. Workaround: clear `localStorage` key `dashboard_sidebar_desktop` (per subdomain/origin) en refresh.
 - Dashboard login faalt ("Invalid login credentials" / geen sessie): user bestaat niet of heeft geen password. Oplossing: seed een email+password user via `node scripts/admin_seed_password_user.js <client|all> user@domain.tld` (+ `DASHBOARD_USER_PASSWORD=...`) en check `public.dashboard_access` allowlist.

@@ -1325,17 +1325,10 @@ const loadSourceSuggestions = async (options = {}) => {
   const locationId = getFieldValue('locationId');
   const serviceRoleKey = getFieldValue('serviceRoleKey');
   const accessToken = getFieldValue('accessToken');
-  const hasAccessToken = Boolean(accessToken) || Boolean(envHints?.supabaseAccessToken);
   const key = `${projectRef}|${locationId}`;
 
   if (!projectRef || !locationId) {
     setSourceSuggestStatus('Vul eerst Supabase URL en location ID in.', 'warn');
-    sourceSuggestContentNode.innerHTML = '';
-    return;
-  }
-
-  if (!serviceRoleKey && !hasAccessToken) {
-    setSourceSuggestStatus('Vul "Server key" of "Supabase access token" in om bronnen te kunnen ophalen.', 'warn');
     sourceSuggestContentNode.innerHTML = '';
     return;
   }
@@ -1778,10 +1771,16 @@ const validateStep = (step) => {
     const wantsHealth = isFieldChecked('autoHealthCheck');
     if (wantsCron || wantsHealth) {
       const serverKeyInput = form?.querySelector('[name="serviceRoleKey"]');
-      const hasKey = Boolean(serverKeyInput?.value?.trim()) || Boolean(envHints?.supabaseServiceRoleJwt);
+      const autoFetchEnabled = isFieldChecked('autoFetchKeys');
+      const canAutoFetchServerKey = autoFetchEnabled;
+      const hasKey =
+        Boolean(serverKeyInput?.value?.trim()) || Boolean(envHints?.supabaseServiceRoleJwt) || canAutoFetchServerKey;
       setInputError(serverKeyInput, !hasKey);
       if (!hasKey) {
-        setStatus('Server key is vereist voor cron install/health check (of zet die opties uit).', 'error');
+        setStatus(
+          'Server key is vereist voor cron install/health check (of zet auto-fetch aan met Supabase CLI login/PAT, of zet opties uit).',
+          'error'
+        );
         serverKeyInput?.focus();
         return false;
       }
